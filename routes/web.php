@@ -1,7 +1,11 @@
 <?php
 
+use App\Http\Controllers\AudioStreamController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\BriefAudioController;
+use App\Http\Controllers\BriefController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\ImportTemplateController;
@@ -24,8 +28,7 @@ Route::middleware('guest')->group(function () {
 Route::middleware(['auth', 'active', 'section.access'])->group(function () {
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
 
-    // S01 placeholder pages: later specs replace each with a controller.
-    Route::inertia('today', 'dashboard/Index')->name('today');
+    Route::get('today', DashboardController::class)->name('today');
     // Issues (S04). Owner and Manager only: section.access plus IssuePolicy on every action.
     Route::get('issues', [IssueController::class, 'index'])->name('issues.index');
     Route::post('issues/refresh', RefreshIntelligenceController::class)->middleware('throttle:6,1')->name('issues.refresh');
@@ -47,7 +50,14 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
     Route::post('imports/{import}/confirm', [ImportController::class, 'confirm'])->name('imports.confirm');
     Route::post('imports/{import}/cancel', [ImportController::class, 'cancel'])->name('imports.cancel');
     Route::post('imports/{import}/retry', [ImportController::class, 'retry'])->name('imports.retry');
-    Route::inertia('briefs', 'briefs/Index')->name('briefs.index');
+    // Executive briefs (S05). Owner and Manager only: section.access plus BriefPolicy on every action.
+    Route::get('briefs', [BriefController::class, 'index'])->name('briefs.index');
+    Route::post('briefs', [BriefController::class, 'store'])->middleware('throttle:ai-requests')->name('briefs.store');
+    Route::get('briefs/{brief}', [BriefController::class, 'show'])->name('briefs.show');
+    Route::post('briefs/{brief}/retry', [BriefController::class, 'retry'])->middleware('throttle:ai-requests')->name('briefs.retry');
+    Route::post('briefs/{brief}/audio', [BriefAudioController::class, 'store'])->middleware('throttle:ai-requests')->name('briefs.audio.store');
+    Route::get('briefs/{brief}/audio', [AudioStreamController::class, 'show'])->middleware('throttle:audio-stream')->name('briefs.audio.stream');
+    // S01 placeholder pages: later specs replace each with a controller.
     Route::inertia('meetings', 'meetings/Index')->name('meetings.index');
     Route::inertia('tasks', 'tasks/Index')->name('tasks.index');
     Route::inertia('outcomes', 'outcomes/Index')->name('outcomes.index');

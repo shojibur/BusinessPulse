@@ -30,7 +30,7 @@ final class MissingSalesDataEvaluator implements RuleEvaluator
 
     public function evaluate(BusinessRule $rule, Department $department, EvaluationContext $context): EvaluationOutcome
     {
-        $window = $this->metrics->totalsBetween($department->id, $context->windowStart, $context->windowEnd);
+        $window = $this->metrics->totalsBetween($department->id, $context->windowStart, $context->windowEnd, $context->calendar['trading_days'], $context->expectedBranches);
 
         $expected = count($context->expectedBranches) * count($context->dueDates);
         $missing = count($context->gaps);

@@ -2,14 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\ImportStatus;
 use App\Enums\IssueSeverity;
 use App\Enums\IssueStatus;
 use App\Enums\RuleKey;
 use App\Models\Department;
-use App\Models\Import;
 use App\Models\Issue;
 use App\Models\RuleEvaluation;
+use App\Services\Intelligence\EvaluationHealth;
 use App\Services\Intelligence\MetricCalculator;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
@@ -24,7 +23,7 @@ use Inertia\Response;
  */
 class IssueController extends Controller
 {
-    public function __construct(private readonly MetricCalculator $metrics) {}
+    public function __construct(private readonly MetricCalculator $metrics, private readonly EvaluationHealth $health) {}
 
     public function index(Request $request): Response
     {
@@ -94,7 +93,8 @@ class IssueController extends Controller
             ->orderByDesc('id')
             ->first();
 
-        $lastEvaluatedAt = $issue->department->settings['intelligence']['last_evaluated_at'] ?? null;
+        $health = $this->health->forDepartment($issue->department);
+        $lastEvaluatedAt = $health['last_evaluated_at'];
 
         return Inertia::render('issues/Show', [
             'issue' => [
@@ -136,7 +136,8 @@ class IssueController extends Controller
                 'resolve' => $issue->status->isOpen(),
             ],
             'lastEvaluatedAt' => $lastEvaluatedAt,
-            'stale' => $this->isStale($issue->department_id, $lastEvaluatedAt),
+            'evaluationStatus' => $health['status'],
+            'stale' => $health['status'] !== EvaluationHealth::CURRENT,
             'refreshDepartmentId' => $issue->department_id,
         ]);
     }
@@ -149,27 +150,6 @@ class IssueController extends Controller
         return $user->isOwner()
             ? Department::query()->with('company')->where('company_id', $user->company_id)->orderBy('id')->first()
             : Department::query()->with('company')->find($user->department_id);
-    }
-
-    /**
-     * The latest evaluation is older than the most recently completed import of the department. Compared by
-     * import id (recorded by the evaluation job), so it does not depend on the demo clock.
-     */
-    private function isStale(int $departmentId, ?string $lastEvaluatedAt): bool
-    {
-        $latestImportId = (int) Import::query()
-            ->where('department_id', $departmentId)
-            ->whereIn('status', [ImportStatus::Completed->value, ImportStatus::CompletedWithErrors->value])
-            ->max('id');
-
-        if ($latestImportId === 0) {
-            return false;
-        }
-
-        $settings = Department::query()->whereKey($departmentId)->first()?->settings ?? [];
-        $through = $settings['intelligence']['evaluated_through_import_id'] ?? null;
-
-        return $lastEvaluatedAt === null || $through === null || (int) $through < $latestImportId;
     }
 
     /**

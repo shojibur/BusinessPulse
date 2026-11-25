@@ -81,21 +81,42 @@ final class MetricCalculator
      * Revenue and target of one ISO week over Active_Records, summed exactly in SQL (numeric), plus the ids
      * of the contributing records and imports. One query.
      */
-    public function weekTotals(int $departmentId, CarbonImmutable $weekStart): WeekTotals
+    public function weekTotals(int $departmentId, CarbonImmutable $weekStart, ?array $tradingDays = null, ?array $branches = null): WeekTotals
     {
-        return $this->totalsBetween($departmentId, $weekStart, $weekStart->addDays(6));
+        return $this->totalsBetween($departmentId, $weekStart, $weekStart->addDays(6), $tradingDays, $branches);
     }
 
-    public function totalsBetween(int $departmentId, CarbonImmutable $from, CarbonImmutable $to): WeekTotals
+    /**
+     * `$tradingDays` (ISO weekdays) and `$branches` (expected branch codes) restrict the sums to what the reporting
+     * calendar expects (R2): records on non-trading days or for non-expected branches never count towards a
+     * figure, exactly as they never count towards coverage. Null means unrestricted (used by unit tests only).
+     *
+     * @param  list<int>|null  $tradingDays
+     * @param  list<string>|null  $branches
+     */
+    public function totalsBetween(int $departmentId, CarbonImmutable $from, CarbonImmutable $to, ?array $tradingDays = null, ?array $branches = null): WeekTotals
     {
+        $bindings = [$departmentId, $from->format('Y-m-d'), $to->format('Y-m-d')];
+        $filter = '';
+
+        if ($tradingDays !== null) {
+            $filter .= ' and extract(isodow from sales_date)::int in ('.implode(',', array_fill(0, max(count($tradingDays), 1), '?')).')';
+            array_push($bindings, ...($tradingDays === [] ? [0] : array_map('intval', $tradingDays)));
+        }
+
+        if ($branches !== null) {
+            $filter .= ' and branch_code in ('.implode(',', array_fill(0, max(count($branches), 1), '?')).')';
+            array_push($bindings, ...($branches === [] ? [''] : array_values($branches)));
+        }
+
         $row = DB::selectOne(
             "select coalesce(sum(revenue), 0)::text as revenue,
                     coalesce(sum(target_revenue), 0)::text as target,
                     coalesce(array_to_json(array_agg(id order by id)), '[]'::json)::text as record_ids,
                     coalesce(array_to_json(array_agg(distinct import_id)), '[]'::json)::text as import_ids
                from sales_records
-              where department_id = ? and is_active and sales_date between ? and ?",
-            [$departmentId, $from->format('Y-m-d'), $to->format('Y-m-d')],
+              where department_id = ? and is_active and sales_date between ? and ?{$filter}",
+            $bindings,
         );
 
         $imports = json_decode($row->import_ids, true);

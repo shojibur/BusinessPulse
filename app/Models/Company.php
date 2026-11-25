@@ -73,6 +73,14 @@ class Company extends Model
         return $this->hasMany(Department::class);
     }
 
+    /**
+     * The department whose sales the executive views describe (Stage 1: one Sales department per company).
+     */
+    public function salesDepartment(): ?Department
+    {
+        return $this->departments()->orderByRaw("case when slug = 'sales' then 0 else 1 end")->orderBy('id')->first();
+    }
+
     /** @return HasMany<User, $this> */
     public function users(): HasMany
     {

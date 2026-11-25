@@ -10,6 +10,7 @@ use App\Models\Department;
 use App\Models\RuleEvaluation;
 use App\Services\Imports\ReportingCoverage;
 use App\Services\Intelligence\EvaluationContext;
+use App\Services\Intelligence\EvaluationHealth;
 use App\Services\Intelligence\EvaluationOutcome;
 use App\Services\Intelligence\Evaluators\MissingSalesDataEvaluator;
 use App\Services\Intelligence\Evaluators\RuleEvaluator;
@@ -134,7 +135,7 @@ class EvaluateRulesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
         // Captured BEFORE reading: an import that completes during the run still makes the result stale.
         $throughImportId = $this->latestCompletedImportId($department->id);
 
-        [$context, $outcomes] = $this->evaluateStable($department, $rules, $evaluators, $coverage, $clock);
+        [$context, $outcomes, $fingerprint] = $this->evaluateStable($department, $rules, $evaluators, $coverage, $clock);
 
         if ($context === null) {
             // The data kept changing under the run: do not store a mixed snapshot, try again shortly.
@@ -145,23 +146,30 @@ class EvaluateRulesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
         }
 
         $evaluationIds = [];
+        $failedRules = 0;
         foreach ($rules as $rule) {
             if (! isset($outcomes[$rule->id])) {
-                continue; // inactive or failed to evaluate
+                $failedRules++; // the evaluator threw: this rule has no result in this run
+
+                continue;
             }
 
             try {
                 $evaluationIds[] = $this->persist($rule, $context, $outcomes[$rule->id]);
             } catch (Throwable $e) {
+                $failedRules++;
                 Log::warning('rule_evaluation_failed', ['rule_id' => $rule->id, 'department_id' => $department->id, 'exception' => $e::class]);
             }
         }
 
         if ($evaluationIds === []) {
-            return; // every rule failed: no last-evaluated update and no run event
+            // Every rule failed: record it so the dashboard and briefs say so, but keep the last good timestamp.
+            $this->recordRun($department->id, $context, $throughImportId, $fingerprint, 'failed', $failedRules, touchTimestamp: false);
+
+            return;
         }
 
-        $this->touchLastEvaluated($department->id, $context, $throughImportId);
+        $this->recordRun($department->id, $context, $throughImportId, $fingerprint, $failedRules > 0 ? 'partial' : 'success', $failedRules);
         $this->announceRunCompleted($department->id, $evaluationIds);
     }
 
@@ -170,12 +178,12 @@ class EvaluateRulesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
      *
      * @param  Collection<int, BusinessRule>  $rules
      * @param  array<string, RuleEvaluator>  $evaluators
-     * @return array{0: EvaluationContext|null, 1: array<int, EvaluationOutcome>}
+     * @return array{0: EvaluationContext|null, 1: array<int, EvaluationOutcome>, 2: string}
      */
     private function evaluateStable(Department $department, $rules, array $evaluators, ReportingCoverage $coverage, BusinessClock $clock): array
     {
         for ($attempt = 1; $attempt <= self::STABLE_ATTEMPTS; $attempt++) {
-            $before = $this->fingerprint($department->id);
+            $before = EvaluationHealth::fingerprint($department->id);
             $context = EvaluationContext::build($department, $coverage, $clock);
             $outcomes = [];
 
@@ -187,27 +195,12 @@ class EvaluateRulesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
                 }
             }
 
-            if ($this->fingerprint($department->id) === $before) {
-                return [$context, $outcomes];
+            if (EvaluationHealth::fingerprint($department->id) === $before) {
+                return [$context, $outcomes, $before];
             }
         }
 
-        return [null, []];
-    }
-
-    /**
-     * Changes whenever an import adds or supersedes a record of the department.
-     */
-    private function fingerprint(int $departmentId): string
-    {
-        $row = DB::selectOne(
-            "select count(*) as total, count(*) filter (where is_active) as active, coalesce(max(id), 0) as last_id,
-                    coalesce(max(updated_at)::text, '') as touched
-               from sales_records where department_id = ?",
-            [$departmentId],
-        );
-
-        return implode('|', [$row->total, $row->active, $row->last_id, $row->touched]);
+        return [null, [], ''];
     }
 
     /**
@@ -270,19 +263,32 @@ class EvaluateRulesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
             ->max('id');
     }
 
-    /** Atomic: concurrent writers of other settings keys are never overwritten. */
-    private function touchLastEvaluated(int $departmentId, EvaluationContext $context, int $throughImportId): void
+    /**
+     * Atomic: concurrent writers of other settings keys are never overwritten. Records what the run saw so
+     * EvaluationHealth can tell later whether the stored evaluations are still current.
+     */
+    private function recordRun(int $departmentId, EvaluationContext $context, int $throughImportId, string $fingerprint, string $status, int $failedRules, bool $touchTimestamp = true): void
     {
+        $values = ['last_run_status' => $status, 'last_run_failed_rules' => $failedRules];
+
+        if ($touchTimestamp) {
+            $values += [
+                'last_evaluated_at' => $context->now->toIso8601String(),
+                'evaluated_through_import_id' => $throughImportId,
+                'evaluated_fingerprint' => $fingerprint,
+                'evaluated_last_due_date' => $context->lastDue->format('Y-m-d'),
+            ];
+        }
+
         DB::update(
             "update departments
                 set settings = jsonb_set(
                     coalesce(settings, '{}'::jsonb),
                     '{intelligence}',
-                    coalesce(settings->'intelligence', '{}'::jsonb)
-                        || jsonb_build_object('last_evaluated_at', ?::text, 'evaluated_through_import_id', ?::int),
+                    coalesce(settings->'intelligence', '{}'::jsonb) || ?::jsonb,
                     true)
               where id = ?",
-            [$context->now->toIso8601String(), $throughImportId, $departmentId],
+            [json_encode($values), $departmentId],
         );
     }
 

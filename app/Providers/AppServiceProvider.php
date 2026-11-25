@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\Brief;
 use App\Models\Department;
 use App\Models\Import;
 use App\Models\Issue;
@@ -90,6 +91,17 @@ class AppServiceProvider extends ServiceProvider
 
             return Issue::visibleTo($user)->findOrFail($value);
         });
+
+        // A brief of another company answers 404 before any policy runs.
+        Route::bind('brief', function (string $value): Brief {
+            $user = request()->user();
+            abort_if($user === null, 404);
+
+            return Brief::query()->where('company_id', $user->company_id)->findOrFail($value);
+        });
+
+        RateLimiter::for('ai-requests', fn (Request $request) => Limit::perMinute(6)->by('ai:'.$request->user()?->id));
+        RateLimiter::for('audio-stream', fn (Request $request) => Limit::perMinute(60)->by('audio:'.$request->user()?->id));
 
         RateLimiter::for('imports-upload', fn (Request $request) => Limit::perMinute((int) config('imports.uploads_per_minute'))
             ->by((string) $request->user()?->id));

@@ -42,7 +42,7 @@ final class SalesTargetShortfallEvaluator implements RuleEvaluator
             return $base->with(RuleResult::InsufficientData, null, InsufficientReason::NoRecords);
         }
 
-        $totals = $this->metrics->weekTotals($department->id, $week->weekStart);
+        $totals = $this->metrics->weekTotals($department->id, $week->weekStart, $context->calendar['trading_days'], $context->expectedBranches);
 
         $base = new EvaluationOutcome(
             RuleResult::NotBreached, null, null, $base->metricName, $base->periodStart, $base->periodEnd, null, null,

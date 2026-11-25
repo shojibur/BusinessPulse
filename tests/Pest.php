@@ -247,3 +247,19 @@ function fakeIssue(
         'resolution_note' => $resolved ? 'Resolved in a test.' : null,
     ])->refresh();
 }
+
+/** History at 21 Sep, then the week 8 decline at 28 Sep: a high decline issue and a medium target issue. */
+function declineTimeline(): User
+{
+    $owner = demoOwner();
+    importFixture($owner, 'history', '2026-09-21 09:00');
+    setClock('2026-09-28 09:00');
+    importFixture($owner, 'week8-decline');
+
+    return $owner;
+}
+
+function declineIssue(): Issue
+{
+    return Issue::query()->whereHas('rule', fn ($q) => $q->where('key', 'weekly_revenue_decline'))->firstOrFail();
+}

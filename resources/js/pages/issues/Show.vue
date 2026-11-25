@@ -25,6 +25,7 @@ const props = defineProps<{
     actions: { acknowledge: boolean; monitoring: boolean; resolve: boolean };
     lastEvaluatedAt: string | null;
     stale: boolean;
+    evaluationStatus: 'never' | 'current' | 'partial' | 'failed' | 'stale';
     refreshDepartmentId: number;
 }>();
 
@@ -106,8 +107,21 @@ const triggerLabel = (trigger: string | null): string =>
             <Info aria-hidden="true" />
             <AlertTitle>The evaluation may be out of date</AlertTitle>
             <AlertDescription class="space-y-2">
-                <p>
-                    A newer import was completed after the latest evaluation ({{
+                <p v-if="evaluationStatus === 'failed'">
+                    The last evaluation run failed for every rule. Figures below
+                    come from the last successful evaluation ({{
+                        lastEvaluatedAt
+                            ? formatDateTime(lastEvaluatedAt)
+                            : 'never'
+                    }}).
+                </p>
+                <p v-else-if="evaluationStatus === 'partial'">
+                    The last evaluation run could not evaluate every rule, so
+                    this issue may not reflect all current conditions.
+                </p>
+                <p v-else>
+                    Sales data or the reporting calendar changed after the
+                    latest evaluation ({{
                         lastEvaluatedAt
                             ? formatDateTime(lastEvaluatedAt)
                             : 'never'

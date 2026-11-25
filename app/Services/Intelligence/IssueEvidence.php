@@ -3,6 +3,7 @@
 namespace App\Services\Intelligence;
 
 use App\Models\Issue;
+use App\Models\RuleEvaluation;
 use Illuminate\Contracts\Support\Arrayable;
 
 /**
@@ -31,12 +32,28 @@ final readonly class IssueEvidence implements Arrayable
         public ?string $latestPrimaryValue,
         public array $missingDueBranchDays,
         public array $importIds,
+        public ?EvaluationSummary $current = null,
     ) {}
+
+    /**
+     * Whether the most recent evaluation of the rule still shows the breach. `latest` is the latest BREACH the issue
+     * recorded (history); `current` is the latest evaluation whatever its result (the present condition).
+     */
+    public function conditionStillBreached(): bool
+    {
+        return $this->current === null || $this->current->result === 'breached';
+    }
 
     public static function forIssue(Issue $issue): self
     {
         $issue->loadMissing(['rule', 'baselineEvaluation', 'latestEvaluation']);
         $latest = $issue->latestEvaluation;
+        $current = RuleEvaluation::query()
+            ->where('business_rule_id', $issue->business_rule_id)
+            ->where('department_id', $issue->department_id)
+            ->orderByDesc('evaluated_at')
+            ->orderByDesc('id')
+            ->first();
         $evidence = $latest->evidence;
 
         // The missing branch-days of the evaluated period (window for missing data, current week otherwise).
@@ -56,6 +73,7 @@ final readonly class IssueEvidence implements Arrayable
             $latest->difference_pct,
             array_values($missing),
             array_values(array_map('intval', $evidence['contributingImportIds'] ?? [])),
+            $current === null ? null : EvaluationSummary::fromEvaluation($current),
         );
     }
 
@@ -77,6 +95,7 @@ final readonly class IssueEvidence implements Arrayable
             'latestPrimaryValue' => $this->latestPrimaryValue,
             'missingDueBranchDays' => $this->missingDueBranchDays,
             'importIds' => $this->importIds,
+            'current' => $this->current?->toArray(),
         ];
     }
 
@@ -90,6 +109,7 @@ final readonly class IssueEvidence implements Arrayable
             EvaluationSummary::fromArray($data['baseline']), EvaluationSummary::fromArray($data['latest']),
             $data['primaryMetricName'], $data['baselinePrimaryValue'], $data['latestPrimaryValue'],
             $data['missingDueBranchDays'], array_map('intval', $data['importIds']),
+            isset($data['current']) ? EvaluationSummary::fromArray($data['current']) : null,
         );
     }
 }

@@ -48,8 +48,8 @@ final class WeeklyRevenueDeclineEvaluator implements RuleEvaluator
         }
 
         // Ids of both weeks always feed the run key, so a data change is never hidden behind a reuse.
-        $current = $this->metrics->weekTotals($department->id, $latest->weekStart);
-        $previous = $this->metrics->weekTotals($department->id, $preceding->weekStart);
+        $current = $this->metrics->weekTotals($department->id, $latest->weekStart, $context->calendar['trading_days'], $context->expectedBranches);
+        $previous = $this->metrics->weekTotals($department->id, $preceding->weekStart, $context->calendar['trading_days'], $context->expectedBranches);
 
         $base = new EvaluationOutcome(
             RuleResult::NotBreached, null, null, $base->metricName, $base->periodStart, $base->periodEnd,
