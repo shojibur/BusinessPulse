@@ -69,19 +69,19 @@ test('owner and own-department manager can read, change status, comment and revi
     $this->actingAs($this->f->manager)->get("/meetings/{$this->x->meeting->id}")->assertInertia(fn ($p) => $p->has('draftReview.pending', 3)->has('draftReview.history', 1));
 });
 
-test('staff task detail exposes no meeting link, decisions, evidence or issue link', function () {
-    $task = makeTask($this->f, $this->f->priya, ['meeting_id' => $this->x->meeting->id, 'issue_id' => $this->x->issue->id]);
+test('staff task detail carries the work itself and no meeting, quote, decisions or issue context', function () {
+    $task = makeTask($this->f, $this->f->priya, ['meeting_id' => $this->x->meeting->id, 'issue_id' => $this->x->issue->id, 'task_draft_id' => $this->x->drafts[0]->id]);
     $this->x->meeting->update(['decisions' => [['summary' => 'Confidential decision', 'excerpt' => 'We will prioritise reactivating the top lapsed accounts.']]]);
 
     $page = $this->actingAs($this->f->priya)->get("/tasks/{$task->id}");
     $props = $page->viewData('page')['props'];
 
-    $page->assertOk()->assertInertia(fn ($p) => $p->where('meeting.url', null)->where('decisions', null)->where('issue.url', null)->where('issue.evidence', null)->where('issue.severity', null));
-    expect(json_encode($props))->not->toContain('Confidential decision')->not->toContain('recording')->not->toContain('baseline');
+    $page->assertOk()->assertInertia(fn ($p) => $p->where('meeting', null)->where('excerpt', null)->where('decisions', null)->where('issue', null)->where('task.title', 'Follow up with Penang'));
+    expect(json_encode($props))->not->toContain('Confidential decision')->not->toContain('Priya, please call')->not->toContain('Weekly revenue decline')->not->toContain('recording');
 
     // Management gets the context and the limited evidence snapshot.
     $this->actingAs($this->f->manager)->get("/tasks/{$task->id}")->assertInertia(fn ($p) => $p->where('meeting.url', fn ($u) => str_contains($u, '/meetings/'))
-        ->has('decisions', 1)->where('issue.url', fn ($u) => str_contains($u, '/issues/'))->where('issue.evidence.metricName', fn ($m) => is_string($m)));
+        ->has('decisions', 1)->where('excerpt', fn ($e) => str_contains($e, 'Priya, please call'))->where('issue.url', fn ($u) => str_contains($u, '/issues/'))->where('issue.evidence.metricName', fn ($m) => is_string($m)));
 });
 
 test('the task list filters by status, employee and overdue, scoped and sorted overdue first', function () {

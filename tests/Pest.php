@@ -368,7 +368,7 @@ function reviewFixture(stdClass $f): stdClass
     $x->issue = fakeIssue($f->sales);
     $x->meeting->issues()->attach($x->issue->id);
 
-    $make = fn (array $a) => TaskDraft::create($a + ['meeting_id' => $x->meeting->id, 'suggested_description' => '', 'extraction_run' => 1, 'status' => 'pending']);
+    $make = fn (array $a) => TaskDraft::create($a + ['meeting_id' => $x->meeting->id, 'suggested_description' => '', 'extraction_run' => 1, 'status' => 'pending', 'transcript_revision' => sha1(demoTranscript())]);
     $x->drafts = [
         $make(['suggested_title' => 'Call the ten biggest lapsed Penang accounts', 'suggested_assignee_name' => 'Priya', 'assignee_id' => $f->priya->id, 'assignee_resolution' => 'resolved',
             'suggested_due_date_text' => 'by Friday', 'due_date' => '2026-10-02', 'suggested_due_date' => '2026-10-02', 'deadline_resolution' => 'resolved',

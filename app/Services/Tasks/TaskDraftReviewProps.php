@@ -24,10 +24,11 @@ final class TaskDraftReviewProps
         }
 
         $meeting->loadMissing(['issues:id,title', 'department']);
-        $transcript = $meeting->transcript === null ? null : $this->text->nfc($meeting->transcript);
+        $rawTranscript = $meeting->transcript;
+        $transcript = $rawTranscript === null ? null : $this->text->nfc($rawTranscript);
         $drafts = $meeting->taskDrafts()->with(['assignee:id,name', 'task:id'])->orderBy('id')->get();
 
-        $present = fn (TaskDraft $d) => $this->present($d, $transcript);
+        $present = fn (TaskDraft $d) => $this->present($d, $transcript, $rawTranscript);
         $pending = $drafts->where('status', TaskDraftStatus::Pending)->map($present)->values()->all();
         $history = $drafts->whereIn('status', [TaskDraftStatus::Approved, TaskDraftStatus::Rejected])
             ->sortByDesc(fn (TaskDraft $d) => $d->reviewed_at?->timestamp ?? 0)->map($present)->values()->all();
@@ -57,7 +58,7 @@ final class TaskDraftReviewProps
     /**
      * @return array<string, mixed>
      */
-    private function present(TaskDraft $draft, ?string $transcript): array
+    private function present(TaskDraft $draft, ?string $transcript, ?string $rawTranscript): array
     {
         $blockers = [];
         trim((string) $draft->suggested_title) === '' && $blockers[] = 'title';
@@ -66,7 +67,8 @@ final class TaskDraftReviewProps
 
         // Stale: the supporting quote is no longer in the CURRENT transcript. Approval is refused server-side too.
         $stale = $draft->status === TaskDraftStatus::Pending
-            && ($transcript === null || $this->excerpts->verify($transcript, $draft->transcript_excerpt) === null);
+            && ($transcript === null || $draft->transcript_revision === null || $draft->transcript_revision !== sha1($rawTranscript ?? '')
+                || $this->excerpts->verify($transcript, $draft->transcript_excerpt) === null);
 
         return [
             'id' => $draft->id,

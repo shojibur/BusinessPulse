@@ -2,6 +2,7 @@
 
 namespace App\Events\Imports;
 
+use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Events\Dispatchable;
 
@@ -20,6 +21,6 @@ abstract class ImportEvent
         public readonly int $departmentId,
         public readonly ?int $actorUserId = null,
     ) {
-        $this->occurredAt = CarbonImmutable::now();
+        $this->occurredAt = app(BusinessClock::class)->nowUtc();
     }
 }

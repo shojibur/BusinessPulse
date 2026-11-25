@@ -3,6 +3,7 @@
 namespace App\Events\Tasks;
 
 use App\Models\Task;
+use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -34,6 +35,6 @@ abstract class TaskEvent implements ShouldDispatchAfterCommit
         $this->companyId = (int) $task->department()->value('company_id');
         $this->issueId = $task->issue_id;
         $this->meetingId = $task->meeting_id;
-        $this->occurredAt = CarbonImmutable::now('UTC');
+        $this->occurredAt = app(BusinessClock::class)->nowUtc();
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Events\Briefing;
 
+use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Events\Dispatchable;
 
@@ -18,6 +19,6 @@ final class BriefFailed
         public readonly string $reason,
         public readonly ?int $actorUserId = null,
     ) {
-        $this->occurredAt = CarbonImmutable::now();
+        $this->occurredAt = app(BusinessClock::class)->nowUtc();
     }
 }

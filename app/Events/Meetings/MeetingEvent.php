@@ -3,6 +3,7 @@
 namespace App\Events\Meetings;
 
 use App\Models\Meeting;
+use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -32,6 +33,6 @@ abstract class MeetingEvent implements ShouldDispatchAfterCommit
         $this->departmentId = $meeting->department_id;
         $this->companyId = (int) $meeting->department()->value('company_id');
         $this->issueIds = $meeting->issues()->pluck('issues.id')->map(fn ($id) => (int) $id)->all();
-        $this->occurredAt = CarbonImmutable::now('UTC');
+        $this->occurredAt = app(BusinessClock::class)->nowUtc();
     }
 }

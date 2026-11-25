@@ -7,3 +7,4 @@ export * from './settings';
 export * from './executive';
 export * from './meetings';
 export * from './tasks';
+export * from './outcomes';

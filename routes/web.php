@@ -7,6 +7,7 @@ use App\Http\Controllers\BriefController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\ImportTemplateController;
 use App\Http\Controllers\IssueController;
@@ -17,6 +18,7 @@ use App\Http\Controllers\MeetingProcessingController;
 use App\Http\Controllers\MeetingRecordingController;
 use App\Http\Controllers\MeetingTranscriptController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OutcomeController;
 use App\Http\Controllers\RefreshIntelligenceController;
 use App\Http\Controllers\TaskCommentController;
 use App\Http\Controllers\TaskController;
@@ -92,7 +94,11 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
     Route::patch('task-drafts/{taskDraft}', [TaskDraftController::class, 'update'])->middleware('throttle:task-review')->name('task-drafts.update');
     Route::post('task-drafts/{taskDraft}/approve', [TaskDraftController::class, 'approve'])->middleware('throttle:task-review')->name('task-drafts.approve');
     Route::post('task-drafts/{taskDraft}/reject', [TaskDraftController::class, 'reject'])->middleware('throttle:task-review')->name('task-drafts.reject');
-    Route::inertia('outcomes', 'outcomes/Index')->name('outcomes.index');
+    // Outcomes (S08). Owner and Manager only; records are resolved through the scoped query (missing and foreign ids: 404).
+    Route::get('outcomes', [OutcomeController::class, 'index'])->name('outcomes.index');
+    Route::get('outcomes/{outcome}', [OutcomeController::class, 'show'])->name('outcomes.show');
+    Route::post('outcomes/{outcome}/feedback', [FeedbackController::class, 'storeForOutcome'])->middleware('throttle:s08-writes')->name('outcomes.feedback.store');
+    Route::post('issues/{issue}/feedback', [FeedbackController::class, 'storeForIssue'])->middleware('throttle:s08-writes')->name('issues.feedback.store');
 
     Route::redirect('settings', '/settings/company')->name('settings.index');
     Route::get('settings/company', [CompanyController::class, 'edit'])->name('settings.company');

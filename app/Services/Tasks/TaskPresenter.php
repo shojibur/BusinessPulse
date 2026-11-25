@@ -81,16 +81,19 @@ final class TaskPresenter
                 'updatedAt' => $local($task->updated_at),
                 'completedAt' => $local($task->completed_at),
             ],
-            'meeting' => $task->meeting === null ? null : [
+            // Staff get what they need to do the work (title, description, deadline, status, comments) and nothing about the
+            // meeting, its decisions, the raw transcript quote or the parent issue: those can hold management discussion and
+            // financial context.
+            'meeting' => $staff || $task->meeting === null ? null : [
                 'id' => $task->meeting->id,
                 'title' => $task->meeting->title,
                 'meetingDate' => $task->meeting->meeting_date->format('Y-m-d'),
-                'url' => $staff ? null : route('meetings.show', $task->meeting),
+                'url' => route('meetings.show', $task->meeting),
             ],
             // The draft's own short supporting quote: the evidence the assignment is based on.
-            'excerpt' => $task->draft?->transcript_excerpt,
+            'excerpt' => $staff ? null : $task->draft?->transcript_excerpt,
             'decisions' => $staff ? null : ($task->meeting?->decisions ?? []),
-            'issue' => $issue === null ? null : $this->issue($issue, $staff),
+            'issue' => $staff || $issue === null ? null : $this->issue($issue, false),
             'comments' => $task->comments->map(fn ($comment) => [
                 'id' => $comment->id,
                 'body' => $comment->body,

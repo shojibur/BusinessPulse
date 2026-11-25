@@ -15,4 +15,10 @@ final class IssueTaskCompletion
 
         return (int) $row->done >= 1 && (int) $row->open === 0;
     }
+
+    /** Whether any linked task is still pending, in progress or blocked. */
+    public function hasOpenTask(int $issueId): bool
+    {
+        return DB::table('tasks')->where('issue_id', $issueId)->whereIn('status', ['pending', 'in_progress', 'blocked'])->exists();
+    }
 }

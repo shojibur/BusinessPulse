@@ -133,6 +133,7 @@ class ExtractMeetingTasksJob implements ShouldBeUnique, ShouldQueue
                     'due_date' => $draft->deadline->date?->format('Y-m-d'),
                     'deadline_resolution' => $draft->deadline->resolution->value,
                     'transcript_excerpt' => $draft->excerpt,
+                    'transcript_revision' => $revision,
                     'status' => TaskDraftStatus::Pending->value,
                     'extraction_run' => $run,
                 ]);

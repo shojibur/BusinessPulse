@@ -2,6 +2,7 @@
 
 namespace App\Actions\Tasks;
 
+use App\Enums\MeetingStatus;
 use App\Enums\TaskDraftStatus;
 use App\Events\Tasks\TaskAssigned;
 use App\Events\Tasks\TaskDraftApproved;
@@ -53,11 +54,14 @@ final class ApproveTaskDraft
                     throw ValidationException::withMessages(['status' => 'This draft can no longer be approved.']);
                 }
 
-                $meeting = Meeting::query()->with('department')->findOrFail($draft->meeting_id);
+                // The meeting row is locked too: a transcript edit (which locks the same row) cannot slip in during approval.
+                $meeting = Meeting::query()->whereKey($draft->meeting_id)->lockForUpdate()->firstOrFail();
+                $meeting->load('department');
 
-                // A draft whose supporting quote is no longer in the CURRENT transcript is stale and cannot be approved.
-                if (! $this->supportedByTranscript($meeting, $draft)) {
-                    throw ValidationException::withMessages(['draft' => 'The transcript changed and no longer supports this draft. Re-extract the tasks before approving.']);
+                // Stale: re-extraction is running, the draft comes from another transcript revision (even if its quote still
+                // appears, the surrounding context may have changed), or the quote is gone. Re-extract before approving.
+                if (! $this->isCurrent($meeting, $draft)) {
+                    throw ValidationException::withMessages(['draft' => 'The transcript changed after these tasks were extracted. Re-extract the tasks before approving.']);
                 }
 
                 $values = $this->editor->apply($draft, $meeting, $edits);
@@ -102,9 +106,13 @@ final class ApproveTaskDraft
         return $result;
     }
 
-    private function supportedByTranscript(Meeting $meeting, TaskDraft $draft): bool
+    private function isCurrent(Meeting $meeting, TaskDraft $draft): bool
     {
-        if ($meeting->transcript === null) {
+        if ($meeting->transcript === null || $meeting->status === MeetingStatus::Extracting) {
+            return false;
+        }
+
+        if ($draft->transcript_revision === null || ! hash_equals($draft->transcript_revision, sha1($meeting->transcript))) {
             return false;
         }
 

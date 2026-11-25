@@ -11,6 +11,7 @@ use App\Models\RuleEvaluation;
 use App\Services\Intelligence\EvaluationHealth;
 use App\Services\Intelligence\MetricCalculator;
 use App\Services\Meetings\MeetingsForIssue;
+use App\Services\Outcomes\IssueOutcomeProps;
 use App\Services\Tasks\TasksForIssue;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
@@ -126,6 +127,9 @@ class IssueController extends Controller
             'latestOfRule' => $latestOfRule === null ? null : $this->evaluation($latestOfRule, $timezone),
             'meetings' => app(MeetingsForIssue::class)($issue, $request->user()),
             'tasks' => app(TasksForIssue::class)($issue, $request->user()),
+            'outcomes' => fn () => app(IssueOutcomeProps::class)->outcomes($issue, $request->user()),
+            'feedback' => fn () => app(IssueOutcomeProps::class)->feedback($issue, $request->user()),
+            'trace' => Inertia::defer(fn () => app(IssueOutcomeProps::class)->trace($issue, $request->user())),
             'statusHistory' => collect($issue->status_history)->map(fn (array $entry) => [
                 'from' => $entry['from'],
                 'to' => $entry['to'],

@@ -142,20 +142,37 @@ test('reject keeps the draft with its reason, is idempotent and cannot be approv
     expect(Task::count())->toBe(0);
 });
 
-test('a draft whose supporting quote is no longer in the current transcript cannot be approved', function () {
+test('any transcript revision after extraction blocks approval, even when the quote still appears', function () {
     $meeting = $this->x->meeting;
-    // The transcript is corrected so that Priya's instruction changes: the quote of draft 1 no longer exists.
-    $meeting->update(['transcript' => str_replace('call the ten biggest lapsed Penang accounts by Friday', 'call the five biggest lapsed Penang accounts by Monday', demoTranscript()), 'transcript_edited_at' => now()->addMinute()]);
+    // Only the context around Priya's quote changes: the quote itself is untouched, but the revision is not the extracted one.
+    $meeting->update(['transcript' => str_replace('Last week our revenue', 'Two weeks ago our revenue', demoTranscript()), 'transcript_edited_at' => now()->addMinute()]);
+    expect(str_contains($meeting->fresh()->transcript, 'Priya, please call the ten biggest lapsed Penang accounts by Friday.'))->toBeTrue();
 
     approve($this->x->drafts[0])->assertSessionHasErrors('draft');
+    approve($this->x->drafts[1])->assertSessionHasErrors('draft');
     expect(Task::count())->toBe(0);
-    // A draft whose quote is untouched is still supported.
-    approve($this->x->drafts[1])->assertRedirect();
-    expect(Task::count())->toBe(1);
 
-    // The review props flag the stale draft for the reviewer.
     $this->actingAs($this->f->owner)->get("/meetings/{$meeting->id}")->assertInertia(fn ($p) => $p
         ->where('draftReview.pending.0.stale', true)->where('draftReview.transcriptChangedSinceExtraction', true));
+});
+
+test('a changed quote and an active re-extraction both block approval', function () {
+    $meeting = $this->x->meeting;
+    $meeting->update(['transcript' => str_replace('by Friday', 'by Monday', demoTranscript())]);
+    approve($this->x->drafts[0])->assertSessionHasErrors('draft');
+
+    $meeting->update(['transcript' => demoTranscript(), 'status' => 'extracting']); // same revision, but a re-extraction is running
+    approve($this->x->drafts[1])->assertSessionHasErrors('draft');
+    expect(Task::count())->toBe(0);
+
+    $meeting->update(['status' => 'ready_for_review']);
+    approve($this->x->drafts[1])->assertRedirect();
+    expect(Task::count())->toBe(1);
+});
+
+test('a draft without a recorded revision is never approvable', function () {
+    $this->x->drafts[0]->update(['transcript_revision' => null]);
+    approve($this->x->drafts[0])->assertSessionHasErrors('draft');
 });
 
 test('re-extraction supersedes pending drafts and preserves approved history', function () {

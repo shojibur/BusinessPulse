@@ -2,6 +2,7 @@
 
 namespace App\Events\Intelligence;
 
+use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Events\Dispatchable;
 
@@ -19,6 +20,6 @@ abstract class IntelligenceEvent
         public readonly int $departmentId,
         public readonly ?int $actorUserId = null,
     ) {
-        $this->occurredAt = CarbonImmutable::now();
+        $this->occurredAt = app(BusinessClock::class)->nowUtc();
     }
 }
