@@ -1,0 +1,64 @@
+# UI/UX Design System
+
+## 1. Visual direction
+Premium, restrained enterprise SaaS. Deep slate/navy sidebar, light neutral content, teal primary accent, restrained semantic colors, subtle borders, minimal decoration. No default Laravel admin look, no heavy gradients, no glassmorphism, no marketing-size headings, few animations.
+
+## 2. Design tokens (CSS variables in `resources/css/app.css`, mapped in Tailwind)
+| Token | Light value |
+|---|---|
+| `--background` | #F6F8FA |
+| `--surface` (cards) | #FFFFFF |
+| `--border` | #E3E8EE |
+| `--foreground` | #0F172A |
+| `--muted-foreground` | #64748B |
+| `--sidebar` | #0B1B2E (navy) |
+| `--sidebar-foreground` | #CBD5E1 |
+| `--primary` | #0F9488 (teal), hover #0D7C72 |
+| `--severity-high` | #DC2626 on #FEE2E2 |
+| `--severity-medium` | #B45309 on #FEF3C7 |
+| `--severity-low` | #475569 on #E2E8F0 |
+| `--success` | #15803D on #DCFCE7 |
+| `--info` | #0369A1 on #E0F2FE |
+
+Contrast target WCAG AA (4.5:1 for text); verify teal-on-white for text use during S01 and darken if needed. Dark mode is not required in Stage 1.
+Chart palette: teal #0F9488, slate #334155, amber #D97706, red #DC2626, light teal #99D6CF.
+
+## 3. Typography, spacing, shape
+Font: Inter, self-hosted via npm (`@fontsource-variable/inter`), no CDN. Scale: page title 24/32 semibold, section 18/28 semibold, body 14/20, caption 12/16, KPI value 28/36 semibold tabular-nums. Spacing on a 4px grid. Radius 8px cards/inputs, 6px badges, full pills for status chips. Border 1px `--border`; only `shadow-sm` on cards.
+
+## 4. Application shell
+Left sidebar 248px (icon rail at ≤1280px, off-canvas sheet at ≤768px), top bar with page title, breadcrumbs, notification bell (unread count, popover list), user menu. Content max width 1280px, padding 24px (16px mobile). Primary navigation (Lucide icons): Today, Issues, Data Imports, Briefs, Meetings, Tasks, Outcomes, Settings.
+Role visibility: Owner sees all; Manager sees all except company-level settings sections; Staff sees Today (own tasks) and Tasks only.
+
+## 5. Reusable components (build only when reused at least twice)
+shadcn-vue: Button, Input, Textarea, Select, Checkbox, Label, Dialog, Sheet (drawer), Tabs, Table, Badge, Card, Skeleton, Sonner toasts, DropdownMenu, Popover, Tooltip, Calendar/DatePicker, Progress, Alert.
+Custom: `AppShell`, `PageHeader`, `KpiCard`, `SeverityBadge`, `StatusBadge`, `EmptyState`, `ErrorState`, `InsufficientDataNotice`, `EChart` (tree-shaken ECharts wrapper with resize), `FileDropzone`, `EvidenceList`, `Timeline`, `AudioPlayer`.
+
+## 6. Screens
+| Screen | Structure |
+|---|---|
+| Login | Centered card, product mark, email/password, error text. |
+| Today (dashboard) | KPI row (revenue, change, target achievement, active issues, high priority, open tasks, overdue, resolved), freshness banner, revenue vs target chart, weekly change chart, latest brief card, priority actions list. |
+| Data Imports | History table (status, file, range, counts, uploader). Upload: dropzone, then validation preview (counts, error table, coverage gaps), then confirm. Import detail: errors, source file info. |
+| Issues | Filterable table (severity, status). Detail: badges, evidence panel, timeline, linked meetings and tasks, outcomes, feedback, status actions. |
+| Briefs | History list; detail with finding cards (authoritative figures), source links, AI/fallback label, voice player, generate/retry. |
+| Meetings | List; create dialog; detail tabs: Overview, Transcript (editable), Decisions, Task drafts (review cards with inline edit, approve/reject). |
+| Tasks | Table with filters (status, assignee, overdue); My Tasks default for Staff; detail page with description, links, comments, status control. |
+| Outcomes | List of issues with outcomes; comparison view (baseline vs follow-up values, delta, chart), notes, useful/not useful. |
+| Settings | Tabs: Company, Staff, Sales department (branches, trading days), Rules, Import template (CSV template download and column spec). |
+
+## 7. Responsive behavior
+Tailwind default breakpoints. Tables become stacked cards below 768px for Tasks and Issues. KPI grid 4→2→1 columns. Charts keep a 240px minimum height. Forms are single column on mobile. Touch targets at least 40px.
+
+## 8. Accessibility
+Semantic landmarks, visible focus ring, keyboard-navigable dialogs, `aria-live` for toasts and job status, severity shown by icon plus label (never color alone), text/table alternative for each chart, labels on all inputs, `prefers-reduced-motion` respected.
+
+## 9. Loading, empty, error, insufficient-data states
+- Loading: skeletons matching layout; job progress by polling every 3 seconds with a status badge.
+- Empty: icon, one-line explanation, primary action (for example "Upload sales data").
+- Error: inline `ErrorState` with retry; Inertia error pages for 403/404/419/500/503.
+- Insufficient data: neutral info style (never red) stating which data is missing.
+- Provider failure: Alert naming the failed capability and the recovery action.
+
+## 10. Toasts and notifications
+Toasts for transient confirmations (3–5 seconds). Persistent in-app notifications in the bell for urgent issues and task assignment, with mark-as-read and a link to the subject.

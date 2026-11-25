@@ -1,0 +1,481 @@
+# Requirements Document
+
+## Introduction
+
+S07 is the Task Review and Execution spec of BusinessPulse. It turns the Task_Drafts produced by S06 into accountable Tasks through explicit human approval, and then lets the assigned employee carry each Task to completion. AI never creates or assigns a Task. A Task exists only when an Owner, or the Manager of the department, approves a Task_Draft or creates a Task manually.
+
+S07 has five parts:
+
+1. A review surface for Task_Drafts inside the Meeting detail page (the S06 `meeting-drafts-tab` slot), with inline editing, approval and rejection.
+2. The `ApproveTaskDraft` action, which creates exactly one Task per Task_Draft, safely under repeated or concurrent requests.
+3. Task execution: Task list, Task detail, My Tasks, status transitions per decision D15, comments, reassignment and manual creation.
+4. Integration with the Issue lifecycle: approving the first Task moves the Issue to `action_in_progress`, and finishing the linked Tasks moves it toward `monitoring`. Task completion never resolves an Issue.
+5. Real bindings for the contracts that S04 and S05 left with null defaults: `IssueTaskStateReader` and `TaskMetricsReader`.
+
+This is a planning pass. The document contains requirements only. Design and implementation are separate steps.
+
+### What S07 introduces
+
+- Tables: `tasks` and `task_comments` (columns per `docs/data-model.md`, plus the changes in assumptions A2 and A3). The foreign key constraint from `task_drafts.task_id` to `tasks.id`. One nullable column on `task_drafts`: `rejection_reason`.
+- Actions and services: `ApproveTaskDraft`, `RejectTaskDraft`, `UpdateTaskDraft`, `CreateTask`, `ChangeTaskStatus`, `ReassignTask`, `AddTaskComment`, `TaskStatusMachine`, `OverdueCondition`.
+- Contract bindings: `EloquentIssueTaskStateReader` replaces S04's `NullIssueTaskStateReader`. `EloquentTaskMetricsReader` replaces S05's `NullTaskMetricsReader`. A `MeetingDraftsTabProvider` binding and the registered Vue component for the S06 slot.
+- Pages and endpoints: Task list, My Tasks, Task detail, manual Task creation form, and the draft review tab on Meeting detail.
+- A linked-tasks panel on the Issue detail page through S04's `IssuePanelProvider` (slot key `tasks`).
+- Notification: `TaskAssignedNotification`, stored in the Laravel `notifications` table and shown in the S04 bell feed.
+- Events: `TaskDraftApproved`, `TaskDraftRejected`, `TaskAssigned`, `TaskStatusChanged`, `TaskCommentAdded`, `TaskCompleted`.
+
+### Dependencies
+
+- S01: `AppShell`, `PageHeader`, `EmptyState`, `ErrorState`, `StatusBadge`, toast helper, `BusinessClock::today()`, database queue.
+- S02: `Company`, `Department`, `User`, roles, policies, department scoping, the `ScopedToDepartment` scope.
+- S04: `Issue`, `IssueLifecycle::markActionInProgress`, `IssueLifecycle::markMonitoringIfTasksComplete`, the `IssueTaskStateReader` contract, `IssueEvidence`, `IssuePanelProvider` and `IssuePanelRegistry`, the notification bell feed.
+- S05: the `TaskMetricsReader` contract and `TaskScope` value object.
+- S06: `meetings`, `meeting_issues`, `task_drafts`, `AssigneeResolver` and `DeadlineResolver` outputs stored on drafts, the `MeetingDraftsTabProvider` contract, and the registration function `registerMeetingDraftsTab`.
+- Consumers: S08 (activity recording from the S07 events, and Task completion as input to outcome verification), S09 (demo fixtures and seeded Tasks).
+
+### Assumptions
+
+- A1. Tasks belong to one department, taken from the Meeting or Issue they come from, or chosen on manual creation. In Stage 1 the only department is Sales.
+- A2. `tasks` columns follow `docs/data-model.md`: `department_id`, `task_draft_id` (nullable, unique), `meeting_id` (nullable), `issue_id` (nullable), `title`, `description`, `assignee_id`, `assigned_by`, `due_date`, `status`, `completed_at`. `tasks.title` allows 150 characters and `tasks.description` allows 2,000 characters. `task_comments` has `task_id`, `user_id`, `body`.
+- A3. S06 created `task_drafts.task_id` as a nullable unique `bigint` without a foreign key (S06 assumption A3). The S07 migration creates `tasks` first, then adds the foreign key. The S07 rollback drops the constraint before dropping `tasks`.
+- A4. `docs/data-model.md` has no place for a rejection reason. S07 adds a nullable `task_drafts.rejection_reason` (up to 500 characters). The data model document is updated when this spec is implemented.
+- A5. Due date rule (decision). A Task due date must be on or after both the Meeting date and `BusinessClock::today()`. There is no override. Rationale: the simplest rule that blocks both stale deadlines and impossible ones, and any wanted earlier date can be set by editing the deadline. In the demo, `DEMO_FIXED_DATE` equals the Meeting date, so resolved demo deadlines pass.
+- A6. Blocked status (decision). Setting a Task to `blocked` does not require a comment. The UI suggests adding one. This is the simplest option and D15 does not require a note.
+- A7. Reassignment (decision). Owner and Manager can reassign a Task that is `pending`, `in_progress` or `blocked`. Reassignment keeps the status, the due date and the comments. The new assignee gets an assignment notification.
+- A8. Manual creation (decision). Owner and Manager can create a Task without a Task_Draft. The form is minimal: title, description, assignee, due date, optional Issue, optional Meeting. Manual Tasks have `task_draft_id = null`.
+- A9. The assignee list for a department is the active users of that department with role `staff` or `manager`, the same Allowed_Staff_List that S06 uses. The Owner is not assignable in Stage 1. The user interface calls these users employees.
+- A10. Resolution values after human selection. When an Actor chooses an assignee for a draft whose `assignee_resolution` is `ambiguous`, `unmatched` or `none`, S07 sets `assignee_resolution = 'resolved'`. When an Actor chooses a deadline for a draft whose `deadline_resolution` is `ambiguous` or `none`, S07 sets `deadline_resolution = 'resolved'`. This satisfies the S06 constraints that "resolved" implies a stored value.
+- A11. Staff access follows D23. Staff can see and work on only their own Tasks, comment on them, and read a read-only summary of the linked Meeting decision excerpt and the linked Issue summary. Staff cannot open Issue or Meeting pages.
+- A12. Notification scope. S07 sends one notification type, assignment. Due-soon reminders, overdue alerts and escalation are Stage 2. No email is sent.
+- A13. A Manager who approves a draft assigned to the Manager's own user does not receive a notification about the Manager's own action.
+- A14. Comments cannot be edited or deleted in Stage 1.
+- A15. Editing a Task's title, description, due date or linked Issue after approval is not supported in Stage 1, except reassignment (A7). A Manager who needs a different Task cancels it and creates a new one. This keeps the approval audit trail simple.
+- A16. After an Issue has moved from `action_in_progress` to `monitoring`, reopening a completed Task or adding a Task does not move the Issue back. S04's transition table has no such backward transition, and S07 does not add one.
+- A17. No automated test suite is included (`verification.md` steering). Correctness is checked with fixtures, the authorization matrix and manual scenarios.
+- A18. Kanban boards, subtasks, recurring Tasks, attachments, time tracking, reminders and escalation are Stage 2 and excluded (`scope-control.md` steering).
+
+## Glossary
+
+- **Application**: The BusinessPulse Laravel and Inertia application.
+- **Actor**: The authenticated user performing an action.
+- **Owner**: A user with the `owner` role. Company-wide access.
+- **Manager**: A user with the `manager` role. Access limited to the Manager's own department.
+- **Staff**: A user with the `staff` role. Access limited to the Staff user's own Tasks.
+- **Reviewer**: An Owner, or a Manager of the department that owns the Meeting or Task.
+- **Task_Draft**: A row in `task_drafts`, produced by S06. Statuses: `pending`, `approved`, `rejected`, `superseded`.
+- **Task**: A row in `tasks`. Statuses: `pending`, `in_progress`, `blocked`, `completed`, `cancelled`.
+- **Open_Task**: A Task with status `pending`, `in_progress` or `blocked`.
+- **Assignee**: The user in `tasks.assignee_id`.
+- **Allowed_Assignee_List**: The active users of a department with role `staff` or `manager` (assumption A9).
+- **Draft_Review_Tab**: The S07 component rendered inside the S06 `meeting-drafts-tab` slot of the Meeting detail page.
+- **Approve_Action**: The `ApproveTaskDraft` action.
+- **Task_Status_Machine**: The `TaskStatusMachine` service that holds the allowed Task status transitions and is the only code that writes `tasks.status`.
+- **Overdue_Condition**: A Task is overdue when `due_date < BusinessClock::today()` and the status is not `completed` and not `cancelled`. The value is computed and never stored.
+- **Business_Today**: The date returned by `BusinessClock::today()`.
+- **Linked_Issue**: The Issue in `tasks.issue_id`.
+- **Meeting_Issue_Set**: The Issues linked to a Meeting through `meeting_issues`.
+- **Issue_Lifecycle**: The S04 `IssueLifecycle` service.
+- **Task_Metrics_Reader**: The S05 `TaskMetricsReader` contract.
+- **Issue_Task_State_Reader**: The S04 `IssueTaskStateReader` contract.
+- **Assignment_Notification**: A Laravel database notification of type `TaskAssignedNotification`.
+- **Task_Event**: One of `TaskDraftApproved`, `TaskDraftRejected`, `TaskAssigned`, `TaskStatusChanged`, `TaskCommentAdded`, `TaskCompleted`.
+- **Panel_Provider**: An implementation of S04's `IssuePanelProvider`.
+
+## Requirements
+
+### Requirement 1: Draft review tab inside Meeting detail
+
+**User Story:** As a Manager, I want to see the Task_Drafts extracted from a meeting beside the transcript and decisions, so that I can review them in the context of what was said.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL render the Draft_Review_Tab in the S06 `meeting-drafts-tab` slot by calling `registerMeetingDraftsTab` once and by binding `MeetingDraftsTabProvider`.
+2. WHEN a Reviewer opens the Draft_Review_Tab, THE Application SHALL list the Task_Drafts of the Meeting whose status is `pending`, ordered by `id`.
+3. WHEN a Reviewer opens the Draft_Review_Tab, THE Application SHALL list approved and rejected Task_Drafts in a separate section below the pending list, ordered by `reviewed_at` descending.
+4. THE Application SHALL NOT list Task_Drafts with status `superseded` in the Draft_Review_Tab, and SHALL show their count.
+5. THE Application SHALL display for each Task_Draft the suggested title, description, Assignee, deadline, linked Issue, the transcript excerpt, and the resolution state of the assignee and the deadline (`resolved`, `ambiguous`, `unmatched`, `none`).
+6. WHERE a Task_Draft has `assignee_resolution` of `ambiguous`, THE Application SHALL display the text "Several employees match this name. Choose one." and the original suggested name.
+7. WHERE a Task_Draft has `assignee_resolution` of `unmatched` or `none`, or `deadline_resolution` of `ambiguous` or `none`, THE Application SHALL display a message naming the field that needs a choice.
+8. THE Application SHALL display the label "AI generated, review before use" on every pending Task_Draft.
+9. WHEN the Meeting has no pending Task_Drafts, THE Application SHALL display an empty state that states whether drafts were approved, rejected, or never extracted.
+10. WHEN a Staff user requests the Draft_Review_Tab or any draft route, THE Application SHALL return 403.
+11. WHERE the Meeting has exactly one Issue in the Meeting_Issue_Set and a pending Task_Draft has no `issue_id`, THE Draft_Review_Tab SHALL pre-fill the Issue field of that Task_Draft with that Issue as a visible form default.
+12. WHERE the Meeting has two or more Issues in the Meeting_Issue_Set, THE Draft_Review_Tab SHALL leave the Issue field empty until the Reviewer chooses one.
+
+### Requirement 2: Edit a Task_Draft
+
+**User Story:** As a Manager, I want to correct the title, description, assignee, deadline and Issue of a draft, so that the Task I approve is right.
+
+#### Acceptance Criteria
+
+1. WHEN a Reviewer submits an edit for a pending Task_Draft, THE Application SHALL validate the fields and store the changes on the Task_Draft.
+2. THE Application SHALL accept a title of 1 to 150 characters after trimming whitespace.
+3. THE Application SHALL accept a description of 0 to 2,000 characters.
+4. WHERE a user interface field offers an assignee, THE Application SHALL offer only the Allowed_Assignee_List of the Meeting's department.
+5. IF a submitted assignee is not in the Allowed_Assignee_List of the Meeting's department, THEN THE Application SHALL reject the request with a field error and leave the Task_Draft unchanged.
+6. WHEN a Reviewer selects an assignee, THE Application SHALL set `assignee_id` and set `assignee_resolution` to `resolved` (assumption A10).
+7. WHEN a Reviewer clears the assignee, THE Application SHALL set `assignee_id` to null and set `assignee_resolution` to `none`.
+8. WHEN a Reviewer selects a deadline, THE Application SHALL set `due_date` and set `deadline_resolution` to `resolved`.
+9. WHEN a Reviewer clears the deadline, THE Application SHALL set `due_date` to null and set `deadline_resolution` to `none`.
+10. THE Application SHALL preserve `suggested_assignee_name`, `suggested_due_date_text`, `suggested_due_date` and `transcript_excerpt` unchanged on every edit.
+11. WHERE a Reviewer sets an Issue on a Task_Draft, THE Application SHALL accept only an Issue that belongs to the Meeting_Issue_Set.
+12. IF a submitted Issue is not in the Meeting_Issue_Set, THEN THE Application SHALL reject the request with a field error and leave `issue_id` unchanged.
+13. WHEN a Reviewer clears the Issue, THE Application SHALL set `issue_id` to null.
+14. IF a Task_Draft status is not `pending`, THEN THE Application SHALL reject an edit request with a 422 response and leave the Task_Draft unchanged.
+15. WHEN a Reviewer edits a Task_Draft, THE Application SHALL NOT change `status`, `reviewed_by`, `reviewed_at`, `task_id` or `extraction_run`.
+16. THE Application SHALL derive the Task_Draft from the route and SHALL ignore any `meeting_id` or `task_id` value in the request body.
+
+### Requirement 3: Approval preconditions and validation
+
+**User Story:** As a Manager, I want approval to be blocked while a person or a date is missing, so that every Task has an owner and a deadline.
+
+#### Acceptance Criteria
+
+1. WHILE a Task_Draft has no `assignee_id`, THE Draft_Review_Tab SHALL disable the Approve control and SHALL display the reason.
+2. WHILE a Task_Draft has no `due_date`, THE Draft_Review_Tab SHALL disable the Approve control and SHALL display the reason.
+3. WHILE a Task_Draft title is empty after trimming, THE Draft_Review_Tab SHALL disable the Approve control.
+4. IF an approval request is received for a Task_Draft that has no `assignee_id`, THEN THE Approve_Action SHALL reject the request with a 422 response that names `assignee_id`, and SHALL create no Task.
+5. IF an approval request is received for a Task_Draft that has no `due_date`, THEN THE Approve_Action SHALL reject the request with a 422 response that names `due_date`, and SHALL create no Task.
+6. IF the Assignee is not an active user of the Meeting's department with role `staff` or `manager` at approval time, THEN THE Approve_Action SHALL reject the request with a 422 response that names `assignee_id`, and SHALL create no Task.
+7. IF the due date is earlier than the Meeting date, THEN THE Approve_Action SHALL reject the request with a 422 response that names `due_date`, and SHALL create no Task.
+8. IF the due date is earlier than Business_Today, THEN THE Approve_Action SHALL reject the request with a 422 response that names `due_date`, and SHALL create no Task.
+9. WHERE the Task_Draft has an `issue_id`, THE Approve_Action SHALL verify that the Issue belongs to the Meeting_Issue_Set and, IF it does not, THEN THE Approve_Action SHALL reject the request with a 422 response that names `issue_id`.
+10. THE Approve_Action SHALL perform every check in this requirement on the server, regardless of the state of the interface controls.
+11. THE Approve_Action SHALL perform the checks against the values stored on the Task_Draft after applying any edits in the same request.
+12. WHEN the due date equals Business_Today, THE Approve_Action SHALL accept it.
+
+### Requirement 4: Approve a Task_Draft
+
+**User Story:** As a Manager, I want one click to turn a reviewed draft into an assigned Task, so that follow-up work starts.
+
+#### Acceptance Criteria
+
+1. WHEN a Reviewer approves a pending Task_Draft that passes Requirement 3, THE Approve_Action SHALL create exactly one Task in a database transaction.
+2. WHEN the Approve_Action creates a Task, THE Approve_Action SHALL set `title`, `description`, `assignee_id`, `due_date`, `meeting_id`, `issue_id`, `department_id` and `task_draft_id` from the Task_Draft and the Meeting, set `assigned_by` to the Actor, and set `status` to `pending`.
+3. WHEN the Approve_Action creates a Task, THE Approve_Action SHALL set the Task_Draft `status` to `approved`, `task_id` to the new Task, `reviewed_by` to the Actor and `reviewed_at` to the current time, in the same transaction.
+4. THE Approve_Action SHALL lock the Task_Draft row with `SELECT ... FOR UPDATE` before it reads the Task_Draft status.
+5. THE Application SHALL enforce a unique constraint on `tasks.task_draft_id` and a unique constraint on `task_drafts.task_id`.
+6. WHEN an approval request is received for a Task_Draft whose status is already `approved`, THE Approve_Action SHALL return the existing Task, SHALL create no second Task, SHALL send no second notification, SHALL dispatch no Task_Event, and SHALL return a success response.
+7. WHEN two approval requests for the same Task_Draft run at the same time, THE Approve_Action SHALL create one Task and return the same Task to both requests.
+8. IF an approval request is received for a Task_Draft whose status is `rejected` or `superseded`, THEN THE Approve_Action SHALL reject the request with a 422 response and create no Task.
+9. IF the transaction fails for any reason, THEN THE Approve_Action SHALL leave the Task_Draft and the tasks table unchanged, and SHALL send no notification and dispatch no Task_Event.
+10. THE Application SHALL accept an approval only from an Owner, or from a Manager whose department equals the Meeting's department.
+11. IF a Manager requests approval of a Task_Draft of another department, THEN THE Application SHALL return 404.
+12. IF a Staff user requests approval, THEN THE Application SHALL return 403.
+13. THE Approve_Action SHALL NOT call any AI provider and SHALL NOT read the transcript text.
+14. THE Approve_Action SHALL derive the Task_Draft from the route and SHALL ignore any `task_draft_id`, `status`, `assigned_by`, `reviewed_by` or `department_id` in the request body.
+15. WHEN the Approve_Action completes, THE Application SHALL return the Reviewer to the Draft_Review_Tab with a toast "Task created and assigned to {Assignee name}".
+
+### Requirement 5: Issue lifecycle effects of approval
+
+**User Story:** As an Owner, I want an Issue to show that action has started when its first Task is approved, so that the Issue status reflects reality.
+
+#### Acceptance Criteria
+
+1. WHEN the Approve_Action creates a Task that has an `issue_id`, THE Approve_Action SHALL call `IssueLifecycle::markActionInProgress` for that Issue after the transaction commits.
+2. IF the Issue is already in `action_in_progress`, `monitoring` or `resolved`, THEN THE Application SHALL leave the Issue status unchanged and SHALL create the Task anyway.
+3. IF `IssueLifecycle::markActionInProgress` throws `IssueTransitionNotAllowedException`, THEN THE Application SHALL keep the created Task and SHALL record no error to the Actor.
+4. WHEN a Task_Draft has no `issue_id`, THE Approve_Action SHALL NOT call `IssueLifecycle`.
+5. WHEN the Approve_Action sets `issue_id` on the Task, THE Approve_Action SHALL also store the same `issue_id` on the Task_Draft.
+6. THE Approve_Action SHALL use only the `issue_id` that the Reviewer submitted explicitly, including a value pre-filled under Requirement 1.11, and SHALL NOT fill in an `issue_id` on the server.
+
+### Requirement 6: Assignment notification
+
+**User Story:** As an employee, I want to be told when a Task is assigned to me, so that I know what I am accountable for.
+
+#### Acceptance Criteria
+
+1. WHEN a Task is created with an Assignee other than the Actor, THE Application SHALL send one Assignment_Notification to the Assignee in the same transaction as the Task creation.
+2. THE Application SHALL store in the Assignment_Notification `data` the keys `dedupe_key`, `task_id`, `title`, `due_date`, `assigned_by_name`, `department_name` and `url`.
+3. THE Application SHALL set the `dedupe_key` to `task_assigned:{task_id}:{assignee_id}`.
+4. IF a notification with the same `dedupe_key` already exists for the Assignee, THEN THE Application SHALL NOT create a second one.
+5. WHEN the Assignee equals the Actor, THE Application SHALL NOT send an Assignment_Notification (assumption A13).
+6. THE Application SHALL show the Assignment_Notification in the S04 bell feed, with a link to the Task detail page.
+7. THE Application SHALL NOT send email or any notification outside the Application.
+8. THE Application SHALL NOT include transcript text, Issue evidence figures or Provider data in an Assignment_Notification.
+9. WHEN the Approve_Action creates a Task, THE Approve_Action SHALL insert the Assignment_Notification inside the approval transaction as the last step before commit, so that a rollback removes the notification together with the Task.
+10. THE Application SHALL dispatch Task_Events and call `IssueLifecycle` only after the transaction commits.
+
+### Requirement 7: Reject a Task_Draft
+
+**User Story:** As a Manager, I want to reject a draft with an optional reason, so that the AI suggestion is closed out.
+
+#### Acceptance Criteria
+
+1. WHEN a Reviewer rejects a pending Task_Draft, THE Application SHALL set the status to `rejected`, `reviewed_by` to the Actor and `reviewed_at` to the current time, and SHALL create no Task.
+2. WHERE the Reviewer supplies a reason, THE Application SHALL store it in `rejection_reason` after trimming whitespace.
+3. THE Application SHALL accept a reason of 0 to 500 characters.
+4. WHEN a rejection request is received for a Task_Draft whose status is already `rejected`, THE Application SHALL return a success response and change nothing.
+5. IF a rejection request is received for a Task_Draft whose status is `approved` or `superseded`, THEN THE Application SHALL reject the request with a 422 response.
+6. THE Application SHALL lock the Task_Draft row before it reads the status during rejection.
+7. THE Application SHALL accept a rejection only from an Owner, or from a Manager of the Meeting's department. Another department returns 404 and Staff returns 403.
+8. THE Application SHALL keep rejected Task_Drafts and SHALL NOT delete them.
+
+### Requirement 8: Manual Task creation
+
+**User Story:** As a Manager, I want to add a Task that the meeting extraction missed, so that all follow-up work is in one place.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL provide a Task creation form to Owner and Manager.
+2. WHEN a Reviewer submits the form with valid values, THE Application SHALL create a Task with `status = pending`, `assigned_by` set to the Actor and `task_draft_id` set to null.
+3. THE Application SHALL require a title of 1 to 150 characters, an Assignee, a department, and a due date.
+4. THE Application SHALL accept a description of 0 to 2,000 characters.
+5. THE Application SHALL set the department from the Manager's department. WHERE the Actor is the Owner, THE Application SHALL require the Owner to choose a department of the Owner's company.
+6. THE Application SHALL accept an Assignee only from the Allowed_Assignee_List of the chosen department.
+7. THE Application SHALL apply the due date rule of Requirement 3.8 and, WHERE a Meeting is chosen, Requirement 3.7.
+8. WHERE the Reviewer chooses an Issue, THE Application SHALL accept only an Issue of the same department within the Actor's scope.
+9. WHERE the Reviewer chooses a Meeting, THE Application SHALL accept only a Meeting of the same department within the Actor's scope.
+10. WHERE the Reviewer chooses both an Issue and a Meeting, THE Application SHALL require the Issue to be in the Meeting_Issue_Set.
+11. WHEN a manually created Task has an Issue, THE Application SHALL call `IssueLifecycle::markActionInProgress` after commit, as in Requirement 5.
+12. WHEN a manually created Task is committed, THE Application SHALL send an Assignment_Notification under Requirement 6 and dispatch `TaskAssigned`.
+13. WHEN the Create route is opened with a query parameter `issue` or `meeting`, THE Application SHALL preselect that value only when it is in the Actor's scope.
+14. THE Application SHALL protect the create endpoint against double submission, so that two identical requests within 5 seconds from the same user for the same title, Assignee and due date create one Task.
+15. IF a Staff user requests the create route, THEN THE Application SHALL return 403.
+
+### Requirement 9: Task list
+
+**User Story:** As a Manager, I want a filterable list of Tasks, so that I can see who owes what.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL provide a Task list page to Owner and Manager.
+2. WHERE the Actor is the Owner, THE Application SHALL list Tasks of the whole company.
+3. WHERE the Actor is a Manager, THE Application SHALL list only Tasks of the Manager's department.
+4. THE Application SHALL provide filters for status, Assignee, Issue, department, and an Overdue filter.
+5. WHERE the Actor is a Manager, THE Application SHALL hide the department filter.
+6. WHEN the Overdue filter is on, THE Application SHALL list only Tasks that meet the Overdue_Condition.
+7. THE Application SHALL display for each Task the title, Assignee, department, due date, status, an overdue indicator and the Linked_Issue title.
+8. THE Application SHALL sort the Task list by overdue Tasks first, then by due date ascending, then by `id` descending, and SHALL paginate 15 per page.
+9. THE Application SHALL keep the filter values in the query string.
+10. WHEN no Task matches, THE Application SHALL display an empty state with a "Create task" action.
+11. IF a filter value refers to a record outside the Actor's scope, THEN THE Application SHALL ignore it and apply no filter for that field.
+12. THE Application SHALL display skeleton rows while loading and an error state with a retry action on failure.
+13. IF a Staff user requests the Task list, THEN THE Application SHALL return 403.
+
+### Requirement 10: My Tasks
+
+**User Story:** As an employee, I want one page with my Tasks, so that I can see what to do next.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL provide a My Tasks page to every active user that lists only Tasks whose `assignee_id` is the Actor.
+2. WHEN a Staff user signs in, THE Application SHALL redirect the Staff user to My Tasks as the default landing page.
+3. THE Application SHALL group My Tasks into Overdue, Open and Completed sections, and SHALL show cancelled Tasks only under a "Show cancelled" toggle.
+4. THE Application SHALL provide a status filter on My Tasks.
+5. THE Application SHALL provide one-step status controls on each My Tasks row, limited to the transitions allowed for the Actor by Requirement 12.
+6. WHEN the Actor has no Task, THE Application SHALL display the empty state "No tasks assigned to you".
+7. WHEN the Actor is an Owner or a Manager, THE Application SHALL also show My Tasks in the navigation, and SHALL list only Tasks assigned to that Actor.
+8. THE Application SHALL display a summary row of open count and overdue count that matches the values from `EloquentTaskMetricsReader` for the Actor.
+
+### Requirement 11: Task detail
+
+**User Story:** As an assignee or a Manager, I want to see everything about a Task in one place, so that I understand what is asked and why.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL display on the Task detail page the title, description, Assignee, assigned by, department, due date, status, `created_at`, `updated_at` and `completed_at`.
+2. WHERE the Task meets the Overdue_Condition, THE Application SHALL display an overdue indicator that shows the number of days overdue.
+3. WHERE the Task has a Meeting and a Task_Draft, THE Application SHALL display the Meeting title, the Meeting date and the transcript excerpt of the Task_Draft.
+4. WHERE the Task has a Meeting, THE Application SHALL display the Decisions of that Meeting only to Owner and Manager, and SHALL display the single transcript excerpt of the Task_Draft to Staff.
+5. WHERE the Task has a Linked_Issue, THE Application SHALL display the Issue title, severity, status and the evidence snapshot read through `IssueEvidence::forIssue`.
+6. THE Application SHALL NOT query `sales_records` to build the Task detail page.
+7. THE Application SHALL link the Linked_Issue and the Meeting only for Owner and Manager. For Staff, THE Application SHALL display the summaries as read-only text (assumption A11).
+8. THE Application SHALL display the comment thread under Requirement 14.
+9. THE Application SHALL display the status actions that the Actor may use under Requirement 12.
+10. THE Application SHALL escape all text through Vue interpolation and SHALL NOT use `v-html`.
+11. IF a Staff user requests a Task whose Assignee is another user, THEN THE Application SHALL return 404.
+12. IF a Manager requests a Task of another department, THEN THE Application SHALL return 404.
+13. THE Application SHALL limit the evidence snapshot shown on the Task detail page, including to Staff, to the rule label and the primary metric name, baseline value and latest value as percentages, and SHALL NOT pass currency amounts, import identifiers or evaluation details to the page.
+
+### Requirement 12: Task status transitions
+
+**User Story:** As an employee, I want to move my Task through its states, so that my progress is visible.
+
+#### Acceptance Criteria
+
+1. THE Task_Status_Machine SHALL allow these transitions and no others: `pending` to `in_progress`, `pending` to `blocked`, `pending` to `completed`, `pending` to `cancelled`, `in_progress` to `blocked`, `in_progress` to `completed`, `in_progress` to `cancelled`, `blocked` to `in_progress`, `blocked` to `cancelled`, `completed` to `in_progress`.
+2. THE Task_Status_Machine SHALL be the only code that writes `tasks.status`.
+3. WHEN the Assignee requests a transition to `in_progress`, `blocked` or `completed` that Requirement 12.1 allows, THE Application SHALL apply it.
+4. WHEN an Owner or a Manager of the Task's department requests an allowed transition, THE Application SHALL apply it.
+5. IF a Staff user requests a transition to `cancelled`, THEN THE Application SHALL reject the request with a 403 response.
+6. IF a Staff user requests the transition `completed` to `in_progress`, THEN THE Application SHALL reject the request with a 403 response.
+7. IF a Staff user requests a transition on a Task whose Assignee is another user, THEN THE Application SHALL return 404.
+8. IF a requested transition is not in Requirement 12.1, THEN THE Application SHALL reject the request with a 422 response that states the current status, and SHALL leave the Task unchanged.
+9. WHEN a Task becomes `completed`, THE Application SHALL set `completed_at` to the current time.
+10. WHEN a Task leaves `completed`, THE Application SHALL set `completed_at` to null.
+11. THE Application SHALL apply each transition with a compare-and-set update of the form `UPDATE tasks SET status = :to WHERE id = :id AND status = :from`.
+12. WHEN the compare-and-set updates no row because another request changed the status first, THEN THE Application SHALL reject the request with a 422 response that states the current status.
+13. WHEN a request asks for the status the Task already has, THE Application SHALL return a success response and change nothing, dispatch no Task_Event and write no history.
+14. WHEN a transition commits, THE Application SHALL dispatch `TaskStatusChanged`, and WHEN the new status is `completed`, THE Application SHALL also dispatch `TaskCompleted`.
+15. THE Application SHALL derive the Task from the route and SHALL ignore any `assignee_id`, `completed_at` or `department_id` in the request body.
+16. THE Application SHALL apply a throttle of 60 status changes per minute per user.
+
+### Requirement 13: Issue lifecycle effects of Task execution
+
+**User Story:** As an Owner, I want an Issue to move to monitoring when its actions are done, so that follow-up measurement can start without manual steps.
+
+#### Acceptance Criteria
+
+1. WHEN a Task with an `issue_id` becomes `completed` or `cancelled`, THE Application SHALL call `IssueLifecycle::markMonitoringIfTasksComplete` for the Linked_Issue after the transaction commits.
+2. THE Application SHALL NOT call `IssueLifecycle::resolveManually`, `IssueLifecycle::resolveVerified` or any other method that resolves an Issue from Task code.
+3. IF `IssueLifecycle::markMonitoringIfTasksComplete` makes no change, THEN THE Application SHALL treat the call as successful.
+4. THE Application SHALL bind `EloquentIssueTaskStateReader` as the `IssueTaskStateReader` implementation, replacing `NullIssueTaskStateReader`.
+5. THE `EloquentIssueTaskStateReader::readyForMonitoring` SHALL return true when the Issue has at least one linked Task with status `completed` and no linked Task with status `pending`, `in_progress` or `blocked`.
+6. THE `EloquentIssueTaskStateReader::readyForMonitoring` SHALL ignore linked Tasks with status `cancelled`.
+7. WHERE an Issue has linked Tasks that are all `cancelled`, THE `EloquentIssueTaskStateReader::readyForMonitoring` SHALL return false.
+8. THE `EloquentIssueTaskStateReader` SHALL read only the `tasks` table and SHALL apply no user scope, because the caller is the system.
+9. WHEN a Task completed earlier is reopened to `in_progress` and its Issue is already `monitoring`, THE Application SHALL leave the Issue status unchanged (assumption A16).
+
+### Requirement 14: Task comments
+
+**User Story:** As an assignee or a Manager, I want to discuss a Task on the Task, so that questions and updates stay with the work.
+
+#### Acceptance Criteria
+
+1. WHEN an Actor who can view a Task submits a comment, THE Application SHALL store it in `task_comments` with `task_id`, `user_id` and `body`.
+2. THE Application SHALL accept a comment body of 1 to 2,000 characters after trimming whitespace.
+3. IF the body is empty after trimming or exceeds 2,000 characters, THEN THE Application SHALL reject the request with a field error and store nothing.
+4. THE Application SHALL allow comments from the Assignee, the Manager of the Task's department and the Owner.
+5. IF a Staff user other than the Assignee requests to comment, THEN THE Application SHALL return 404.
+6. THE Application SHALL store the body as plain text and SHALL display it with Vue text interpolation, preserving line breaks.
+7. THE Application SHALL provide no file attachment on comments.
+8. THE Application SHALL display comments in chronological order with the author name, the author role and the time in the company timezone.
+9. THE Application SHALL allow comments on Tasks in every status, including `completed` and `cancelled`.
+10. WHEN a comment is stored, THE Application SHALL dispatch `TaskCommentAdded`.
+11. THE Application SHALL apply a throttle of 30 comments per minute per user.
+12. THE Application SHALL derive `user_id` from the Actor and SHALL ignore any `user_id` or `task_id` in the request body.
+
+### Requirement 15: Reassignment
+
+**User Story:** As a Manager, I want to move a Task to another employee, so that work continues when someone is unavailable.
+
+#### Acceptance Criteria
+
+1. WHEN an Owner or a Manager of the Task's department selects a new Assignee for an Open_Task, THE Application SHALL set `assignee_id` to the new user and keep the status, the due date and the comments.
+2. THE Application SHALL accept a new Assignee only from the Allowed_Assignee_List of the Task's department.
+3. IF the Task status is `completed` or `cancelled`, THEN THE Application SHALL reject the reassignment with a 422 response.
+4. IF the selected user is already the Assignee, THEN THE Application SHALL return a success response and change nothing.
+5. WHEN a reassignment commits, THE Application SHALL send an Assignment_Notification to the new Assignee under Requirement 6, and SHALL dispatch `TaskAssigned` with the previous Assignee.
+6. THE Application SHALL lock the Task row during reassignment.
+7. IF a Staff user requests reassignment, THEN THE Application SHALL return 403.
+8. THE Application SHALL update `assigned_by` to the Actor on reassignment.
+
+### Requirement 16: Overdue condition and Task metrics
+
+**User Story:** As an Owner, I want the dashboard to show real open and overdue Task counts, so that I see accountability at a glance.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL compute the Overdue_Condition at read time using Business_Today and SHALL NOT store an overdue flag.
+2. THE Application SHALL use one `OverdueCondition` scope for the list filter, the indicator, the My Tasks grouping and the Task_Metrics_Reader.
+3. THE Application SHALL bind `EloquentTaskMetricsReader` as the `TaskMetricsReader` implementation, replacing `NullTaskMetricsReader`.
+4. WHEN `openCount` is requested with a `TaskScope`, THE `EloquentTaskMetricsReader` SHALL return the number of Open_Tasks in that scope as an integer.
+5. WHEN `overdueCount` is requested with a `TaskScope`, THE `EloquentTaskMetricsReader` SHALL return the number of Tasks in that scope that meet the Overdue_Condition as an integer.
+6. WHERE the `TaskScope` names a department, THE `EloquentTaskMetricsReader` SHALL count only Tasks of that department.
+7. WHERE the `TaskScope` names a user, THE `EloquentTaskMetricsReader` SHALL count only Tasks assigned to that user.
+8. WHERE no Tasks match, THE `EloquentTaskMetricsReader` SHALL return 0 and SHALL NOT return null.
+9. THE `EloquentTaskMetricsReader` SHALL use one aggregate query per call and SHALL NOT load Task rows.
+10. THE Application SHALL treat a Task due on Business_Today as not overdue.
+
+### Requirement 17: Linked-tasks panel on Issue detail
+
+**User Story:** As an Owner or Manager, I want to see the Tasks linked to an Issue on the Issue page, so that I can see what was done about it.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL register a Panel_Provider with key `tasks` through S04's `IssuePanelRegistry` and SHALL NOT modify S04 code.
+2. WHEN the Actor is an Owner or a Manager in scope, THE Panel_Provider SHALL return the Tasks whose `issue_id` equals the Issue, ordered by due date ascending, limited to 20.
+3. THE Panel_Provider SHALL return for each Task the id, title, Assignee name, due date, status, overdue flag and the Task detail URL.
+4. THE Panel_Provider SHALL return counts of Tasks by status for the Issue.
+5. WHEN the Issue has no linked Task, THE Panel_Provider SHALL return null so that S04 shows its placeholder.
+6. WHEN the Actor is a Staff user, THE Panel_Provider SHALL return null.
+7. THE Panel_Provider SHALL include a "Create task" URL that carries the `issue` query parameter of Requirement 8.13.
+8. THE Panel_Provider SHALL NOT include comments, descriptions or transcript text in the returned array.
+
+### Requirement 18: Authorization and scoping
+
+**User Story:** As an Owner, I want strict access rules on Tasks, so that employees see only what they need.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL provide `TaskPolicy` and `TaskDraftPolicy`, and SHALL authorize every S07 route through them.
+2. THE Application SHALL authenticate every S07 route and apply the default CSRF protection.
+3. THE Application SHALL scope Task route binding so that Owner sees company Tasks, Manager sees department Tasks and Staff sees only Tasks assigned to the Staff user.
+4. IF a Task or Task_Draft is outside the Actor's scope, THEN THE Application SHALL return 404 before any policy check.
+5. IF the Actor's role is not permitted to perform the action on an in-scope record, THEN THE Application SHALL return 403.
+6. THE Application SHALL read department, Assignee and Task identifiers from the route or from validated fields, and SHALL NOT use identifiers from the request body to select the record to change.
+7. THE Application SHALL apply a throttle of 20 approvals, rejections, edits and reassignments per minute per user, shared across those actions.
+8. WHEN a throttle is exceeded, THE Application SHALL return 429 with a `Retry-After` header.
+9. THE Application SHALL return the same 404 response for a non-existent id and an out-of-scope id.
+10. THE Application SHALL use one Form Request per write endpoint.
+
+### Requirement 19: Events for activity recording
+
+**User Story:** As an Owner, I want Task actions to be announced as events, so that S08 can show an audit trail.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL define the Task_Events in `App\Events\Tasks`, and each SHALL implement `ShouldDispatchAfterCommit`.
+2. THE Application SHALL include in every Task_Event the keys `taskId` (null for `TaskDraftRejected`), `departmentId`, `companyId`, `actorUserId`, `issueId` (nullable), `meetingId` (nullable) and `occurredAt` in UTC.
+3. THE `TaskDraftApproved` event SHALL include `taskDraftId`, `taskId` and `assigneeId`.
+4. THE `TaskDraftRejected` event SHALL include `taskDraftId` and a boolean `hasReason`.
+5. THE `TaskAssigned` event SHALL include `assigneeId` and `previousAssigneeId` (nullable), and SHALL be dispatched on approval, manual creation and reassignment.
+6. THE `TaskStatusChanged` event SHALL include `from` and `to`.
+7. THE `TaskCompleted` event SHALL include `assigneeId` and `completedAt`.
+8. THE `TaskCommentAdded` event SHALL include `commentId` and `authorUserId`.
+9. THE Application SHALL NOT include transcript text, comment text, Task descriptions, rejection reasons or file paths in any Task_Event.
+10. THE Application SHALL NOT write any `activity_logs` row from S07 code.
+11. THE Application SHALL dispatch each Task_Event once per committed change, and SHALL dispatch none for idempotent repeats (Requirements 4.6, 7.4, 12.13, 15.4).
+
+### Requirement 20: Data model and migrations
+
+**User Story:** As a developer, I want the schema to enforce the rules, so that bad data cannot be stored.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL create the `tasks` table with the columns of assumption A2, `created_at` and `updated_at`.
+2. THE Application SHALL create `tasks.assignee_id` and `tasks.assigned_by` as foreign keys to `users`, `tasks.department_id` as a foreign key to `departments`, `tasks.meeting_id` as a foreign key to `meetings` with restrict on delete, and `tasks.issue_id` as a foreign key to `issues` with restrict on delete.
+3. THE Application SHALL create a unique constraint on `tasks.task_draft_id`, and a foreign key from it to `task_drafts` with restrict on delete.
+4. THE Application SHALL add the foreign key `task_drafts.task_id` to `tasks.id` with restrict on delete, after the `tasks` table exists.
+5. THE Application SHALL create check constraints: `status IN ('pending','in_progress','blocked','completed','cancelled')`, and `(status = 'completed') = (completed_at IS NOT NULL)`.
+6. THE Application SHALL create indexes on `(assignee_id, status)`, `issue_id`, `due_date` and `(department_id, status)`.
+7. THE Application SHALL create `task_comments` with a foreign key to `tasks` that cascades on delete, and a foreign key to `users` with restrict on delete, and an index on `(task_id, created_at)`.
+8. THE Application SHALL add the nullable column `task_drafts.rejection_reason` as `varchar(500)`.
+9. THE Application SHALL provide a `down()` method on each migration that rolls back cleanly, and SHALL drop the `task_drafts.task_id` foreign key before dropping `tasks`.
+10. THE Application SHALL update `docs/data-model.md` for `rejection_reason`, the S07 constraints and indexes, and SHALL update `docs/architecture.md` for the S07 bindings, the `tasks` Panel_Provider and the Task_Events.
+
+### Requirement 21: User interface quality and accessibility
+
+**User Story:** As a user, I want the Task screens to be clear and usable on a phone, so that I can update Tasks away from a desk.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL use the S01 components and the design tokens in `docs/ui-ux-design-system.md`.
+2. THE Application SHALL lay out Task list, My Tasks, Task detail and the Draft_Review_Tab in a single column below 768 px, with no horizontal page scroll at 360 px.
+3. THE Application SHALL make every control reachable by keyboard and SHALL show the visible focus style of the design system.
+4. THE Application SHALL show status with a text label in addition to color.
+5. THE Application SHALL show a confirmation dialog before Reject, Cancel task and Reassign, and SHALL NOT show one for Approve.
+6. WHILE an Approve, Reject or status request is in flight, THE Application SHALL disable its control to prevent double submission.
+7. WHEN a request fails with 422, THE Application SHALL show the field error beside the field, or the message in a toast for non-field errors.
+8. THE Application SHALL use plain business wording and SHALL use the term "employee" for the Assignee.
+9. THE Application SHALL format dates in the company timezone and money-free text only, because S07 shows no revenue.
+
+### Requirement 22: Verification and documentation
+
+**User Story:** As a reviewer, I want S07 to be verified against the demo fixtures and the authorization matrix, so that I can trust the handover from meeting to Task.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL pass `php -l`, `composer validate`, Pint, `npm run type-check`, ESLint, Prettier and `npm run build` for the S07 changes.
+2. THE Application SHALL run `php artisan migrate:fresh --seed` and a rollback of the S07 migrations on a scratch database.
+3. THE verification SHALL use the S06 demo meeting fixture and SHALL confirm that approving draft 1 creates a Task for Priya Nair due 2026-10-02 and approving draft 2 creates a Task for Farid Ismail due 2026-10-07.
+4. THE verification SHALL confirm that approval of draft 3 stays blocked until an employee and, for draft 4, an employee and a deadline are chosen.
+5. THE verification SHALL confirm that after the first approval the linked Issue status is `action_in_progress`, and after all linked Tasks are completed the Issue status is `monitoring` and not `resolved`.
+6. THE verification SHALL confirm that two simultaneous approvals of one Task_Draft create one Task and one notification.
+7. THE verification SHALL confirm that a repeated approval returns the same Task id.
+8. THE verification SHALL run the authorization matrix of Owner, Manager (own department), Manager (other department, or a foreign id by direct URL), Staff (own Task), Staff (another user's Task) against every S07 route.
+9. THE verification SHALL confirm that `TaskMetricsReader` open and overdue counts equal the counts shown on the Task list for the same scope, and that the Dashboard no longer shows "Not available yet" for task counts.
+10. THE verification SHALL confirm that a Task due today is not overdue and a Task due yesterday is overdue, using `DEMO_FIXED_DATE`.
+11. THE verification SHALL check Task list, My Tasks, Task detail and the Draft_Review_Tab at 360, 768 and 1280 px, and by keyboard only.
+12. THE Application SHALL report verification results as they are, and passing these checks does not make the Application production-ready.
