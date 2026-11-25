@@ -1,12 +1,14 @@
 <?php
 
+use App\Http\Middleware\EnsureSectionAccess;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleInertiaRequests;
-use App\Support\Navigation;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -17,6 +19,19 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Signed-in users who open the login page go to Today.
+        $middleware->redirectUsersTo(fn () => route('today'));
+
+        $middleware->alias([
+            'active' => EnsureUserIsActive::class,
+            'section.access' => EnsureSectionAccess::class,
+        ]);
+
+        // Check the account and the role before route model binding runs, so a deactivated user or a
+        // wrong role is rejected before any record is resolved.
+        $middleware->prependToPriorityList(before: SubstituteBindings::class, prepend: EnsureSectionAccess::class);
+        $middleware->prependToPriorityList(before: EnsureSectionAccess::class, prepend: EnsureUserIsActive::class);
+
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
@@ -44,11 +59,16 @@ return Application::configure(basePath: dirname(__DIR__))
                 return $response;
             }
 
-            // Exceptions such as unmatched routes bypass the web middleware, so share the shell props here.
-            Inertia::share([
-                'name' => config('app.name'),
-                'navigation' => Navigation::items($request),
-            ]);
+            // Errors raised before the web middleware ran share the guest props here. When the middleware did
+            // run, its shared props (signed-in user, navigation) are kept.
+            if (Inertia::getShared('auth') === null) {
+                Inertia::share([
+                    'name' => config('app.name'),
+                    'auth' => ['user' => null, 'role' => null],
+                    'company' => null,
+                    'navigation' => [],
+                ]);
+            }
 
             return Inertia::render('Error', ['status' => $status])
                 ->toResponse($request)

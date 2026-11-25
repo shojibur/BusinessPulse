@@ -109,3 +109,31 @@ Notes:
 
 ## 12. Automated verification
 Focused Laravel feature tests (Pest or PHPUnit as shipped by the starter kit) on a PostgreSQL test database for business-critical behavior; list and limits in `docs/stage-1-refinements.md` R5. No browser automation or property-based frameworks.
+
+## 13. Access control conventions (S02)
+Rules every later spec follows. Roles are the fixed `App\Enums\Role` values `owner`, `manager`, `staff` (docs/business-workflows.md D23). Wrong role: 403. Record outside the user's department: 404 (existence is never revealed).
+
+- **One policy per model**, in `app/Policies`, auto-discovered by the `{Model}Policy` name. Default deny, and every method denies an inactive user. The trait `App\Policies\Concerns\AuthorizesByDepartment` provides `sameDepartment($user, $departmentId)`.
+- **No blanket Owner `before()` hook.** Each policy method states who may act, so department-scoped Manager rules are never bypassed by a shortcut.
+- **Controllers** authorize (`Gate::authorize`) then validate (Form Request) then call an Action or Service. Navigation visibility is display only and never authorization. `config/navigation.php` lists the roles per section, and the `section.access` middleware returns 403 for sections a role does not see.
+- **Middleware order:** `auth`, `active` (ends the session of a deactivated user), `section.access` run before route model binding (`prependToPriorityList` in `bootstrap/app.php`), so a deactivated user or wrong role is rejected before any record is resolved.
+- **Department scoping:** a model with `company_id` and `department_id` uses `App\Models\Concerns\ScopedToDepartment` and is always queried through `visibleTo($user)`. Owner: rows of the company. Manager and Staff: rows of their own department. Inactive user or no department: no rows. It is an explicit local scope, never a global scope. Staff are further restricted to their own assignments by the spec that owns the model.
+- **Form Requests** validate every request body; secrets are never flashed or redisplayed.
+
+Example for a later spec (S03 imports):
+
+```php
+// app/Models/Import.php
+class Import extends Model { use ScopedToDepartment; }
+
+// app/Providers/AppServiceProvider.php (boot): out-of-scope id => 404
+Route::bind('import', fn (string $id) => Import::visibleTo(request()->user())->findOrFail($id));
+
+// app/Http/Controllers/ImportController.php: in scope but wrong role => 403
+public function show(Import $import) { Gate::authorize('view', $import); /* ... */ }
+
+// Lists
+Import::visibleTo($request->user())->latest()->get();
+```
+
+Settings tabs are listed in `App\Support\SettingsTabs`, filtered by policy. S03 (Import template) and S04 (Rules) add their tab there.

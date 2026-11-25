@@ -1,10 +1,18 @@
 <script setup lang="ts">
-import { Link, usePage } from '@inertiajs/vue3';
-import { Activity, Bell, Menu, User } from '@lucide/vue';
+import { Link, router, usePage } from '@inertiajs/vue3';
+import { Activity, Bell, LogOut, Menu, User } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import ShellNav from '@/components/ShellNav.vue';
 import ToastHost from '@/components/ToastHost.vue';
 import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
     Sheet,
     SheetContent,
@@ -14,6 +22,7 @@ import {
     SheetTrigger,
 } from '@/components/ui/sheet';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { logout } from '@/routes';
 
 const page = usePage();
 
@@ -21,6 +30,18 @@ const page = usePage();
 const navigation = computed(() => page.props.navigation ?? []);
 
 const appName = computed(() => page.props.name);
+
+const user = computed(() => page.props.auth.user);
+
+const roleLabel = computed(() => {
+    const role = user.value?.role;
+
+    return role ? role.charAt(0).toUpperCase() + role.slice(1) : '';
+});
+
+function signOut(): void {
+    router.post(logout().url);
+}
 
 const pageTitle = computed(
     () =>
@@ -128,7 +149,7 @@ watch(
                         </ol>
                     </nav>
 
-                    <!-- Placeholders: no data and no request until notifications and sign-in exist. -->
+                    <!-- The notification bell is a placeholder until notifications exist (later spec). -->
                     <Button
                         variant="ghost"
                         size="icon"
@@ -137,14 +158,35 @@ watch(
                     >
                         <Bell aria-hidden="true" />
                     </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled
-                        aria-label="Account menu (not yet available)"
-                    >
-                        <User aria-hidden="true" />
-                    </Button>
+                    <DropdownMenu v-if="user">
+                        <DropdownMenuTrigger as-child>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                :aria-label="`Account menu for ${user.name}`"
+                            >
+                                <User aria-hidden="true" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" class="w-60">
+                            <DropdownMenuLabel class="font-normal">
+                                <p class="truncate text-sm font-semibold">
+                                    {{ user.name }}
+                                </p>
+                                <p class="text-xs text-muted-foreground">
+                                    {{ roleLabel }}
+                                    <template v-if="user.department">
+                                        · {{ user.department.name }}
+                                    </template>
+                                </p>
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem @select="signOut">
+                                <LogOut aria-hidden="true" />
+                                Sign out
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </header>
 
                 <main

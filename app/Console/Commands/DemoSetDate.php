@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\BusinessClock;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -34,7 +35,13 @@ class DemoSetDate extends Command
             return self::FAILURE;
         }
 
-        Storage::disk('local')->put((string) config('demo.clock_file'), "{$date} {$time}");
+        $written = Storage::disk('local')->put((string) config('demo.clock_file'), "{$date} {$time}");
+
+        if ($written === false) {
+            $this->components->error('Could not write the demo clock file. The demo clock was not changed.');
+
+            return self::FAILURE;
+        }
 
         $this->components->info("Demo clock set to {$date} {$time} ({$this->timezone()}).");
 
@@ -52,6 +59,6 @@ class DemoSetDate extends Command
 
     private function timezone(): string
     {
-        return (string) config('business.timezone');
+        return app(BusinessClock::class)->now()->timezoneName;
     }
 }

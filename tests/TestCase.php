@@ -3,7 +3,7 @@
 namespace Tests;
 
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
-use Laravel\Fortify\Features;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 abstract class TestCase extends BaseTestCase
@@ -12,6 +12,14 @@ abstract class TestCase extends BaseTestCase
      * The only database automated tests may touch. RefreshDatabase wipes it.
      */
     public const TEST_DATABASE = 'businesspulse_testing';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Page responses must not depend on a built frontend (the Vite manifest).
+        $this->withoutVite();
+    }
 
     /**
      * Refuse to boot test traits (which migrate and wipe the database) unless the
@@ -22,6 +30,8 @@ abstract class TestCase extends BaseTestCase
         $default = config('database.default');
         $database = config("database.connections.{$default}.database");
 
+        // Check the configuration first, then ask PostgreSQL which database is really connected, before
+        // any test trait can migrate or wipe it.
         if ($default !== 'pgsql' || $database !== self::TEST_DATABASE) {
             throw new RuntimeException(
                 'Refusing to run tests: they must use the pgsql database ['.self::TEST_DATABASE.'], '
@@ -30,13 +40,15 @@ abstract class TestCase extends BaseTestCase
             );
         }
 
-        return parent::setUpTraits();
-    }
+        $connected = DB::selectOne('select current_database() as name')->name;
 
-    protected function skipUnlessFortifyHas(string $feature, ?string $message = null): void
-    {
-        if (! Features::enabled($feature)) {
-            $this->markTestSkipped($message ?? "Fortify feature [{$feature}] is not enabled.");
+        if ($connected !== self::TEST_DATABASE) {
+            throw new RuntimeException(
+                'Refusing to run tests: PostgreSQL reports the connected database is ['.$connected.'], '
+                .'not ['.self::TEST_DATABASE.'].'
+            );
         }
+
+        return parent::setUpTraits();
     }
 }

@@ -1,29 +1,24 @@
-export type User = {
+export type Role = 'owner' | 'manager' | 'staff';
+
+/** The signed-in user as shared by the server. Only these fields are ever sent. */
+export type AuthUser = {
     id: number;
     name: string;
     email: string;
-    avatar?: string;
-    email_verified_at: string | null;
-    two_factor_enabled?: boolean;
-    created_at: string;
-    updated_at: string;
-    [key: string]: unknown;
+    role: Role;
+    job_title: string | null;
+    department: { id: number; name: string } | null;
 };
 
 export type Auth = {
-    user: User;
+    user: AuthUser | null;
+    role: Role | null;
 };
 
-export type Passkey = {
-    id: number;
+export type CompanyProfile = {
     name: string;
-    authenticator: string | null;
-    created_at_diff: string;
-    last_used_at_diff: string | null;
-};
-
-export type TwoFactorConfigContent = {
-    title: string;
-    description: string;
-    buttonText: string;
+    timezone: string;
+    currency: string;
+    /** ISO weekdays, 1 (Monday) to 7 (Sunday), ascending. */
+    trading_days: number[];
 };

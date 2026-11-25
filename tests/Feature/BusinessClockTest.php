@@ -3,9 +3,6 @@
 use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Storage;
-use Tests\TestCase;
-
-uses(TestCase::class);
 
 beforeEach(function () {
     Storage::fake('local');
@@ -124,3 +121,14 @@ test('demo:set-date rejects invalid input and leaves the file unchanged', functi
     ['2025-09-22', '24:00', '24:00'],
     ['2025-09-22', '9:5', '9:5'],
 ]);
+
+test('demo:set-date reports failure when the clock file cannot be written', function () {
+    config(['demo.mode' => true]);
+    $disk = Mockery::mock();
+    $disk->shouldReceive('put')->once()->andReturn(false);
+    Storage::shouldReceive('disk')->with('local')->andReturn($disk);
+
+    $this->artisan('demo:set-date', ['date' => '2025-09-22'])
+        ->expectsOutputToContain('Could not write the demo clock file')
+        ->assertFailed();
+});

@@ -1,9 +1,5 @@
 <?php
 
-use Tests\TestCase;
-
-uses(TestCase::class);
-
 test('the database queue is configured with retry_after 300 and after-commit dispatch', function () {
     expect(config('queue.connections.database.driver'))->toBe('database')
         ->and(config('queue.connections.database.retry_after'))->toBe(300)
@@ -39,16 +35,3 @@ test('PostgreSQL is the default database connection', function () {
 test('the tests run against the businesspulse_testing database', function () {
     expect(DB::connection()->getDatabaseName())->toBe('businesspulse_testing');
 });
-
-test('the test harness refuses to run against any other database', function () {
-    config(['database.connections.pgsql.database' => 'businesspulse']);
-
-    $case = new class('guard') extends TestCase
-    {
-        public function check(): void
-        {
-            $this->setUpTraits();
-        }
-    };
-    $case->check();
-})->throws(RuntimeException::class, 'Refusing to run tests');

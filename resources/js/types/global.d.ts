@@ -1,5 +1,5 @@
 import type { Directive } from 'vue';
-import type { Auth } from '@/types/auth';
+import type { Auth, CompanyProfile } from '@/types/auth';
 import type { FlashMessage } from '@/types/components';
 import type { NavItem } from '@/types/navigation';
 
@@ -21,6 +21,7 @@ declare module '@inertiajs/core' {
         sharedPageProps: {
             name: string;
             auth: Auth;
+            company: CompanyProfile | null;
             navigation: NavItem[];
             flash: FlashMessage | null;
             [key: string]: unknown;

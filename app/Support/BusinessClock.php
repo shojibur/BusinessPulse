@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Services\CurrentCompany;
 use Carbon\CarbonImmutable;
 use DateTimeZone;
 use Illuminate\Support\Facades\Storage;
@@ -39,7 +40,8 @@ class BusinessClock
 
     private function resolveTimezone(?string $timezone): string
     {
-        $timezone ??= (string) config('business.timezone');
+        // Explicit argument wins, then the company timezone, then the configured default (before a company exists).
+        $timezone ??= app(CurrentCompany::class)->resolve()?->timezone ?? (string) config('business.timezone');
 
         if (! in_array($timezone, DateTimeZone::listIdentifiers(), true)) {
             throw new InvalidArgumentException("Invalid timezone identifier [{$timezone}].");

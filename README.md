@@ -2,7 +2,7 @@
 
 BusinessPulse (Inventa Studio) is a Business Intelligence and Decision Execution Platform: Detect → Understand → Decide → Execute → Verify. This repository is **Stage 1, a functional proof of value**, built as a Laravel 13 + Inertia + Vue 3 modular monolith on PostgreSQL.
 
-Current state: **S01 Application Foundation**. The shell, design system, configuration, queue, BusinessClock and test harness exist. The eight navigation pages are **placeholders** that show no business data; the features behind them arrive in later specifications (`.kiro/specs/`).
+Current state: **S01 Application Foundation and S02 Identity and Access**. Sign-in, the three fixed roles (Owner, Manager, Staff), department scoping, read-only Company, Staff and Department settings, the shell, design system, queue, BusinessClock and test harness exist. The eight navigation pages other than Settings are **placeholders** that show no business data; the features behind them arrive in later specifications (`.kiro/specs/`).
 
 - Docker is not used anywhere. Local development is native.
 - Use fictional data only. Do not load real client data until the client has authorized it.
@@ -54,6 +54,32 @@ The test database is wiped by every test run. The test harness refuses to run un
 php artisan migrate
 ```
 
+## 5a. Create the first Owner (production setup)
+
+There is no registration page. The first company, its Sales department and its Owner are created once with:
+
+```bash
+php artisan identity:create-owner
+```
+
+It prompts for the company name, the Owner's name and email, and a hidden password (at least 12 characters). Options `--company`, `--name`, `--email` and `--password` exist for scripting, but a password on the command line stays in shell history, so prefer the prompt. The command refuses to run if a company already exists. All other accounts are created by the Owner.
+
+## 5b. Demonstration accounts (fictional data)
+
+For a demonstration or local development database only. Set `DEMO_MODE=true` and a `DEMO_PASSWORD` of at least 12 characters in `.env` (never commit it), then:
+
+```bash
+php artisan db:seed --class=DemoIdentitySeeder
+```
+
+This creates Meridian Home Supplies Sdn Bhd (fictional), its Sales department (branches KL, PG, JB) and six users, all on the `meridian.demo` domain and sharing `DEMO_PASSWORD`: `owner@meridian.demo` (Owner), `aisyah@meridian.demo` (Manager), `daniel.tan@`, `daniel.lee@`, `priya@` and `farid@meridian.demo` (Staff). It is safe to run again. It refuses to run unless `DEMO_MODE=true`, if the password is empty or short, or if a real (non-demo) company exists.
+
+## 5c. Passwords and access
+
+- **Password recovery is a manual Owner action.** There is no email reset and no self-service password change in Stage 1. This is an assumption pending client confirmation (S02 A2, A3).
+- A Manager can see the staff of their own department read-only; only the Owner administers accounts (S02 A4, also pending client confirmation).
+- A deactivated user is signed out on their next request.
+
 ## 6. Run the application
 
 ```bash
@@ -86,7 +112,7 @@ Run `php artisan queue:restart` after every deployment.
 
 | Command | Checks |
 |---|---|
-| `composer test` | Clears cached config, then runs the Pest suite on `businesspulse_testing` |
+| `composer test` | Clears cached config, then runs the Pest suite on `businesspulse_testing` (refuses any other database, confirmed with `select current_database()`) |
 | `composer pint-test` | PHP code style (Laravel Pint, test mode); `composer pint` fixes |
 | `npm run type-check` | Generates Wayfinder route types, then `vue-tsc --noEmit` (strict TypeScript) |
 | `npm run lint` | ESLint (no warnings allowed) |
@@ -111,8 +137,8 @@ php artisan demo:set-date 2025-09-22 --time=14:30
 
 - Uploads and generated files use the private `local` disk at `storage/app/private`. No `public/storage` symlink is created and `/storage/*` returns 404. Downloads from the private disk require an authorized streamed response, implemented by later specifications.
 - AI settings live in `config/ai.php` and the environment. No provider call is made in S01. Provider keys stay server-side.
-- **Navigation is not role-filtered in S01.** The full list of eight items is shown to every visitor (`config/navigation.php`). S02 replaces it with role-based visibility filtering; policies, not navigation visibility, enforce authorization.
-- The Laravel starter kit's sign-in screens and `User` model are still present only to keep the build working. They are not BusinessPulse's access control. S02 reshapes them and removes public registration, email recovery and two-factor setup. **Do not deploy this build.**
+- Every application route requires a signed-in, active user. Navigation is filtered by role (Owner and Manager see all eight sections, Staff sees Today and Tasks) but navigation is display only: the server returns 403 for a section a role does not see, and 404 for a record outside the user's department. See `docs/architecture.md` section 13.
+- The Laravel starter kit's Fortify package, registration, email verification, password reset and two-factor features were removed.
 
 ## 10. Documentation
 
