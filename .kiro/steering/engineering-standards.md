@@ -11,4 +11,6 @@ inclusion: always
 - Long operations run in queued jobs: idempotent, unique per record, bounded retries, `failed()` handler.
 - Business logic lives in Services/Actions, not controllers or Vue components. No duplicated calculations.
 - Add dependencies only with a stated need. Document env vars in `.env.example`.
-- No unit/e2e test suites in Stage 1 scope; follow `verification.md`. Absence of tests is not evidence of production readiness.
+- Write focused Laravel feature tests for business-critical behavior (see `verification.md`). No browser automation, property-based frameworks or heavy mocking. Tests do not prove production readiness.
+- No interface without a real dependency-direction need or two implementations. No registries, null-object placeholders, or empty directories. Build shared components when the first consumer needs them.
+- One retry layer for provider calls: the queue job. `retry_after` must exceed the longest job timeout.

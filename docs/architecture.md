@@ -18,7 +18,7 @@ flowchart LR
 Laravel 13, PHP version supported by Laravel 13 (verify in S01; expected 8.3+), Composer, Vue 3 Composition API, TypeScript, Inertia.js, Vite, Tailwind CSS, shadcn-vue, Lucide, Apache ECharts, PostgreSQL. Official Laravel Vue starter kit used where appropriate. **S01 records the verified compatible versions in this file (section 11).** Laravel session auth, database queue, database cache, notifications, private `local` disk.
 
 ## 3. Module boundaries
-Modules are folders, not packages. Cross-module calls go through Actions/Services, never through another module's controllers.
+Modules are folders, not packages. Cross-module calls go through Actions/Services, never through another module's controllers. Later specs extend earlier pages (for example `IssueController::show`) instead of using plugin registries. Events are used for async work and Core activity logging only (`stage-1-refinements.md` R7).
 
 | Module | Responsibility | Key locations |
 |---|---|---|
@@ -54,18 +54,18 @@ Four small classes in `app/Services/AI`: `BriefGenerator`, `MeetingTaskExtractor
 - **Stored locally:** requests status, provider response ids, sanitized errors, generated brief JSON, transcript, task drafts, audio files. API keys never stored or sent to the frontend.
 - **Output contracts:** JSON schema structured outputs, validated server-side (Laravel Validator) before persistence. Invalid output is a failed attempt, not partially saved.
 - **Authoritative figures:** brief items carry `evidence` copied from `rule_evaluations`; the UI renders numbers from structured fields, AI supplies only `title` and `explanation` text. Post-generation check rejects explanation text containing numbers not present in the evidence set (allow-list match); on rejection retry once, then fall back.
-- **Failures:** timeouts 30s text, 120s transcription, 60s speech; 3 attempts with backoff 10/30/60s on 429/5xx/timeouts; then status `failed` with user-visible retry button. Brief falls back to the deterministic summary (`source = fallback`) and is labelled "AI unavailable". Transcription failure offers manual transcript entry.
+- **Failures:** HTTP timeouts 30 s text, 120 s transcription, 60 s speech, single attempt per call; the job retries recoverable errors (timeout, 429, 5xx) 3 times with backoff 10/30/60 s; then status `failed` with a user-visible Retry button. Brief falls back to the deterministic summary (`source = fallback`) and is labelled "AI unavailable". Transcription failure offers manual transcript entry.
 - **Human approval:** AI never assigns tasks, changes rules, or sends notifications. Task drafts become tasks only through `ApproveTaskDraft`.
 - **Prompt-injection:** transcripts are passed as delimited data; system prompt states they are untrusted; output is schema-constrained; assignee ids must belong to the allowed staff list.
 
 ## 7. Background processing
-Database queue, one worker under Supervisor. Jobs: `ProcessImportJob`, `EvaluateRulesJob`, `GenerateBriefJob`, `GenerateBriefAudioJob`, `TranscribeMeetingJob`, `ExtractMeetingTasksJob`. All jobs are idempotent: they load the record, exit if the status is already terminal, use `ShouldBeUnique` keyed by record id, `tries=3`, `backoff`, and `failed()` handlers that set status and sanitized error.
+Database queue with two named queues, `default` and `ai`, and two Supervisor programs. Jobs: `ProcessImportJob`, `EvaluateRulesJob`, `VerifyOutcomesJob` (default); `GenerateBriefJob`, `GenerateBriefAudioJob`, `TranscribeMeetingJob`, `ExtractMeetingTasksJob` (ai). Retries live in the job only (3 tries, backoff 10/30/60 s); `OpenAiClient` makes a single attempt. `retry_after=300`, worker `--timeout=180`, Supervisor `stopwaitsecs=200`. Budget table and rules: `docs/stage-1-refinements.md` R6. Jobs are idempotent: status guards, `ShouldBeUnique` (`uniqueFor` 900 s), `failed()` handlers, `afterCommit` dispatch.
 
 ## 8. Security (summary; see steering/security.md)
 Session auth, CSRF, Form Requests, Policies on every model, department scoping in query scopes, private storage with authorized streaming download, upload validation by extension and MIME and size, throttling on login/uploads/AI endpoints, secrets only in `.env`, log redaction, consent checkbox persisted per meeting, retention command.
 
 ## 9. Deployment architecture
-Single Ubuntu VPS: Nginx → PHP-FPM, PostgreSQL local, Supervisor running `php artisan queue:work --tries=3 --timeout=180`, cron `* * * * * php artisan schedule:run` (retention cleanup), Let's Encrypt HTTPS, `storage/app/private` outside web root, nightly `pg_dump` and file rsync. Deploy by `git pull`, `composer install --no-dev`, `npm ci && npm run build`, `php artisan migrate --force`, cache config/routes/views, `queue:restart`.
+Single Ubuntu VPS: Nginx → PHP-FPM, PostgreSQL local, two Supervisor programs running `php artisan queue:work database --queue=default|ai --timeout=180 --max-time=3600`, cron `* * * * * php artisan schedule:run` (retention cleanup), Let's Encrypt HTTPS, `storage/app/private` outside web root, nightly `pg_dump` and file rsync. Deploy by `git pull`, `composer install --no-dev`, `npm ci && npm run build`, `php artisan migrate --force`, cache config/routes/views, `queue:restart`.
 
 ## 10. Decisions and trade-offs
 | Decision | Why | Trade-off |
@@ -80,3 +80,6 @@ Single Ubuntu VPS: Nginx → PHP-FPM, PostgreSQL local, Supervisor running `php 
 
 ## 11. Verified versions (to be filled by S01)
 PHP: TBD · Laravel: TBD · Node: TBD · PostgreSQL: TBD · Inertia: TBD · Vue: TBD · Tailwind: TBD · shadcn-vue: TBD · ECharts: TBD
+
+## 12. Automated verification
+Focused Laravel feature tests (Pest or PHPUnit as shipped by the starter kit) on a PostgreSQL test database for business-critical behavior; list and limits in `docs/stage-1-refinements.md` R5. No browser automation or property-based frameworks.

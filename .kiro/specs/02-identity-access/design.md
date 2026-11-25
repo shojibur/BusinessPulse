@@ -2,9 +2,11 @@
 
 ## Overview
 
-S02 replaces the S01 placeholder role with real session authentication and access control. It introduces the Identity module: `companies`, `departments`, `users`, the `Role` enum, policies for every model S02 owns, a reusable department-scoping trait (`ScopedToDepartment`) that S03–S08 apply to their own department-scoped tables, role-aware navigation wired to the real signed-in user, Settings pages (Company, Staff, Department), an Owner-bootstrap Artisan command, and an idempotent demonstration seeder.
+S02 adds real session authentication and access control to the S01 foundation. It introduces the Identity module: `companies`, `departments`, `users`, the `Role` enum, policies for every model S02 owns, a reusable department-scoping trait (`ScopedToDepartment`) that S03–S08 apply to their own department-scoped tables, role filtering of the S01 navigation list, read-only Settings pages (Company, Staff, Department) in PoV Core with edit/CRUD forms in PoV Polish, an Owner-bootstrap Artisan command, an idempotent demonstration seeder, and a small set of focused feature tests.
 
-This is a planning design for a single pass: there is no code in this document, no automated test suite is specified (per `.kiro/steering/verification.md`), and open points are resolved as documented assumptions rather than review questions, consistent with `.kiro/steering/scope-control.md`.
+**Tier legend** (`docs/stage-1-refinements.md` R1): `[PoV Core]` is needed for the 22-step demonstration; `[PoV Polish]` is Stage 1 scope built after the Core slice works. Core: login/logout, roles, policies, department scope, tables, demo user seeder, role navigation, read-only Company/Department/Staff display, focused tests. Polish: staff CRUD UI, Manager staff list, password reset UI, company profile edit UI, and safeguards beyond database constraints (reporting-cycle detection, last-Owner and Manager-with-reports checks).
+
+This is a planning design for a single pass: there is no code in this document, verification is a small set of deterministic feature tests on the S01 harness plus manual checks (R5), and open points are resolved as documented assumptions rather than review questions, consistent with `.kiro/steering/scope-control.md`.
 
 S02 introduces no sales data, imports, rules, issues, briefs, meetings, tasks, outcomes, or activity logging (requirements.md A11, Requirement 20.6). It builds only the identity and access-control framework that those specs will depend on.
 
@@ -63,16 +65,17 @@ S02 fills in the "Identity" module row of `docs/architecture.md` §3 and the lef
 | Enums | `Role` | `app/Enums/Role.php` |
 | Policies | `CompanyPolicy`, `DepartmentPolicy`, `UserPolicy`, shared base trait | `app/Policies`, `app/Policies/Concerns/AuthorizesByDepartment.php` |
 | Query scope | `ScopedToDepartment` trait | `app/Models/Concerns/ScopedToDepartment.php` |
-| Actions | `CreateUser`, `UpdateUser`, `DeactivateUser`, `ReactivateUser`, `ResetUserPassword`, `UpdateCompanyProfile` | `app/Actions/Users`, `app/Actions/Company` |
-| Services | `CurrentCompany` | `app/Services/CurrentCompany.php` |
+| Actions [PoV Polish] | `CreateUser`, `UpdateUser`, `DeactivateUser`, `ReactivateUser`, `ResetUserPassword`, `UpdateCompanyProfile` | `app/Actions/Users`, `app/Actions/Company` |
+| Services [PoV Core] | `CurrentCompany` (needed by `BusinessClock` and the shared `company` prop) | `app/Services/CurrentCompany.php` |
 | Middleware | `EnsureUserIsActive` | `app/Http/Middleware/EnsureUserIsActive.php` |
-| Form Requests | `LoginRequest`, `StoreUserRequest`, `UpdateUserRequest`, `ResetUserPasswordRequest`, `UpdateCompanyProfileRequest` | `app/Http/Requests` |
-| Controllers | `AuthenticatedSessionController`, `UserController` (Staff tab), `CompanyController` (Settings), `DepartmentController` (Settings, read-only) | `app/Http/Controllers` |
-| Commands | `identity:create-owner`, `DemoIdentitySeeder` | `app/Console/Commands`, `database/seeders` |
+| Form Requests | [Core] `LoginRequest`. [Polish] `StoreUserRequest`, `UpdateUserRequest`, `ResetUserPasswordRequest`, `UpdateCompanyProfileRequest` | `app/Http/Requests` |
+| Controllers | [Core] `AuthenticatedSessionController`; read-only `index`/`show` of `UserController` (Owner Staff list), `CompanyController`, `DepartmentController`. [Polish] write actions of `UserController` and `CompanyController`, Manager staff list | `app/Http/Controllers` |
+| Commands [PoV Core] | `identity:create-owner`, `DemoIdentitySeeder` | `app/Console/Commands`, `database/seeders` |
 | Shared Inertia contract | `auth.user`, `auth.role`, `company` | `app/Http/Middleware/HandleInertiaRequests.php` (extends S01's) |
 | Frontend types | `AuthUser`, `CompanyProfile`, `Role` | `resources/js/types` |
-| Pages | Login, Settings (Company/Staff/Department tabs) | `resources/js/pages/auth`, `resources/js/pages/settings` |
-| Changes to S01 | Remove `FOUNDATION_PLACEHOLDER_ROLE`; `BusinessClock` reads company timezone | `app/Support/BusinessClock.php`, `config/business.php`, `.env.example`, README |
+| Pages | [Core] Login, Settings with read-only Company/Staff/Department tabs. [Polish] Staff and Company forms | `resources/js/pages/auth`, `resources/js/pages/settings` |
+| Tests [PoV Core] | Feature tests: department scope, 404/403, deactivated login, seeder | `tests/Feature/Identity` |
+| Changes to S01 | S01 navigation list gains role filtering; `BusinessClock` reads company timezone | navigation config and `HandleInertiaRequests`, `app/Support/BusinessClock.php` |
 
 No `app/Services/AI`, `app/Services/Imports`, `app/Services/Intelligence`, `app/Jobs`, or business-module controllers are authored in S02 (Requirement 20.6).
 
@@ -85,12 +88,12 @@ No `app/Services/AI`, `app/Services/Imports`, `app/Services/Intelligence`, `app/
 - No other code path constructs a role value outside this enum (Requirement 2.4); Form Requests validate against `Role::values()`.
 
 **`App\Models\Company`**
-- Fields: `name`, `timezone`, `currency`, `trading_days` (cast to array, normalized sorted on save per Requirement 10.8/10.12), `is_demo`, `recording_retention_days`.
+- Fields: `name`, `timezone`, `currency`, `trading_days` (cast to array, normalized sorted on save per Requirement 10.8/10.12), `reporting_cutoff_time` (`HH:MM`), `reporting_cutoff_lag_days` (integer), `is_demo`, `recording_retention_days`. The calendar fields are stored here and interpreted by S03/S04 (R2).
 - Relationships: `hasMany(Department::class)`, `hasMany(User::class)`.
 - `trading_days` cast via a custom cast or mutator that sorts and de-duplicates on set, satisfying the round-trip property in Requirement 10.12.
 
 **`App\Models\Department`**
-- Fields: `company_id`, `name`, `slug`.
+- Fields: `company_id`, `name`, `slug`, `settings` (JSONB cast to array, default `{}`). `settings.expected_branches` is a string array (accessor `expectedBranches()` returns `[]` when absent). S02 creates the column; S03 only reads and (Polish) edits it; `intelligence.last_evaluated_at` is written by S04.
 - Relationships: `belongsTo(Company::class)`, `hasMany(User::class)`.
 - Unique constraint `(company_id, slug)` enforced at the database level (Requirement 1.3); no application code creates, renames, or deletes departments beyond the two commands in Requirement 11.6.
 
@@ -140,6 +143,7 @@ trait ScopedToDepartment
 **`BusinessClock` changes (extends S01)**
 - `today()`/`now()` without an explicit timezone argument now resolve `CurrentCompany::resolve()->timezone` when a Company row exists, falling back to `config('business.timezone')` when none exists yet (Requirement 16.1–16.2) — relevant only before `identity:create-owner` has run.
 - An explicit timezone argument still overrides both (Requirement 16.3, unchanged from S01).
+- The demo date and time keep coming only from S01's demo clock file written by `demo:set-date`; S02 adds no other override (Requirement 16.5).
 - No restart is required after the Owner changes the timezone because `CurrentCompany` is request-scoped, not process-cached (Requirement 16.4).
 
 **Policies**
@@ -172,6 +176,8 @@ trait ScopedToDepartment
 
 ### Staff management (Settings → Staff tab)
 
+**Tiers:** the read-only Staff list for the Owner is [PoV Core]. Create, edit, deactivate, reactivate, password reset, the Manager staff list, status filter and pagination, and every safeguard beyond database constraints (reporting-cycle detection, last-Owner check, Manager-with-reports check) are [PoV Polish]. Database constraints (unique email, role CHECK, foreign keys) stay Core.
+
 - `UserController` actions: `index` (list), `store` (create), `update` (edit), `destroy`→repurposed as `deactivate`, `reactivate`, `resetPassword` — each authorized via `UserPolicy` before any Form Request validation runs, consistent with `docs/architecture.md` §4's controller shape (authorize → validate → Action → respond).
 - `StoreUserRequest` / `UpdateUserRequest` accept only `name`, `email`, `job_title`, `role`, `department_id`, `manager_id`, and (create only) `password`; `company_id`, `is_active`, `id` are never read from the request body (Requirement 7.14) — the Action always sets `company_id` from the authenticated Owner's own company (Requirement 7.15).
 - Validation rules encode Requirements 7.4–7.11: email format + uniqueness; password ≥ 12 chars on create; `department_id` required when role is `manager`/`staff`; `department_id`/`manager_id` forced null when role is `owner`; manager-of-staff must be an active Manager in the same department; manager-of-manager must be the Owner; no self-management cycle (a custom rule walks the `manager_id` chain to detect cycles, Requirement 7.10).
@@ -184,8 +190,10 @@ trait ScopedToDepartment
 
 ### Company and Department settings
 
-- `CompanyController@edit`/`update`: Owner-only write via `UpdateCompanyProfileRequest` (name ≤150 chars non-empty; `timezone` validated against `DateTimeZone::listIdentifiers()`; `trading_days` non-empty subset of 1–7 with no duplicates; `recording_retention_days` integer 1–365 — Requirement 10.4–10.7). `UpdateCompanyProfile` Action persists and normalizes `trading_days` to a sorted array (Requirement 10.8). Manager sees the same data read-only (Requirement 10.9); Staff gets 403 (Requirement 10.10). `currency` and `is_demo` are rendered read-only with no corresponding write path in the Form Request (Requirement 10.2–10.3).
-- `DepartmentController@show`: read-only for Owner (any department — though only one exists in Stage 1) and Manager (own department only, enforced by `DepartmentPolicy::view` + route binding via `visibleTo`); displays department name, manager name(s), active staff count, and staff list with job titles (Requirement 11.2). Staff gets 403 (Requirement 11.4). No create/rename/delete/merge route exists anywhere in the app (Requirement 11.6). A Manager or Staff user with a null `department_id` is treated as having no accessible department and sees no department-scoped records (Requirement 11.7).
+**Tiers:** read-only display of Company (including cutoff fields) and Department (including Expected_Branches) is [PoV Core]; the Company edit form, `UpdateCompanyProfileRequest` and `UpdateCompanyProfile` are [PoV Polish].
+
+- `CompanyController@edit`/`update`: Owner-only write via `UpdateCompanyProfileRequest` (name ≤150 chars non-empty; `timezone` validated against `DateTimeZone::listIdentifiers()`; `trading_days` non-empty subset of 1–7 with no duplicates; `recording_retention_days` integer 1–365, `reporting_cutoff_time` valid `HH:MM`, `reporting_cutoff_lag_days` integer 0–7 — Requirement 10.4–10.7, 10.13). `UpdateCompanyProfile` Action persists and normalizes `trading_days` to a sorted array (Requirement 10.8). Manager sees the same data read-only (Requirement 10.9); Staff gets 403 (Requirement 10.10). `currency` and `is_demo` are rendered read-only with no corresponding write path in the Form Request (Requirement 10.2–10.3).
+- `DepartmentController@show`: read-only for Owner (any department — though only one exists in Stage 1) and Manager (own department only, enforced by `DepartmentPolicy::view` + route binding via `visibleTo`); displays department name, expected branches, manager name(s), active staff count, and staff list with job titles (Requirement 11.2). Staff gets 403 (Requirement 11.4). No create/rename/delete/merge route exists anywhere in the app (Requirement 11.6). A Manager or Staff user with a null `department_id` is treated as having no accessible department and sees no department-scoped records (Requirement 11.7).
 - Settings page shell: tabs Company, Staff, Department, each gated by the relevant policy; the tab bar itself reserves documented extension points for S03's Import template tab and S04's Rules tab but does not render placeholders for them (Requirement 15.10).
 
 ### Shared Inertia props and frontend types
@@ -196,7 +204,7 @@ trait ScopedToDepartment
   - `company`: `{ name, timezone, currency, trading_days }` (Requirement 14.4, 10.11) — sourced from `CurrentCompany::resolve()`.
   - Explicitly excluded from any shared prop: `password`, `remember_token`, `manager_id`, any other user's `is_active`, and all session data (Requirement 14.6); no list of other users is ever shared globally (Requirement 14.7) — the Staff list is page-prop data on the Staff tab response only.
 - `resources/js/types`: `AuthUser`, `CompanyProfile`, `Role` (string union mirroring the PHP enum) — used by all S02 Vue components, with no untyped `any` except where a third-party type forces it with a comment (Requirement 14.5, 20.8).
-- Navigation: `Navigation_Provider` (introduced in S01) now derives visibility from `auth.user.role` instead of the placeholder (Requirement 15.1). Owner and Manager see all 8 items; Staff sees only Today and Tasks (Requirement 15.2–15.4). `FOUNDATION_PLACEHOLDER_ROLE` and all its reads are deleted from `config`, `.env.example`, and the README (Requirement 15.5). Opening a route whose section the role cannot see returns 403 (Requirement 15.6) — this is a direct route-level policy/middleware check, not inferred from the nav list (consistent with Requirement 12.5). The user menu shows name, role, and (for Manager/Staff) department name, plus Sign out (Requirement 15.7). Settings link routes to the first tab the role can see (Requirement 15.8). A code comment states that nav visibility is display-only (Requirement 15.9).
+- Navigation: S02 adds role-based filtering to the S01 navigation list, using `auth.user.role` (Requirement 15.1). Owner and Manager see all 8 items; Staff sees only Today and Tasks (Requirement 15.2–15.4). No item definition, route, or label changes (Requirement 15.5). Opening a route whose section the role cannot see returns 403 (Requirement 15.6) — this is a direct route-level policy/middleware check, not inferred from the nav list (consistent with Requirement 12.5). The user menu shows name, role, and (for Manager/Staff) department name, plus Sign out (Requirement 15.7). Settings link routes to the first tab the role can see (Requirement 15.8). A code comment states that nav visibility is display-only (Requirement 15.9).
 
 ### Commands
 
@@ -206,8 +214,8 @@ trait ScopedToDepartment
 - Aborts with no writes if a `Company` row already exists (Requirement 17.2), or if email/password fail validation (Requirement 17.3). Never prints or logs the password (Requirement 17.5). Documented in the README as the production setup step (Requirement 17.6).
 
 **`DemoIdentitySeeder`**
-- Guarded: aborts with no writes and a message naming the variable if `DEMO_MODE` is false (Requirement 18.7) or `DEMO_PASSWORD` is empty/under 12 chars (Requirement 18.8); aborts with no writes if a non-demo `Company` already exists (Requirement 18.9).
-- Upserts (identified by email, and by company name for the `Company` row) "Meridian Home Supplies Sdn Bhd" (`timezone: Asia/Kuala_Lumpur`, `currency: MYR`, `trading_days: [1..6]`, `is_demo: true`), the Sales department, and the six demo users from `docs/demo-scenario.md` §1 (Requirement 18.1–18.2), wiring `manager_id` per Requirement 18.3 and `job_title` branch codes per Requirement 18.4 / A10.
+- Guarded: refuses to run, with no writes and a message naming the variable, unless `DEMO_MODE=true` (Requirement 18.7) or `DEMO_PASSWORD` is empty/under 12 chars (Requirement 18.8); aborts with no writes if a non-demo `Company` already exists (Requirement 18.9).
+- Upserts (identified by email, and by company name for the `Company` row) "Meridian Home Supplies Sdn Bhd" (`timezone: Asia/Kuala_Lumpur`, `currency: MYR`, `trading_days: [1,2,3,4,5,6]` i.e. Monday to Saturday, `reporting_cutoff_time: 12:00`, `reporting_cutoff_lag_days: 1`, `is_demo: true`), the Sales department with `settings.expected_branches` explicitly set to `["KL","PG","JB"]` (no auto-fill from imports, R2), and the six demo users from `docs/demo-scenario.md` §1 (Requirement 18.1–18.2), wiring `manager_id` per Requirement 18.3 and `job_title` branch codes per Requirement 18.4 / A10.
 - Running it twice is a no-op beyond updating already-matching rows — no duplicate rows (idempotence, Requirement 18.5). Password is hashed from `DEMO_PASSWORD`, never printed or logged (Requirement 18.6, 18.10); `.env.example`'s `DEMO_PASSWORD` stays empty and is never committed with a value (Requirement 18.11). Only fictional names and the `meridian.demo` email domain are used (Requirement 18.12).
 
 ## Data Models
@@ -223,6 +231,8 @@ trait ScopedToDepartment
 | `timezone` | string | not null, default `'Asia/Kuala_Lumpur'` |
 | `currency` | string | not null, default `'MYR'` |
 | `trading_days` | jsonb | not null, default `'[1,2,3,4,5,6]'` |
+| `reporting_cutoff_time` | time | not null, default `'12:00'` |
+| `reporting_cutoff_lag_days` | smallint | not null, default `1` |
 | `is_demo` | boolean | not null, default `false` |
 | `recording_retention_days` | integer | not null, default `30` |
 | `created_at`, `updated_at` | timestamp | |
@@ -235,9 +245,11 @@ trait ScopedToDepartment
 | `company_id` | bigint FK → `companies.id` | not null, `onDelete('cascade')` |
 | `name` | string | not null |
 | `slug` | string | not null |
+| `settings` | jsonb | not null, default `'{}'` |
 | `created_at`, `updated_at` | timestamp | |
 
 - Unique index on (`company_id`, `slug`) (Requirement 1.3).
+- `settings` is created here and S03 does not add it. It holds `expected_branches` (string array) and later `intelligence.last_evaluated_at` (S04).
 
 **`users`**
 
@@ -257,7 +269,7 @@ trait ScopedToDepartment
 | `created_at`, `updated_at` | timestamp | |
 
 - `role` check constraint added via a raw `DB::statement` in the migration (Requirement 1.5); Laravel migrations don't natively express enum-check constraints portably, so this is a documented raw-SQL step.
-- Index on `department_id` (supports `visibleTo()` filtering at scale) and on `manager_id` (supports report-count and cycle checks).
+- Index on `department_id` (supports `visibleTo()` filtering) and on `manager_id`.
 - `sessions` table: already created by S01 (starter kit default); S02 adds no new migration for it, only documents that `SESSION_DRIVER=database` depends on it (Requirement 1.1, 4.3).
 
 ### Migration ordering and compatibility
@@ -284,33 +296,49 @@ erDiagram
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-Per `.kiro/steering/verification.md`, Stage 1 has no automated unit or property-based test suite. The properties below are stated because they describe genuine invariants with non-trivial input spaces (role × department × company combinations, arbitrary `trading_days` arrays), but — consistent with S01's precedent — they are verified manually against fixtures during the verification pass, not implemented as generative `tries=100` tests.
+Per `docs/stage-1-refinements.md` R5, no property-based framework is used. Each property below is checked by a small deterministic feature test over a fixed fixture matrix, using the S01 harness on PostgreSQL (`RefreshDatabase`).
 
-### Property 1: Department visibility invariant
+### Property 1: Department visibility invariant [PoV Core]
 
 For all users U and department-scoped records R (where R belongs to a model using `ScopedToDepartment`), R is returned by `visibleTo(U)` if and only if U is active and either U is the Owner of R's company, or U's `department_id` equals R's `department_id`.
 
 **Validates: Requirements 13.2, 13.3, 13.4, 13.5, 13.6, 13.11**
 
-*Verification approach*: manual fixture matrix — one Owner, one Manager (Sales), one Staff (Sales), one inactive Staff (Sales), against fixture rows in Sales and (if a second department fixture is added for this check only) a non-Sales department; confirm the returned row set against each of the nine role/row combinations by hand.
+*Test*: fixtures with the Owner, a Sales Manager, a Sales Staff user, an inactive Sales Staff user, a Manager with null `department_id`, and rows in Sales and in a second test-only department. The test asserts the returned set for each user and row combination (Requirement 21.2).
 
-### Property 2: Trading-days round trip
+### Property 2: Out-of-scope 404 and wrong-role 403 split [PoV Core]
 
-For all valid `trading_days` arrays (non-empty subsets of {1..7} with no duplicates, in any input order), saving the Company profile with that array and then reading it back returns the same set of weekdays sorted in ascending order.
+For every scoped S02 route, a record outside the requester's Department yields 404, and an in-scope record with a forbidden action yields 403.
+
+**Validates: Requirements 9.7, 9.8, 13.7, 13.8, 13.9, 19.1, 19.2**
+
+*Test*: Manager requests a user of another Department (404); Manager requests the create/edit action for an in-scope user (403); Staff requests the Staff, Company and Department tabs (403) (Requirement 21.3, 21.4).
+
+### Property 3: Deactivated users have no access [PoV Core]
+
+An inactive user cannot start a session, and an already-established session of an inactive user is rejected on the next request.
+
+**Validates: Requirements 3.6, 6.2**
+
+*Test*: login attempt with correct credentials for an inactive user returns the generic message and no session; an authenticated request after `is_active` is set false redirects to Login (Requirement 21.5).
+
+### Property 4: Identity seeder idempotence and guard [PoV Core]
+
+For any number of consecutive runs of `DemoIdentitySeeder` with `DEMO_MODE=true` and a valid `DEMO_PASSWORD`, the row counts and Expected_Branches are identical to a single run. With `DEMO_MODE` not `true`, no row is written.
+
+**Validates: Requirements 18.1, 18.2, 18.5, 18.7**
+
+*Test*: run the seeder twice and assert one Company, one Sales department with `["KL","PG","JB"]`, six Users, and unchanged primary keys; run with `DEMO_MODE=false` and assert no writes (Requirement 21.6).
+
+### Property 5: Trading-days round trip [PoV Polish]
+
+For all valid `trading_days` arrays, saving the Company profile and reading it back returns the same set sorted ascending.
 
 **Validates: Requirements 10.12**
 
-*Verification approach*: manual fixture check — submit `[5,1,3]`, `[7]`, `[1,2,3,4,5,6,7]`, confirm each reads back sorted and deduplicated.
+*Test*: fixed examples `[5,1,3]`, `[7]`, `[1,2,3,4,5,6,7]` (Requirement 21.7).
 
-### Property 3: Identity seeder idempotence
-
-For any number of consecutive runs of `DemoIdentitySeeder` (with `DEMO_MODE=true` and a valid `DEMO_PASSWORD` held constant), the resulting row counts for the demo company, its department, and its six users are identical to the result of a single run, with no duplicate rows.
-
-**Validates: Requirements 18.5**
-
-*Verification approach*: run the seeder twice in the verification pass, diff row counts and primary keys for the demo company/department/users between the two runs.
-
-No other acceptance criteria in this spec describe a universal property with a meaningfully large input space; the remaining criteria are either one-shot configuration/infrastructure checks (e.g. session cookie flags, removed routes), concrete UI/validation examples (e.g. specific field-error messages), or authorization-matrix checks better covered by the manual Owner/Manager/Staff × route matrix called for in `.kiro/steering/verification.md`.
+The remaining criteria (session cookie flags, removed routes, field-error messages, UI behavior) are checked manually per the Testing Strategy.
 
 ## Error Handling
 
@@ -342,33 +370,38 @@ Aligned with `.kiro/steering/security.md` and scoped to what S02 owns:
 
 ## Integration Dependencies
 
-- **S01 foundation**: `AppShell`, `Navigation_Provider`, design-system components, error pages (403/404/419/500/503), the flash/toast helper, `BusinessClock`, `SESSION_DRIVER`, `DEMO_PASSWORD`, `DEMO_MODE`, and the `sessions` table/migration — all consumed, not re-implemented, by S02.
-- **Laravel starter kit auth scaffolding**: S02 retires the S01 placeholder role mechanism and reshapes (rather than replaces outright) the starter kit's bundled `User` model/migration and auth routes, per the "Selected Approach" section above.
+- **S01 foundation**: `AppShell`, `Navigation_Provider`, design-system components, error pages (403/404/419/500/503), the flash/toast helper, `BusinessClock`, `SESSION_DRIVER`, `DEMO_PASSWORD`, `DEMO_MODE`, the demo clock file and `demo:set-date`, the test harness (`composer test`, `businesspulse_testing`), and the `sessions` table/migration — all consumed, not re-implemented, by S02.
+- **Laravel starter kit auth scaffolding**: S02 reshapes (rather than replaces outright) the starter kit's bundled `User` model/migration and auth routes, per the "Selected Approach" section above.
 - **`docs/business-workflows.md` D23**: source of truth for the Owner/Manager/Staff capability split, documented in `App\Enums\Role` (Requirement 2.2).
 - **`docs/demo-scenario.md` §1**: source of the six demo users, their emails, manager chain, and branch-code job titles consumed by `DemoIdentitySeeder` (Requirement 18.2–18.4).
 - **Downstream specs (S03–S09)**: consume `ScopedToDepartment`/`visibleTo()` as the standard department-scoping mechanism, the policy conventions documented in `docs/architecture.md` (one policy per model, no blanket-Owner `before()` hook, Form Request validation, department scoping), `auth.user`/`auth.role`/`company` shared props, and the Settings tab extension points for the Import template tab (S03) and Rules tab (S04). S02 must not assume or encode any S03+ behavior (no import/sales/rule/issue/brief/meeting/task/outcome model or route), per Requirement 20.6–20.7.
 
 ## Testing Strategy
 
-No automated unit or end-to-end test suite is authored in S02 (`.kiro/steering/verification.md`). Verification is manual/fixture-based, extending S01's checklist:
+Per R5, S02 authors a small set of deterministic feature tests on the S01 harness (Pest or PHPUnit as shipped, PostgreSQL `businesspulse_testing`, `RefreshDatabase`, no SQLite, no browser automation, no property-based tool, no external provider call). Tests live in `tests/Feature/Identity` and use fictional fixtures only. **[PoV Core]**
 
-- **Static/style checks**: `npm run verify` (type-check, lint, format:check, build) and `composer pint-test`, both expected to exit 0 on a clean checkout, inherited unchanged from S01.
-- **Migration check**: `php artisan migrate:fresh --seed` on a scratch database (never production), confirming `companies`, `departments`, `users` are created with the constraints above, plus a rollback check (Requirement 1.1, 1.7).
-- **Owner bootstrap check**: run `identity:create-owner` once, confirm Company + Sales department + Owner are created in one transaction; run it again and confirm it aborts with no new writes (Requirement 17.1–17.2).
-- **Demo seeder idempotence check**: Property 3 above — run `DemoIdentitySeeder` twice with `DEMO_MODE=true`, diff row counts/keys.
-- **Authorization matrix** (per `.kiro/steering/verification.md`): Owner/Manager/Staff × every S02 route (Login, Logout, Staff list/create/edit/deactivate/reactivate/reset-password, Company view/edit, Department view), including cross-department access and direct URL access, confirming the 403-vs-404 split described in Error Handling above.
-- **Department visibility fixture check**: Property 1 above, run by hand across the role/row matrix described there.
-- **Trading-days round-trip fixture check**: Property 2 above.
-- **Login behavior walkthrough**: correct login, wrong password, unknown email, inactive user, case-insensitive email match, 5-failed-attempt throttle and recovery after the window, successful login clearing the throttle counter, idle-session expiry, logout session invalidation — each checked manually against the generic-message and redirect rules in Requirements 3 and 4.
-- **Removed-route check**: confirm registration/forgot-password/reset-password/email-verification/password-confirmation/two-factor routes all 404 (Requirement 5.1–5.2).
-- **Staff management walkthrough**: create/edit validation errors for each rule in Requirement 7 (bad email, short password, missing department for manager/staff, owner forced null department/manager, invalid manager-role combinations, self-management cycle, editing a manager with active reports); deactivate/reactivate flows including the two Owner self-protection rules (6.6–6.7) and the session-revocation side effect (6.1).
-- **Password reset walkthrough**: Owner resets another user's password, confirms the new password is hashed, the user's sessions are cleared, and the password never appears in any response, log, or flash (Requirement 8).
-- **Company/Department settings walkthrough**: Owner edits company profile (valid and each invalid case in Requirement 10.4–10.7), Manager sees read-only company/department views, Staff gets 403 on both tabs.
-- **Navigation and shared-props check**: confirm `auth.user`/`auth.role`/`company` props match the Requirement 14 field lists exactly (no excluded fields leak) across Owner/Manager/Staff sessions, and that `FOUNDATION_PLACEHOLDER_ROLE` no longer appears anywhere in the codebase (Requirement 15.5).
-- **BusinessClock timezone check**: change the company timezone via Settings, confirm `BusinessClock::now()` reflects the new timezone on the very next request with no restart (Requirement 16.4).
-- **Responsive and accessibility spot checks**: Login page and Settings tabs at 360/768/1280px, visible field labels, keyboard-operable login form, `aria-live` error region (Requirement 3.10), inherited from S01's checklist.
+### Automated (`composer test`)
 
-This matches the Stage 1 posture in `.kiro/steering/verification.md`: passing these checks demonstrates the access-control layer works as specified, not production readiness.
+- **Department scope** (Property 1): `visibleTo` for Owner, Manager, Staff, inactive user, and null-department user against rows in two departments.
+- **Unauthorized department access** (Property 2): Manager gets 404 for another Department's user; Staff cannot read another Department's records; wrong role gets 403 on the Staff, Company and Department tabs and on Manager create-user.
+- **Deactivated user** (Property 3): cannot log in (generic message, no session); an open session is rejected on the next request.
+- **Seeder** (Property 4): idempotent with `DEMO_MODE=true`; writes nothing when `DEMO_MODE` is not `true`; Sales `expected_branches` equals `["KL","PG","JB"]`, trading days 1 to 6, cutoff `12:00`, lag 1.
+- **Role navigation**: Staff receives only Today and Tasks in the shared `navigation` prop; Owner and Manager receive all eight.
+- **Trading-days round trip** [PoV Polish] (Property 5).
+
+### Static and manual
+
+- `npm run verify` and `composer pint-test` exit 0.
+- **Migration check**: `php artisan migrate:fresh --seed` on a scratch database creates the tables with the cutoff columns and `departments.settings`; rollback works.
+- **Owner bootstrap**: `identity:create-owner` once creates Company, Sales department and Owner; a second run aborts with no writes.
+- **Login walkthrough**: wrong password, unknown email, case-insensitive email, 5-attempt throttle and recovery, idle expiry, logout.
+- **Removed routes**: registration, forgot-password, reset-password, email verification, password confirmation and two-factor routes return 404.
+- **Shared props**: `auth.user`, `auth.role`, `company` match the Requirement 14 lists with no excluded field.
+- **BusinessClock**: changing the Company timezone takes effect on the next request without restart (manual until the Company edit form exists in Polish; before that, use `tinker`).
+- **Polish walkthroughs**: Staff create/edit validation, Owner self-protection, password reset, Company edit validation.
+- **Responsive and accessibility spot checks**: Login and Settings at 360/768/1280px, labelled fields, `aria-live` error region.
+
+Passing these checks shows the access-control layer works as specified, not that the product is production-ready.
 
 ## Assumptions and Open Points Carried Into Design
 

@@ -3,34 +3,37 @@
 Process diagrams only. The data model is in `data-model.md`. Values marked **(demo default)** are not confirmed client requirements.
 
 ## 0. Business logic decisions
+Authoritative refinements: `docs/stage-1-refinements.md` (R2 calendar and freshness, R3 outcomes, R4 lifecycle, R6 queues). Values marked **(demo default)** are not confirmed client requirements.
+
 | # | Topic | Decision |
 |---|---|---|
 | D1 | Data grain | One `sales_records` row per branch per calendar day: `branch_code, sales_date, revenue, target_revenue, order_count?`. |
 | D2 | Reporting frequency | Daily rows, uploaded in files of any size (typically weekly). |
-| D3 | Expected calendar | Each active branch must have a row for every trading day (Mon–Sat, **demo default**, `companies.trading_days`). Expected branches = distinct `branch_code` seen in the first confirmed import, editable in Settings. Public holidays: not modelled in Stage 1 (assumption, flagged). |
-| D4 | Record identity | `(department_id, branch_code, sales_date)`. Only one active row per identity. |
-| D5 | Corrected import | Re-uploaded identity with different revenue/target/order_count **supersedes** the active row: old row `is_active=false`, new active row inserted. Identical values are counted `unchanged` and ignored. Import preview shows counts new/corrected/unchanged/invalid. Corrections never delete history. Rows inside the same file with duplicate identity are invalid (error `duplicate_in_file`), both rows rejected. Same file hash re-uploaded: allowed but the preview flags "file already imported" and all rows are unchanged. |
-| D6 | Complete vs incomplete period | A week (ISO Mon–Sun) is **complete** when every expected branch has an active row for every trading day. Otherwise **partial**. Partial weeks are never compared as if complete and never zero-filled. |
-| D7 | Previous-period comparison | Rules evaluate the ISO week containing the as-of date (latest `sales_date`). That week must be complete, and for the decline rule the immediately preceding week must also be complete; otherwise `insufficient_data`. There is no fallback to an earlier complete week. (The dashboard in S05 separately displays the latest complete week, always with explicit dates.) |
-| D8 | Currency/precision | MYR, 2 decimals, `numeric(14,2)`. Percentages computed with `bcmath`/decimal strings at 4 dp, stored and displayed at 2 dp, round half up. Negative revenue invalid. |
-| D9 | Zero denominators | Previous-week revenue = 0, or target sum = 0 → `insufficient_data` with reason `zero_denominator`. Never 0% or infinity. |
-| D10 | Missing-data behavior | Rule 3 evaluates the window from the Monday of the week containing the **as-of date** (latest `sales_date` in active records) through as-of date. Any expected branch-day missing → `breached` (issue "Missing sales data"). Data freshness (days between business today and as-of date) is shown separately and does not create an issue in Stage 1. If no records → `insufficient_data`. Missing data is never treated as zero. |
-| D11 | Issue identity | `(business_rule_id, department_id, scope_key)`; Stage 1 `scope_key='department'`. At most one non-resolved issue per identity (partial unique index). |
-| D12 | Recurrence | After `resolved`, a new breach creates a **new** issue with `recurrence_of_issue_id` pointing to the previous one. Resolved issues are immutable except notes/feedback. |
-| D13 | Issue lifecycle | `open → acknowledged → action_in_progress → monitoring → resolved`. Allowed: open→acknowledged (manager/owner); open/acknowledged→action_in_progress (automatic when first task approved for the issue); action_in_progress→monitoring (automatic when ≥1 linked task completed and no linked task remains pending/in_progress/blocked, or manual by manager/owner); monitoring→resolved (automatic when outcome `resolution_condition_met`, or manual by manager/owner with required note, `resolution_type=manual`); monitoring→open (automatic if a follow-up evaluation is breached and result `worsened`; the issue is reopened, baseline unchanged). No other backward transitions exist. Task completion alone never resolves. |
-| D14 | Re-detection | Breach with an existing non-resolved issue: update `last_detected_at`, `latest_evaluation_id`, `detection_count`, severity (may only increase automatically), title unchanged. `baseline_evaluation_id` never changes. |
-| D15 | Task lifecycle | `pending → in_progress → completed`; `pending/in_progress ↔ blocked`; `pending/in_progress/blocked → cancelled` (manager/owner only); `completed` may be reopened to `in_progress` by manager/owner only. Staff may set pending/in_progress/blocked/completed on their own tasks. Overdue = `due_date < business today` and status not completed/cancelled (computed). |
-| D16 | Multiple tasks per issue | Allowed. Issue moves to monitoring only when all non-cancelled linked tasks are completed (D13). |
-| D17 | Outcome criteria | Each follow-up complete week evaluated for a monitoring issue. Primary metric per rule: decline → weekly change %; target → achievement %; missing data → coverage % (present branch-days / expected). Comparable means follow-up period starts after baseline period end, is a complete week, and uses same branches. Change = follow-up − baseline in percentage points. `improved` ≥ +2.0 pts, `worsened` ≤ −2.0 pts **(demo default)**, otherwise `unchanged`; not comparable → `not_evaluable`. Resolution condition met when the follow-up rule result is `not_breached` on 1 complete week **(demo default)**. |
-| D18 | Causation | UI copy says "Observed change after actions", never "caused by". |
-| D19 | Notification dedupe | Urgent (severity high/critical) in-app notification to Owner and department Manager when an issue is created, or when severity increases, or on recurrence. Dedupe key `issue_id:severity`; not re-sent on repeated detection. |
-| D20 | AI retries | Automatic: 3 attempts, backoff 10/30/60s, only for timeouts, 429, 5xx. Validation failures: one corrective retry. Then `failed`; user presses Retry (new attempt, `tries` reset). Re-generation of audio is skipped if `audio_status=ready` unless user chooses Regenerate. |
-| D21 | Job idempotency | See architecture §7; evaluations keyed by `run_key`, imports processed in transaction with status guard, task approval locked with `SELECT … FOR UPDATE` plus unique `task_drafts.task_id`. |
-| D22 | Recording storage | Private disk `storage/app/private/recordings/{meeting_id}/`, random filename, served via authorized stream only; retention 30 days **(demo default)**. |
-| D23 | Access control | Owner: company-wide. Manager: own department data (imports, issues, meetings, tasks, drafts). Staff: own tasks and comment on them, dashboard limited to own tasks; may view the issue and meeting decision linked to their task (read-only summary). |
-| D24 | Demo reset | `demo:reset` only runs when `DEMO_MODE=true` and the target company has `is_demo=true`, requires `--force` or typed confirmation, deletes only rows belonging to that company and its files, then reseeds. |
-| D25 | Severity | Stored in `business_rules.params`. Decline: `high_drop_pct` (default 25; **demo seed 15**), otherwise medium. Target shortfall: `high_below_pct` (default 70), otherwise medium. Missing data: medium. Critical is unused in Stage 1. Urgent means severity high. |
-| D26 | Business "today" | `BusinessClock::today()` = today in company timezone, or `DEMO_FIXED_DATE` when `DEMO_MODE=true`. |
+| D3 | Reporting calendar | Company `trading_days` (Mon–Sat), `reporting_cutoff_time` (12:00) and `reporting_cutoff_lag_days` (1) **(demo defaults)**. A trading day is due when `BusinessClock::now()` is at or after cutoff time on day + lag. Expected branches are explicit in `departments.settings.expected_branches` (demo: KL, PG, JB); no auto-fill from an import. Public holidays are not modelled in Stage 1. |
+| D4 | Record identity | `(department_id, branch_code, sales_date)`. One active row per identity. |
+| D5 | Corrected import | A re-uploaded identity with different values supersedes the active row (old row `is_active=false`, new row inserted). Identical values count as `unchanged`. Duplicate identity inside one file: both rows invalid (`duplicate_in_file`). Same file hash: allowed, flagged, all rows unchanged. History is never deleted. |
+| D6 | Week states | ISO week is `closed` when every trading day is due, else `open`. A closed week is `complete` (all expected branch-days present), `incomplete`, or `absent`. Open weeks are informational and never evaluated by decline/target rules. Partial data is never zero-filled. |
+| D7 | Comparison | Decline compares the latest closed week to the preceding week; both must be closed and complete, otherwise `insufficient_data`. No fallback to older weeks. |
+| D8 | Currency/precision | MYR `numeric(14,2)`; percentages computed at 4 dp, displayed at 2 dp, round half up; decimal math, no floats. |
+| D9 | Zero denominators | Zero previous-week revenue or zero target → `insufficient_data` (`zero_denominator`). |
+| D10 | Missing and fresh data | Missing-data rule breaches when any due expected branch-day in the current and previous ISO week up to `last_due_date` has no row (rows missing inside the submitted period and due days after the latest sales date both count). Not-yet-due days never alert. Freshness (`current`/`behind`) is shown live and never creates an issue. Evaluation runs after an import completes and on explicit "Refresh intelligence"; there is no scheduler. |
+| D11 | Issue identity | `(business_rule_id, department_id, scope_key)`, Stage 1 `scope_key='department'`; one non-resolved issue per identity (partial unique index). |
+| D12 | Recurrence | After `resolved`, a new breach creates a new issue with `recurrence_of_issue_id`. Resolved issues are immutable except feedback. |
+| D13 | Issue lifecycle | Transition table in `stage-1-refinements.md` R4 (includes `monitoring → action_in_progress` on task reopen or new task, manual reasons in `issues.resolution_note` / `status_history`). |
+| D14 | Re-detection | Updates `last_detected_at`, `latest_evaluation_id`, `detection_count`; severity only increases automatically; `baseline_evaluation_id` never changes. |
+| D15 | Task lifecycle | `pending → in_progress → completed`; `pending/in_progress ↔ blocked`; `pending/in_progress/blocked → cancelled` (Owner/Manager); `completed → in_progress` reopen (Owner/Manager). Staff set `in_progress/blocked/completed` on their own tasks. Overdue is computed: `due_date < BusinessClock::today()` and status not completed/cancelled. `completed_at` uses `BusinessClock::now()`. |
+| D16 | Multiple tasks per issue | Allowed. Monitoring starts when all non-cancelled linked tasks are completed and at least one is completed. A new or reopened linked task returns a monitoring issue to `action_in_progress`. |
+| D17 | Outcomes | Phases `pre_action`/`during_action`/`post_action`; only post_action outcomes on closed, complete, comparable weeks can resolve or reopen. Metrics per rule and classification bands: R3 (revenue relative ±2.0%, percentage metrics ±2.0 pp). Actual values, absolute change, relative change and point change are all stored and shown where relevant. |
+| D18 | Causation | UI copy: "Observed change after actions". |
+| D19 | Notification dedupe | Urgent (severity high) in-app notification to Owner and department Manager on issue creation, severity increase, or recurrence; key `issue_id:severity`. |
+| D20 | AI retries | One retry layer: the queue job (3 tries, backoff 10/30/60 s) for recoverable provider errors only. `OpenAiClient` does not retry. One corrective re-request on schema or number-check failure inside the same attempt. After final failure: `failed` with manual Retry. See R6. |
+| D21 | Idempotency | Evaluations keyed by `run_key` (rule config, periods, as-of/cutoff context, expected branches, trading days, active record ids). Imports run in a transaction with a status guard. Task approval uses a row lock plus unique `task_drafts.task_id` and `tasks.task_draft_id`. |
+| D22 | Recording storage | Private disk `recordings/{meeting_id}/` with random filename, authorized streaming only, retention 30 days **(demo default)**. |
+| D23 | Access control | Owner company-wide; Manager own department; Staff own tasks (read-only decision excerpt and issue summary for their tasks). Out-of-scope records return 404; wrong role 403. |
+| D24 | Demo reset | Guarded, locked, and refused while any job row exists (R8). Never scheduled. |
+| D25 | Severity | In `business_rules.params`: decline `high_drop_pct` (default 25, **demo seed 15**); target `high_below_pct` (default 70); missing data medium. Urgent = high. |
+| D26 | Business clock | `BusinessClock::now()/today()` use company timezone, or the demo fixed date-time (default time 09:00) when `DEMO_MODE=true`. Business timestamps (task completion, monitoring start, outcome evaluation) use it. |
+| D27 | AI authorization | Meeting audio and transcripts are processed only when consent is recorded, the recording is not deleted, and the actor/department are authorized; jobs re-check at run time. |
 
 ## 1. Data import workflow
 ```mermaid
@@ -51,8 +54,8 @@ Invalid rows never block valid rows (partial import with error report). Header o
 ## 2. Rule evaluation workflow
 ```mermaid
 flowchart TD
-  A[EvaluateRulesJob after import] --> B[Determine as-of date and latest complete week]
-  B --> C{Enough complete data?}
+  A[EvaluateRulesJob after import or Refresh intelligence] --> B[Compute last due date and latest closed week from reporting calendar]
+  B --> C{Latest closed week complete?}
   C -- no --> D[Record insufficient_data with reason]
   C -- yes --> E[Compute metric and compare to threshold]
   E --> F{Breached?}
@@ -77,7 +80,8 @@ stateDiagram-v2
   acknowledged --> action_in_progress: first task approved
   action_in_progress --> monitoring: all tasks done or manual
   monitoring --> resolved: resolution condition met or manual with note
-  monitoring --> open: follow-up worsened and breached
+  monitoring --> open: post-action outcome worsened, condition not met
+  monitoring --> action_in_progress: task reopened or new task
   resolved --> [*]
 ```
 
@@ -160,20 +164,21 @@ stateDiagram-v2
 ## 8. Outcome verification workflow
 ```mermaid
 flowchart TD
-  A[Follow-up import completes] --> B[Evaluate rules]
-  B --> C[For each issue in monitoring]
-  C --> D{Follow-up period complete, later than baseline, comparable?}
+  A[EvaluationRunCompleted] --> C[Issues in action_in_progress or monitoring for this department]
+  C --> D{Closed, complete, comparable week after baseline?}
   D -- no --> E[Outcome not_evaluable with reason]
-  D -- yes --> F[Compare primary metric to baseline evidence]
-  F --> G[improved / unchanged / worsened]
-  G --> H{Rule not breached?}
-  H -- yes --> I[Resolve issue, system_verified]
-  H -- no, worsened --> J[Reopen issue]
-  H -- no, otherwise --> K[Stay in monitoring]
-  I --> L[Outcome stored, activity logged, feedback allowed]
+  D -- yes --> P{Phase of the week vs action and monitoring dates}
+  P -- pre_action or during_action --> I1[Informational outcome, no lifecycle change]
+  P -- post_action --> F[Compute actual values, absolute, relative and point change]
+  F --> G{Resolution condition met?}
+  G -- yes --> R[Resolve issue, system_verified]
+  G -- no, worsened --> J[Reopen issue]
+  G -- no, otherwise --> K[Stay in monitoring]
+  R --> L[Outcome stored, activity logged, feedback allowed]
   J --> L
   K --> L
   E --> L
+  I1 --> L
 ```
 
 ## 9. Failure and exception paths

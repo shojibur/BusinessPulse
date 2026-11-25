@@ -15,16 +15,18 @@
 
 S05 and S06 can proceed in parallel after S04 if two developers are available.
 
-## Milestones
-- M1 Foundation and access (S01–S02): login, shell, design system.
-- M2 Data to issues (S03–S04): CSV in, issues out.
-- M3 Intelligence (S05): dashboard and briefs with voice.
-- M4 Decide and execute (S06–S07): meetings to tasks.
-- M5 Verify (S08): outcomes and trace.
-- M6 Demo ready (S09): fixtures, reset, rehearsal, deployment.
+## Milestones (each ends runnable and verifiable; `composer test` passes)
+- **M1** S01–S02: login as each role, role navigation, shell, test harness.
+- **M2** S03–S04: `demo:import` history, upload week 8 in the UI, issues detected with evidence and notification.
+- **M3** S05: dashboard from real data, AI brief with fallback, voice playback.
+- **M4** S06–S07: meeting, transcript, drafts, approval, staff completes tasks.
+- **M5** S08: interim and post-action outcomes, resolution, trace timeline.
+- **M6** S09: seed/reset, VPS deployment, rehearsals, PoV Polish items.
+
+PoV Core/Polish split per spec: `docs/stage-1-refinements.md` R1.
 
 ## Demo readiness criteria
-All 26 Definition-of-Done items pass manual verification; two full rehearsals with no manual database edits; build checks green; deployed over HTTPS on the VPS; transcript fallback rehearsed.
+All 26 Definition-of-Done items pass verification (manual acceptance plus focused automated tests); two full rehearsals with no manual database edits; build checks green; deployed over HTTPS on the VPS; transcript fallback rehearsed.
 
 ## Stage 2 opportunities (context only)
 Additional departments; configurable rules; Excel and advanced imports; scheduled briefs; reminders and escalation; WhatsApp/email; expanded admin; backups automation and monitoring; multi-language transcription; client-specific integrations. Not specified.

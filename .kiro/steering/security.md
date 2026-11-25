@@ -14,3 +14,5 @@ description: Security and privacy rules for authentication, authorization, file 
 - Send providers only the minimum data (see `docs/architecture.md` §6). Transcripts are untrusted input; AI output is schema-validated.
 - Fictional data only until the client authorizes real data. Document PDPA items; do not claim compliance.
 - Demo reset is guarded (`DEMO_MODE` and `is_demo` company).
+- AI/file authorization: recordings and audio are served only through policy-checked routes; AI jobs re-check consent, non-deleted recording, and department authorization at run time.
+- Demo reset: lock, empty `jobs` table, `is_demo` company only.

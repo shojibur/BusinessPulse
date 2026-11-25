@@ -11,7 +11,15 @@ The design rests on four mechanisms:
 3. **Compare-and-set for status changes.** Every transition is `UPDATE tasks SET status = :to ... WHERE id = :id AND status = :from`, so two racing requests cannot both win.
 4. **Side effects after commit.** Events use `ShouldDispatchAfterCommit`. The `IssueLifecycle` call runs after the transaction commits, and a failure there never undoes a Task.
 
-This is a planning pass. The document describes the design; nothing is implemented. No automated test suite is part of S07 (A17), so there is no Correctness Properties section. Verification is by static checks, the demo fixture, an authorization matrix and manual concurrency scenarios.
+S07 follows R7: it defines no cross-spec contract. It does not bind `IssueTaskStateReader`, `TaskMetricsReader`, `MeetingDraftsTabProvider` or `IssuePanelProvider`. Instead it (a) extends S05's `DashboardMetrics` with the Task KPIs and the Staff summary, (b) evaluates "all non-cancelled linked Tasks completed and at least one completed" itself and calls the pure S04 `IssueLifecycle` methods `startAction`, `startMonitoring` and `returnToAction`, (c) appends a `tasks` prop to `IssueController::show`, and (d) extends S06's `TaskDraftsTab.vue` and the `taskDrafts` prop of `MeetingController@show` directly.
+
+This is a planning pass. The document describes the design; nothing is implemented. Per R5, S07 includes a small set of focused [PoV Core] Laravel feature tests (see Testing Strategy). There is no Correctness Properties section because no property-based framework is used. Manual acceptance, static checks and demo rehearsals remain required.
+
+### Priority tiers (R1)
+
+- **[PoV Core]**: draft review (edit, approve, reject), Task list with status, Assignee and overdue filters, Task detail, My Tasks, status transitions, comments, assignment notification, overdue condition, Dashboard Task KPIs and Staff summary, Issue lifecycle calls, the Issue `tasks` prop and panel, the events `TaskDraftApproved`, `TaskAssigned`, `TaskStatusChanged`, `TaskCompleted`, and the feature tests.
+- **[PoV Polish]**: manual Task creation (`CreateTask`), reassignment (`ReassignTask`), the Issue and department filters of the Task list, the Issue-panel "Create task" link, and the events `TaskDraftRejected` and `TaskCommentAdded`.
+- Sections and components below that are Polish carry the marker "[PoV Polish]". Unmarked ones are Core.
 
 ### Design decisions that resolve gaps in the requirements
 
@@ -19,12 +27,16 @@ This is a planning pass. The document describes the design; nothing is implement
 |---|---|---|
 | D1 | The request for this design asks for the notification "after commit", but Req 6.1 says the Assignment_Notification is written "in the same transaction" and Req 4.9 says a failed transaction sends none. | The notification row is inserted inside the transaction, as the last step before commit. It is therefore invisible to every other connection until commit and is rolled back with the Task if anything fails. A post-commit insert could be lost on a process crash between commit and insert, and the draft would then be `approved` with no way to resend. Events (`TaskDraftApproved`, `TaskAssigned`) and the `IssueLifecycle` call are the true post-commit steps. If the intended meaning is a post-commit insert, Req 6.1 must be changed first. |
 | D2 | Req 12.3 says the Assignee may request a transition to `pending`, but the Req 12.1 table has no transition into `pending` and says "no others". | The table wins. A request for `pending` fails with 422 from the machine. Requirement 12.3 should drop "pending". |
-| D3 | S06 always stores `task_drafts.issue_id = null` (S06 Req 13.3), but Req 22.5 expects the first approval to move the Issue to `action_in_progress`. | The Draft_Review_Tab pre-fills the Issue field with the Meeting's Issue when the Meeting has exactly one linked Issue and the draft has none. The value is a visible form default that the Reviewer submits explicitly; the server never fills it in on its own (Req 4.14, 5.4). With two or more Issues the Reviewer must choose. |
+| D3 | S06 always stores `task_drafts.issue_id = null` (S06 Req 13.3), but Req 22.5 expects the first approval to move the Issue to `action_in_progress`. | The extended `TaskDraftsTab.vue` pre-fills the Issue field with the Meeting's Issue when the Meeting has exactly one linked Issue and the draft has none. The value is a visible form default that the Reviewer submits explicitly; the server never fills it in on its own (Req 4.14, 5.4). With two or more Issues the Reviewer must choose. |
 | D4 | Req 9.8 sorts "by due date ascending with Tasks without an overdue state after overdue ones". | Interpreted as `ORDER BY is_overdue DESC, due_date ASC, id DESC`. Overdue Tasks come first, then the rest by due date. |
 | D5 | Req 21.9 says S07 shows no revenue, but Req 11.5 shows an evidence snapshot. | The snapshot shows only the rule label and the primary metric name, baseline value and latest value from `IssueEvidence`. All three S04 primary metrics are percentages, so no currency amounts appear. `missingBranchDays`, import ids and `EvaluationSummary` details are not passed to the page. |
 | D6 | Req 6.4 dedupes on `task_assigned:{task_id}:{assignee_id}`. Reassigning A to B to A produces the same key for A. | Accepted. A would not receive a second notification. This is a Stage 1 limitation; adding a reassignment counter to the key is a one-line change if it matters. |
 | D7 | Req 8.14 asks for double-submit protection on manual create without naming a mechanism. | A transaction-scoped Postgres advisory lock on a hash of `(actor, title, assignee, due_date)`, then a lookup for a Task with `task_draft_id IS NULL` and the same four values created within 5 seconds. A hit returns the existing Task. This is race-safe and needs no cache store. |
-| D8 | `EloquentTaskMetricsReader` returns `?int` per the S05 contract, but Req 16.8 forbids null. | The real reader always returns an `int`. The S05 contract is unchanged; the Dashboard already treats a non-null value as available. |
+| D8 | R7 removed `TaskMetricsReader`, `TaskScope` and the null readers. | `TaskCounts` (S07) returns plain `int` pairs, and `DashboardMetrics` calls it. The Dashboard shows numbers, never "Not available yet". |
+| D9 | R4 and D16: a `monitoring` Issue must return to `action_in_progress` on task reopen or a new linked Task, and `startAction` is a no-op unless the Issue is `open` or `acknowledged`. | `IssueLifecycleBridge::taskAdded` reads the Issue's current status after commit: `open` or `acknowledged` calls `startAction`; `monitoring` calls `returnToAction`; others do nothing. `IssueLifecycleBridge::taskReopened` calls `returnToAction` only for `monitoring`. `resolved` is never touched, and the Task page states "Linked issue already resolved; outcome unchanged". Past outcomes and baseline evidence are never written by S07. |
+| D10 | Who decides "all linked Tasks complete"? | S07 only. `IssueTaskCompletion::isSatisfied(issueId)` runs one `COUNT(*) FILTER` query. `IssueLifecycleBridge::tasksSettled` calls `startMonitoring(issue, null)` only when the Issue is `action_in_progress` and the condition holds. S04's own guard ignores repeats. |
+| D11 | S05 G4 gives Staff an `EmptyState` on Today. | S07 changes `DashboardController` so a Staff user is redirected to `tasks.mine` before any metric call. The Staff summary (`open`, `overdue`) is rendered on My Tasks from `DashboardMetrics::staffTaskSummary`. |
+| D12 | Real parallel requests cannot be produced inside a single PHP test process. | The feature tests prove the idempotency logic by calling the action twice, by pre-creating a competing Task row to force the unique-constraint backstop, and by asserting the locked re-read path. True parallel requests stay in the manual verification. |
 
 ### Research notes
 
@@ -72,17 +84,20 @@ flowchart TD
   RT --> DB
   ATC --> DB
 
-  ATD -. after commit .-> IL[S04 IssueLifecycle]
-  CT -. after commit .-> IL
-  CTS -. after commit .-> IL
+  ATD -. after commit .-> BR[IssueLifecycleBridge]
+  CT -. after commit .-> BR
+  CTS -. after commit .-> BR
+  BR --> ITC[IssueTaskCompletion]
+  BR -.startAction / startMonitoring / returnToAction.-> IL[S04 IssueLifecycle]
   ATD -. after commit .-> EVT((Task events))
 
-  RDR[EloquentTaskMetricsReader] --> OC[OverdueCondition]
-  ITR[EloquentIssueTaskStateReader] --> DB
-  LIST[Task list, My Tasks, panel] --> OC
+  TCN[TaskCounts] --> OC[OverdueCondition]
+  DM[S05 DashboardMetrics extended] --> TCN
+  LIST[Task list, My Tasks] --> OC
+  LIST --> TCN
 
-  TABP[MeetingDraftsTabProvider impl] -.slot props.-> S06[S06 Meeting detail]
-  TIP[TasksIssuePanelProvider] -.key=tasks.-> S04[S04 IssuePanelRegistry]
+  S06T[S06 TaskDraftsTab.vue and MeetingController show, extended] --> DC
+  IC[S04 IssueController::show, tasks prop] --> TFI[TasksForIssue]
 ```
 
 ### Task status machine
@@ -110,41 +125,46 @@ app/
   Enums/{TaskStatus}.php                       (TaskDraftStatus, AssigneeResolution, DeadlineResolution come from S06)
   Models/{Task,TaskComment}.php                (TaskDraft is S06; S07 adds task(), rejection_reason)
   Policies/{TaskPolicy,TaskDraftPolicy}.php
-  Actions/Tasks/{ApproveTaskDraft,RejectTaskDraft,UpdateTaskDraft,CreateTask,
-                 ChangeTaskStatus,ReassignTask,AddTaskComment}.php
+  Actions/Tasks/{ApproveTaskDraft,RejectTaskDraft,UpdateTaskDraft,
+                 ChangeTaskStatus,AddTaskComment}.php
+  Actions/Tasks/{CreateTask,ReassignTask}.php  [PoV Polish]
   Services/Tasks/
     TaskStatusMachine.php
     OverdueCondition.php
+    TaskCounts.php                             (open and overdue counts, one aggregate query)
     AllowedAssignees.php
     TaskDueDateRule.php
     TaskAssignmentNotifier.php
-    IssueLifecycleBridge.php                   (post-commit calls, swallows IssueTransitionNotAllowedException)
+    IssueTaskCompletion.php                    (the monitoring condition, S07-owned)
+    IssueLifecycleBridge.php                   (post-commit calls to S04 IssueLifecycle, swallows IssueTransitionNotAllowedException)
+    TasksForIssue.php                          (builds the tasks prop for IssueController::show)
     TaskListQuery.php
-  Services/Contracts/
-    EloquentIssueTaskStateReader.php
-    EloquentTaskMetricsReader.php
+  Services/Dashboard/DashboardMetrics.php      (S05 file, extended with taskKpis and staffTaskSummary)
   Notifications/TaskAssignedNotification.php
-  Events/Tasks/{TaskEvent,TaskDraftApproved,TaskDraftRejected,TaskAssigned,
-                TaskStatusChanged,TaskCommentAdded,TaskCompleted}.php
-  Panels/TasksIssuePanelProvider.php
-  Meetings/TaskDraftsTabProvider.php           (implements S06 MeetingDraftsTabProvider)
-  Providers/TaskServiceProvider.php            (bindings, panel registration, limiters, policies)
-  Http/Controllers/{TaskController,TaskDraftController,TaskStatusController,
-                    TaskReassignController,TaskCommentController}.php
+  Events/Tasks/{TaskEvent,TaskDraftApproved,TaskAssigned,TaskStatusChanged,TaskCompleted}.php
+  Events/Tasks/{TaskDraftRejected,TaskCommentAdded}.php   [PoV Polish]
+  Providers/TaskServiceProvider.php            (rate limiters only; no contract bindings)
+  Http/Controllers/{TaskController,TaskDraftController,TaskStatusController,TaskCommentController}.php
+  Http/Controllers/TaskReassignController.php  [PoV Polish]
   Http/Requests/{UpdateTaskDraftRequest,ApproveTaskDraftRequest,RejectTaskDraftRequest,
-                 StoreTaskRequest,ChangeTaskStatusRequest,ReassignTaskRequest,
-                 StoreTaskCommentRequest,TaskIndexRequest}.php
+                 ChangeTaskStatusRequest,StoreTaskCommentRequest,TaskIndexRequest}.php
+  Http/Requests/{StoreTaskRequest,ReassignTaskRequest}.php  [PoV Polish]
   Http/Resources/{TaskListItemResource,TaskDetailResource,TaskDraftReviewResource,TaskCommentResource}.php
+tests/Feature/Tasks/{TaskApprovalRulesTest,TaskApprovalIdempotencyTest,TaskAccessTest,
+                     TaskIssueLifecycleTest,TaskReopenTest}.php
 database/migrations/…_create_tasks_table.php
                     …_create_task_comments_table.php
                     …_link_task_drafts_to_tasks.php
 resources/js/
-  pages/Tasks/{Index,Mine,Show,Create}.vue
+  pages/Tasks/{Index,Mine,Show}.vue
+  pages/Tasks/Create.vue                       [PoV Polish]
   components/tasks/{TaskFilters,TaskRow,TaskStatusBadge,OverdueBadge,StatusActions,
-                    CommentThread,ReassignDialog,TaskContextCard}.vue
-  components/meetings/DraftReviewTab.vue       (+ DraftCard.vue, DraftEditForm.vue, RejectDialog.vue)
-  issue-panels/TasksPanel.vue
-  meetings/registerDraftReview.ts              (calls registerMeetingDraftsTab once)
+                    CommentThread,TaskContextCard}.vue
+  components/tasks/ReassignDialog.vue          [PoV Polish]
+  components/meetings/TaskDraftsTab.vue        (S06 file, extended with review controls)
+  components/meetings/{DraftCard,DraftEditForm,RejectDialog}.vue
+  components/issues/RelatedTasksPanel.vue      (included by Issues/Show.vue)
+  pages/Dashboard (S05) task KPI cards
 ```
 
 ## Components and Interfaces
@@ -190,7 +210,7 @@ final class TaskDueDateRule
 }
 ```
 
-`BusinessClock::today()` is the S01 date in the company timezone and honors `DEMO_FIXED_DATE`. Dates are compared as plain dates, so there is no time-of-day edge.
+`BusinessClock::today()` is the S01 date in the company timezone and honors the demo clock file written by `demo:set-date` (only when `DEMO_MODE=true`). Dates are compared as plain dates, so there is no time-of-day edge.
 
 ### ApproveTaskDraft
 
@@ -210,7 +230,7 @@ Order of operations:
 | 7 | Inside transaction | Update the draft: the edited fields, `status = approved`, `task_id`, `reviewed_by`, `reviewed_at = now()`, and `issue_id` (same value as the Task, Req 5.5). | 4.3, 5.5 |
 | 8 | Inside transaction | If assignee is not the Actor: `TaskAssignmentNotifier::send(task, assignee, actor)`, which dedupes and inserts one `notifications` row. | 6.1 to 6.5, D1 |
 | 9 | Inside transaction | Queue events: `TaskDraftApproved`, `TaskAssigned`. They implement `ShouldDispatchAfterCommit` and are held until commit. | 19.1, 19.3, 19.5 |
-| 10 | After commit | If `created` and `task.issue_id` is set: `IssueLifecycleBridge::actionStarted($issue)`, which calls `IssueLifecycle::markActionInProgress` inside a try/catch for `IssueTransitionNotAllowedException`. A failure is logged and ignored. | 5.1 to 5.4 |
+| 10 | After commit | If `created` and `task.issue_id` is set: `IssueLifecycleBridge::taskAdded($issueId)`. The bridge reads the Issue status: `open` or `acknowledged` calls `IssueLifecycle::startAction(issue, null)`; `monitoring` calls `IssueLifecycle::returnToAction(issue, null)`; `action_in_progress` and `resolved` do nothing. A try/catch for `IssueTransitionNotAllowedException` logs the Issue id and exception class and ignores the failure. | 5.1 to 5.4 |
 | 11 | Controller | Redirect to the Draft_Review_Tab with the toast "Task created and assigned to {Assignee name}". For a repeat call the same toast is used, since the Task exists. | 4.15 |
 
 Validation at step 5, in this order. The first failure is reported; all failures are collected into one `ValidationException` so the form can mark every field.
@@ -268,7 +288,7 @@ public function handle(TaskDraft $routeDraft, User $actor, array $edits = []): A
     }
 
     if ($result->created && $result->task->issue_id) {
-        $this->issues->actionStarted($result->task->issue_id);                   // after commit, errors swallowed
+        $this->issues->taskAdded($result->task->issue_id);                       // after commit, errors swallowed
     }
     return $result;
 }
@@ -283,6 +303,7 @@ Why both the lock and the unique constraints:
 | A manual SQL update sets two drafts to the same `task_id` | `task_drafts_task_id_unique` rejects it. |
 | Transaction fails after step 6 (for example the notification insert throws) | Everything rolls back: no Task, draft still `pending`, no notification, and, because events are after-commit, no event (Req 4.9). |
 | `IssueLifecycle` throws after commit | The Task and draft stay committed. The bridge logs the Issue id and exception class only. |
+| Approval while the Issue is `monitoring` | The Task is created, then `returnToAction` moves the Issue back to `action_in_progress`. `action_started_at`, the baseline and outcomes are not touched. |
 
 A repeated approval therefore is not an error and does not show a warning; the Reviewer sees the same success toast and the Task id in the redirect is the same (Req 22.7).
 
@@ -306,7 +327,7 @@ A key present with value `null` means "clear". A key that is absent means "leave
 
 ### RejectTaskDraft
 
-Lock the draft row; if `rejected`, return success with no change and no event (Req 7.4); if `approved` or `superseded`, 422; otherwise set `status = rejected`, `reviewed_by`, `reviewed_at`, and `rejection_reason = trim(reason) ?: null`. Dispatch `TaskDraftRejected` with `hasReason`. No Task, no notification, no `IssueLifecycle` call. The row is kept (Req 7.8).
+Lock the draft row; if `rejected`, return success with no change and no event (Req 7.4); if `approved` or `superseded`, 422; otherwise set `status = rejected`, `reviewed_by`, `reviewed_at`, and `rejection_reason = trim(reason) ?: null`. [PoV Polish] Dispatch `TaskDraftRejected` with `hasReason` (the Core slice rejects without dispatching an event). No Task, no notification, no `IssueLifecycle` call. The row is kept (Req 7.8).
 
 ### TaskStatusMachine and ChangeTaskStatus
 
@@ -331,8 +352,8 @@ final class TaskStatusMachine
     {
         return Task::whereKey($task->id)->where('status', $from->value)->update([
             'status'       => $to->value,
-            'completed_at' => $to === TaskStatus::Completed ? now() : null,   // satisfies the CHECK in one statement
-            'updated_at'   => now(),
+            'completed_at' => $to === TaskStatus::Completed ? BusinessClock::now() : null,   // business time (D15, R3); satisfies the CHECK in one statement
+            'updated_at'   => now(),                                                          // audit time is real time
         ]) === 1;
     }
 }
@@ -354,10 +375,65 @@ final class TaskStatusMachine
         if fresh == to: return success without events (a duplicate won the race)   # idempotent
         else: 422 with the fresh status                                            # Req 12.12
      event TaskStatusChanged(from, to); if to == completed: event TaskCompleted.
-6. After commit: if task.issue_id and to in (completed, cancelled):
-     IssueLifecycleBridge::tasksSettled(issue)                                      # Req 13.1
-   Reopen (completed -> in_progress) never calls IssueLifecycle.                    # Req 13.9
+6. After commit, when task.issue_id is set (each call swallows IssueTransitionNotAllowedException):
+     to in (completed, cancelled): IssueLifecycleBridge::tasksSettled(issueId)      # Req 13.1, 13.3
+     from == completed and to == in_progress (reopen):
+                                   IssueLifecycleBridge::taskReopened(issueId)      # Req 13.8, 13.9
 ```
+
+The bridge methods:
+
+```php
+final class IssueLifecycleBridge
+{
+    public function __construct(private IssueLifecycle $lifecycle, private IssueTaskCompletion $completion) {}
+
+    /** A linked Task was approved or created. */
+    public function taskAdded(int $issueId): void
+    {
+        $issue = Issue::find($issueId);
+        match ($issue?->status) {
+            IssueStatus::Open, IssueStatus::Acknowledged => $this->safely(fn () => $this->lifecycle->startAction($issue, null)),
+            IssueStatus::Monitoring                      => $this->safely(fn () => $this->lifecycle->returnToAction($issue, null)),
+            default                                      => null,    // action_in_progress, resolved, or missing
+        };
+    }
+
+    /** A linked Task became completed or cancelled. */
+    public function tasksSettled(int $issueId): void
+    {
+        $issue = Issue::find($issueId);
+        if ($issue?->status === IssueStatus::ActionInProgress && $this->completion->isSatisfied($issueId)) {
+            $this->safely(fn () => $this->lifecycle->startMonitoring($issue, null));   // trigger tasks_complete
+        }
+    }
+
+    /** A completed linked Task was reopened. resolved is never touched. */
+    public function taskReopened(int $issueId): void
+    {
+        $issue = Issue::find($issueId);
+        if ($issue?->status === IssueStatus::Monitoring) {
+            $this->safely(fn () => $this->lifecycle->returnToAction($issue, null));    // clears monitoring_started_at
+        }
+    }
+    // safely(): try { $fn(); } catch (IssueTransitionNotAllowedException $e) { Log::info(...ids and class only...); }
+}
+
+final class IssueTaskCompletion
+{
+    /** At least one completed and no pending, in_progress or blocked linked Task. Cancelled ignored. No user scope. */
+    public function isSatisfied(int $issueId): bool
+    {
+        $row = DB::table('tasks')->where('issue_id', $issueId)
+            ->selectRaw("COUNT(*) FILTER (WHERE status = 'completed') AS done,
+                         COUNT(*) FILTER (WHERE status IN ('pending','in_progress','blocked')) AS open")
+            ->first();
+        return (int) $row->done >= 1 && (int) $row->open === 0;       // all cancelled: done = 0, false (Req 13.7)
+    }
+}
+```
+
+S04 holds the row lock and status check inside each `IssueLifecycle` method, so a stale read in the bridge at worst produces a no-op or an `IssueTransitionNotAllowedException`, which is caught. Reopening never writes outcomes, baseline fields or `action_started_at`. When the Issue is `resolved` the Task page shows "Linked issue already resolved; outcome unchanged" (Req 11.14).
 
 Order matters at steps 3 and 4: the 422 check comes before the policy check only for transitions that are invalid for everybody, so a Staff user asking for a non-existent transition gets a 422 that explains the state, while a Staff user asking for a valid but forbidden transition gets 403.
 
@@ -367,20 +443,20 @@ Transition table and who may perform it:
 |---|---|---|---|---|
 | pending | in_progress | yes | yes | no |
 | pending | blocked | yes | yes | no |
-| pending | completed | yes | yes | `markMonitoringIfTasksComplete` |
-| pending | cancelled | no (403) | yes | `markMonitoringIfTasksComplete` |
+| pending | completed | yes | yes | `tasksSettled` (may call `startMonitoring`) |
+| pending | cancelled | no (403) | yes | `tasksSettled` |
 | in_progress | blocked | yes | yes | no |
-| in_progress | completed | yes | yes | `markMonitoringIfTasksComplete` |
-| in_progress | cancelled | no (403) | yes | `markMonitoringIfTasksComplete` |
+| in_progress | completed | yes | yes | `tasksSettled` |
+| in_progress | cancelled | no (403) | yes | `tasksSettled` |
 | blocked | in_progress | yes | yes | no |
-| blocked | cancelled | no (403) | yes | `markMonitoringIfTasksComplete` |
-| completed | in_progress | no (403) | yes | no |
+| blocked | cancelled | no (403) | yes | `tasksSettled` |
+| completed | in_progress (reopen) | no (403) | yes | `taskReopened` (may call `returnToAction`) |
 | any | any other | 422 | 422 | no |
 | X | X (same) | 200 no-op | 200 no-op | no |
 
 A Manager who is also the Assignee uses the Manager column. Setting `blocked` needs no comment (A6); the UI shows a hint under the button.
 
-### CreateTask (manual)
+### CreateTask (manual) [PoV Polish]
 
 Owner or Manager only (`TaskPolicy::create`). The Form Request resolves the department: a Manager's department is forced from the Actor, and an Owner must send `department_id` that belongs to the Owner's company. Then:
 
@@ -395,18 +471,18 @@ transaction:
    existing = Task where task_draft_id is null and same actor/title/assignee/due and created_at >= now()-5s
    if existing: return it
    create Task; notifier.send; events TaskAssigned
-after commit: if issue_id: IssueLifecycleBridge::actionStarted                           # Req 8.11
+after commit: if issue_id: IssueLifecycleBridge::taskAdded                               # Req 8.11
 ```
 
 A manually created Task dispatches `TaskAssigned` but not `TaskDraftApproved`. The create form pre-selects `issue` and `meeting` from the query string only when they are in the Actor's scope (Req 8.13).
 
-### ReassignTask
+### ReassignTask [PoV Polish]
 
 Owner or Manager of the department. In one transaction: lock the Task row, reject `completed` and `cancelled` with 422, return success without events when the new Assignee equals the current one, check `AllowedAssignees` for the Task's department, update `assignee_id` and `assigned_by`, send the notification (deduped), and queue `TaskAssigned` with `previousAssigneeId`. Status, due date and comments are untouched.
 
 ### AddTaskComment
 
-Anyone who can view the Task (Assignee, department Manager, Owner) may comment in any status. `user_id` and `task_id` come from the Actor and the route. Body is trimmed, 1 to 2,000 characters, stored as plain text. Event `TaskCommentAdded` carries ids only. A comment on a Task does not touch `updated_at` of the Task.
+Anyone who can view the Task (Assignee, department Manager, Owner) may comment in any status. `user_id` and `task_id` come from the Actor and the route. Body is trimmed, 1 to 2,000 characters, stored as plain text. [PoV Polish] Event `TaskCommentAdded` carries ids only. A comment on a Task does not touch `updated_at` of the Task.
 
 ### OverdueCondition (SQL, computed at read time)
 
@@ -432,7 +508,7 @@ final class OverdueCondition
 }
 ```
 
-One class supplies the list filter, the badge value, the My Tasks grouping and the metrics reader (Req 16.2). `BusinessClock::today()` is evaluated once per request and the same date string is bound everywhere, so a single page never mixes two "todays". A Task due on Business_Today is not overdue because the comparison is strict `<` (Req 16.10). `due_date` is a `date` column, so there is no timezone conversion in SQL; the company timezone only decides which date "today" is.
+One class supplies the list filter, the badge value, the My Tasks grouping and `TaskCounts` (Req 16.2). `BusinessClock::today()` is evaluated once per request and the same date string is bound everywhere, so a single page never mixes two "todays". A Task due on Business_Today is not overdue because the comparison is strict `<` (Req 16.10). `due_date` is a `date` column, so there is no timezone conversion in SQL; the company timezone only decides which date "today" is.
 
 List sort (D4):
 
@@ -443,50 +519,46 @@ ORDER BY is_overdue DESC, tasks.due_date ASC, tasks.id DESC
 LIMIT 15
 ```
 
-### Contract bindings
+### Task counts and the Dashboard extension (R7)
+
+S07 binds no contract. `TaskCounts` is a plain S07 service, and S05's `DashboardMetrics` receives it as a constructor dependency.
 
 ```php
-// TaskServiceProvider::register()
-$this->app->bind(IssueTaskStateReader::class, EloquentIssueTaskStateReader::class);   // replaces NullIssueTaskStateReader
-$this->app->bind(TaskMetricsReader::class,     EloquentTaskMetricsReader::class);      // replaces NullTaskMetricsReader
-$this->app->bind(MeetingDraftsTabProvider::class, TaskDraftsTabProvider::class);
-```
-
-The bindings live in `TaskServiceProvider`, registered after the S04 and S05 providers in `bootstrap/providers.php`, so the later binding wins. S04 and S05 code is not modified.
-
-```php
-final class EloquentIssueTaskStateReader implements IssueTaskStateReader
+final class TaskCounts
 {
-    public function readyForMonitoring(Issue $issue): bool
-    {
-        // One query. Cancelled tasks are ignored. No user scope: the caller is the system.
-        $row = DB::table('tasks')->where('issue_id', $issue->id)
-            ->selectRaw("COUNT(*) FILTER (WHERE status = 'completed') AS done,
-                         COUNT(*) FILTER (WHERE status IN ('pending','in_progress','blocked')) AS open")
-            ->first();
-        return $row->done >= 1 && $row->open === 0;       // all-cancelled gives done = 0, so false (Req 13.7)
-    }
-}
+    /** @return array{open:int, overdue:int}  one aggregate query, never loads Task rows */
+    public function forDepartment(int $departmentId): array { return $this->count(fn ($q) => $q->where('department_id', $departmentId)); }
+    public function forCompany(int $companyId): array       { return $this->count(fn ($q) => $q->whereIn('department_id', Department::where('company_id', $companyId)->select('id'))); }
+    public function forUser(int $userId): array             { return $this->count(fn ($q) => $q->where('assignee_id', $userId)); }
 
-final class EloquentTaskMetricsReader implements TaskMetricsReader
-{
-    public function openCount(TaskScope $scope): int
+    private function count(Closure $scope): array
     {
-        return (int) $this->scoped($scope)->whereIn('status', OverdueCondition::OPEN)->count();
-    }
-    public function overdueCount(TaskScope $scope): int
-    {
-        return (int) OverdueCondition::apply($this->scoped($scope))->count();
-    }
-    private function scoped(TaskScope $s): Builder
-    {
-        $q = DB::table('tasks');                        // aggregate only, never loads rows (Req 16.9)
-        return $s->type === 'department' ? $q->where('department_id', $s->id) : $q->where('assignee_id', $s->id);
+        $today = BusinessClock::today()->toDateString();
+        $row = $scope(DB::table('tasks'))
+            ->selectRaw("COUNT(*) FILTER (WHERE status IN ('pending','in_progress','blocked')) AS open,
+                         COUNT(*) FILTER (WHERE {$this->overdueSql()}) AS overdue", [$today])
+            ->first();                                   // COUNT(*) is never null: no match gives 0 (Req 16.7)
+        return ['open' => (int) $row->open, 'overdue' => (int) $row->overdue];
     }
 }
 ```
 
-Each call is a single `SELECT COUNT(*)` that uses the `(department_id, status)` or `(assignee_id, status)` index. The return type narrows `?int` to `int`, which is compatible with the S05 interface (covariant return). `COUNT(*)` returns 0 for no match, so there is never a null (Req 16.8). The Task list's footer counts and the My Tasks summary row call the same reader, so the numbers match by construction (Req 10.8, 22.9).
+Each call is a single `SELECT` that uses the `(department_id, status)` or `(assignee_id, status)` index. `overdueSql()` is `OverdueCondition::sql()`.
+
+Changes to S05 files (the only edits S07 makes there):
+
+```php
+// S05 DashboardMetrics: one added dependency and two added methods
+public function __construct(private MetricCalculator $calc, private ReportingCoverage $coverage, private TaskCounts $tasks) {}
+
+/** Owner: company counts; Manager: department counts. Fills openTaskCount and overdueTaskCount on DashboardData. */
+public function taskKpis(User $user, Department $department): array { /* ['open' => int, 'overdue' => int] */ }
+
+/** Staff summary: the Actor's own Tasks. Rendered on My Tasks. */
+public function staffTaskSummary(User $user): array { return $this->tasks->forUser($user->id); }
+```
+
+`forOwnerOrManager` adds `openTaskCount` and `overdueTaskCount` to `DashboardData`, and the Today page renders two KPI cards that link to `tasks.index` with `?status=open` and `?overdue=1`, replacing the S05 "Not available yet" text. `DashboardController` is changed in one place: a Staff user is redirected to `tasks.mine` before any metric call (D11). The Task list footer and the My Tasks summary call the same `TaskCounts` source, so the figures match by construction (Req 16.9, 22.9).
 
 ### TaskAssignedNotification and dedupe
 
@@ -527,11 +599,11 @@ final class TaskAssignmentNotifier
 
 The dedupe lookup is safe under concurrency for the approval path because the draft row lock serializes callers. For manual create and reassign the advisory lock and the Task row lock do the same. The notification appears in the S04 bell feed without S04 changes, because the feed reads the `notifications` table and renders `title`, `url` and the key set above; the implementation step must confirm the S04 feed's expected keys and add `title` and `url` handling only if S04's renderer needs a type switch.
 
-### Draft_Review_Tab (slot filling)
+### Draft_Review_Tab (extension of S06's TaskDraftsTab)
 
-S06 provides the host and slot; S07 fills it without editing S06 files.
+S06 renders `TaskDraftsTab.vue` read-only from the `taskDrafts` and `draftCounts` props of `MeetingController@show` (S06 design, "Task drafts tab"). There is no slot, registry, `draftsTab` prop or provider contract (R7). S07 edits those two S06 files directly.
 
-Server side: `TaskDraftsTabProvider implements MeetingDraftsTabProvider::props(Meeting $meeting, User $user): array`. It returns, for Owner and Manager only:
+Server side: `MeetingController@show` adds one prop, `draftReview`, built by a small S07 class `TaskDraftReviewProps::for(Meeting, User)` (a plain invokable, not a contract). It uses the S06 relation `Meeting::taskDrafts()` and the scope `TaskDraft::scopeReviewable()`. It returns `null` for Staff (who already receive 403 on Meeting routes) and, for Owner and Manager:
 
 ```php
 [
@@ -548,53 +620,54 @@ Server side: `TaskDraftsTabProvider implements MeetingDraftsTabProvider::props(M
 
 Each draft resource carries: `id`, `status`, `title`, `description`, `assigneeId`, `assigneeResolution`, `suggestedAssigneeName`, `dueDate`, `deadlineResolution`, `suggestedDueDateText`, `issueId`, `transcriptExcerpt`, `rejectionReason` (history only), `taskId` and `taskUrl` (approved only), `blockers` (computed: `['assignee_id', 'due_date', 'title']` for missing fields), and `can: { approve, reject, edit }`. The transcript excerpt is the draft's own short quote, never the full transcript, which respects S06's rule that provider props contain no transcript text.
 
-Client side: `resources/js/meetings/registerDraftReview.ts` calls `registerMeetingDraftsTab(DraftReviewTab)` once from `app.ts`. The component receives S06's slot props (`meetingId`, `departmentId`, `meetingStatus`, `counts`, `canReview`, `extra`) and reads everything else from `extra`. The "AI generated, review before use" label is already rendered by the S06 host, and `DraftCard` repeats it per pending draft (Req 1.8). The Staff route check for the tab is S06's 403 on Meeting routes plus `TaskDraftPolicy` on every S07 draft route.
+Client side: `TaskDraftsTab.vue` keeps its S06 counts and its "AI generated, review before use" label, and S07 adds the review controls: for each pending draft a `DraftCard` with `DraftEditForm` (title, description, employee picker, deadline, Issue), Approve and Reject (`RejectDialog`), plus the history section and the superseded count. The component reads the new `draftReview` prop and falls back to the S06 read-only rows when the prop is null. `DraftCard` repeats the AI label per pending draft (Req 1.8). The Staff check is S06's 403 on Meeting routes plus `TaskDraftPolicy` on every S07 draft route.
 
-Actions inside the tab call the draft routes with Inertia `router.patch` and `router.post`, `preserveScroll: true`, and `only: ['meeting', 'draftsTab']` so the transcript is not reloaded.
+Actions inside the tab call the draft routes with Inertia `router.patch` and `router.post`, `preserveScroll: true`, and `only: ['meeting', 'taskDrafts', 'draftCounts', 'draftReview']` so the transcript is not reloaded.
 
-### TasksIssuePanelProvider
+### Issue detail `tasks` prop (R7, no panel provider)
+
+`IssueController::show` appends one prop, the same pattern as S05's `briefs` and S06's `meetings`:
 
 ```php
-final class TasksIssuePanelProvider implements IssuePanelProvider
-{
-    public function key(): string { return 'tasks'; }
+// IssueController::show, one added line
+'tasks' => app(TasksForIssue::class)($issue, $request->user()),
 
-    public function panelFor(Issue $issue, User $user): ?array
+final class TasksForIssue
+{
+    public function __invoke(Issue $issue, User $user): ?array
     {
         if ($user->role === Role::Staff) { return null; }                             // Req 17.6
         $base = Task::where('issue_id', $issue->id);                                  // Issue is already scoped by S04's controller
         $counts = (clone $base)->selectRaw('status, COUNT(*) c')->groupBy('status')->pluck('c', 'status');
-        if ($counts->sum() === 0) { return null; }                                    // S04 shows its placeholder (Req 17.5)
-
         $today = BusinessClock::today();
         $tasks = (clone $base)->with('assignee:id,name')->orderBy('due_date')->limit(20)->get();
         return [
-            'counts'  => array_merge(array_fill_keys(TaskStatus::values(), 0), $counts->all()),
-            'tasks'   => $tasks->map(fn ($t) => [
+            'counts' => array_merge(array_fill_keys(TaskStatus::values(), 0), $counts->all()),
+            'items'  => $tasks->map(fn ($t) => [
                 'id' => $t->id, 'title' => $t->title, 'assigneeName' => $t->assignee->name,
                 'dueDate' => $t->due_date->toDateString(), 'status' => $t->status->value,
                 'isOverdue' => OverdueCondition::isOverdue($t, $today), 'url' => route('tasks.show', $t),
-            ])->all(),                                                                // no description, comments or excerpt (Req 17.8)
-            'createUrl' => route('tasks.create', ['issue' => $issue->id]),
+            ])->all(),                                                                // empty list when none (Req 17.5); no description, comments or excerpt (Req 17.8)
+            'createUrl' => $this->createUrl($issue),                                  // [PoV Polish] route('tasks.create', ['issue' => $issue->id]); null until manual creation is built
         ];
     }
 }
 ```
 
-Because the provider returns `null` for an Issue with no Tasks, the "Create task" link would not be shown by the panel itself. The Issue page's placeholder cannot carry a link, so the Tasks list empty state ("Create task") and the Task creation route with `?issue=` are the entry points in that case. This follows S06's identical situation and keeps S04 unchanged. The Vue component is `resources/js/issue-panels/TasksPanel.vue`. Registration is by tagging the provider in `TaskServiceProvider::boot()`.
+`Issues/Show.vue` includes `components/issues/RelatedTasksPanel.vue` when `tasks` is not null. The panel shows the status counts, up to 20 rows with title, employee, due date, `StatusBadge`, overdue flag and link, an empty text when `items` is empty, and the "Create task" link only when `createUrl` is set. S07 changes only the one line in `IssueController::show` and the one include in `Issues/Show.vue`; no registry, provider or slot is used.
 
 ### Events contract
 
 All events live in `App\Events\Tasks`, extend `TaskEvent`, and implement `ShouldDispatchAfterCommit`. S07 registers no listener and writes no `activity_logs` row (Req 19.10); S08 subscribes.
 
-| Event | Dispatched by | Extra fields | Not dispatched when |
-|---|---|---|---|
-| `TaskDraftApproved` | `ApproveTaskDraft` | `taskDraftId`, `taskId`, `assigneeId` | repeat approval |
-| `TaskDraftRejected` | `RejectTaskDraft` | `taskDraftId`, `hasReason` (bool) | repeat rejection |
-| `TaskAssigned` | approve, `CreateTask`, `ReassignTask` | `assigneeId`, `previousAssigneeId` (null on creation) | same-assignee reassignment, repeat approval |
-| `TaskStatusChanged` | `ChangeTaskStatus` | `from`, `to` | same-status request, lost race with same target |
-| `TaskCompleted` | `ChangeTaskStatus` | `assigneeId`, `completedAt` | any non-`completed` target |
-| `TaskCommentAdded` | `AddTaskComment` | `commentId`, `authorUserId` | never skipped |
+| Event | Tier | Dispatched by | Extra fields | Not dispatched when |
+|---|---|---|---|---|
+| `TaskDraftApproved` | Core | `ApproveTaskDraft` | `taskDraftId`, `taskId`, `assigneeId` | repeat approval |
+| `TaskAssigned` | Core | `ApproveTaskDraft`; [PoV Polish] `CreateTask`, `ReassignTask` | `assigneeId`, `previousAssigneeId` (null on creation) | same-assignee reassignment, repeat approval |
+| `TaskStatusChanged` | Core | `ChangeTaskStatus` | `from`, `to` | same-status request, lost race with same target |
+| `TaskCompleted` | Core | `ChangeTaskStatus` | `assigneeId`, `completedAt` | any non-`completed` target |
+| `TaskDraftRejected` | Polish | `RejectTaskDraft` | `taskDraftId`, `hasReason` (bool) | repeat rejection |
+| `TaskCommentAdded` | Polish | `AddTaskComment` | `commentId`, `authorUserId` | never skipped |
 
 Common payload from `TaskEvent`: `taskId` (null for `TaskDraftRejected`), `departmentId`, `companyId`, `actorUserId`, `issueId` (nullable), `meetingId` (nullable), `occurredAt` (UTC `CarbonImmutable`). No event carries comment text, descriptions, rejection reasons, transcript text or file paths (Req 19.9). On approval, `TaskDraftApproved` is queued before `TaskAssigned`; both fire together at commit.
 
@@ -612,25 +685,26 @@ Common payload from `TaskEvent`: `taskId` (null for `TaskDraftRejected`), `depar
 
 `TaskDraft::resolveRouteBinding()` follows S06's pattern (G7): Staff get 403 first; then Owner (company) or Manager (department) scope through the draft's meeting; anything else is 404.
 
-`TaskPolicy` abilities: `viewAny` (Owner, Manager), `create` (Owner, Manager), `view` (in scope), `changeStatus(Task, TaskStatus $to)` (see transition table), `reassign` (Owner, Manager), `comment` (in scope). `TaskDraftPolicy`: `view`, `update`, `approve`, `reject` (Owner, Manager; Staff always false). Every controller action calls `authorize`.
+`TaskPolicy` abilities: `viewAny` (Owner, Manager), `view` (in scope), `changeStatus(Task, TaskStatus $to)` (see transition table), `comment` (in scope), and [PoV Polish] `create` and `reassign` (Owner, Manager). `TaskDraftPolicy`: `view`, `update`, `approve`, `reject` (Owner, Manager; Staff always false). Every controller action calls `authorize`.
 
 #### Route table
 
 | Method and path | Name | Throttle |
 |---|---|---|
 | GET `/tasks` | `tasks.index` | |
-| GET `/tasks/create` | `tasks.create` | |
-| POST `/tasks` | `tasks.store` | |
+| GET `/tasks/create` [PoV Polish] | `tasks.create` | |
+| POST `/tasks` [PoV Polish] | `tasks.store` | |
 | GET `/my-tasks` | `tasks.mine` | |
+| GET Today (S05 route; Staff redirected to `tasks.mine`) | S05 `dashboard` | |
 | GET `/tasks/{task}` | `tasks.show` | |
 | POST `/tasks/{task}/status` | `tasks.status` | `task-status` (60/min) |
-| POST `/tasks/{task}/reassign` | `tasks.reassign` | `task-review` (20/min, shared) |
+| POST `/tasks/{task}/reassign` [PoV Polish] | `tasks.reassign` | `task-review` (20/min, shared) |
 | POST `/tasks/{task}/comments` | `tasks.comments.store` | `task-comment` (30/min) |
 | PATCH `/task-drafts/{taskDraft}` | `task-drafts.update` | `task-review` |
 | POST `/task-drafts/{taskDraft}/approve` | `task-drafts.approve` | `task-review` |
 | POST `/task-drafts/{taskDraft}/reject` | `task-drafts.reject` | `task-review` |
 
-All routes are in the `auth` group with CSRF. Limiters are defined in `TaskServiceProvider::boot()` with `RateLimiter::for(name, fn ($r) => Limit::perMinute(n)->by($r->user()->id))`. Because the key is the same for approve, reject, edit and reassign, one counter is shared (Req 18.7). Exceeding returns 429 with `Retry-After`.
+All routes are in the `auth` group with CSRF. `TaskServiceProvider` holds only the rate limiters; it binds no contract (R7), and policies are registered by the S02 pattern. Limiters are defined in `TaskServiceProvider::boot()` with `RateLimiter::for(name, fn ($r) => Limit::perMinute(n)->by($r->user()->id))`. Because the key is the same for approve, reject, edit and reassign, one counter is shared (Req 18.7). Exceeding returns 429 with `Retry-After`.
 
 #### Matrix
 
@@ -638,16 +712,17 @@ Cells show the expected result. "Own dept" means the Manager's department; "fore
 
 | Action | Owner | Manager (own dept) | Manager (foreign) | Staff (own Task) | Staff (other's Task) |
 |---|---|---|---|---|---|
-| Task list, create form, store | 200 | 200 | n/a (dept forced) | 403 | 403 |
+| Task list; [PoV Polish] create form, store | 200 | 200 | n/a (dept forced) | 403 | 403 |
 | My Tasks | 200 | 200 | 200 | 200 | 200 |
+| Today (S05) | 200 | 200 | n/a | redirect to My Tasks | redirect to My Tasks |
 | Task show | 200 | 200 | 404 | 200 | 404 |
 | Status change, allowed for assignee | 200 | 200 | 404 | 200 | 404 |
 | Cancel, or reopen completed | 200 | 200 | 404 | 403 | 404 |
-| Reassign | 200 | 200 | 404 | 403 | 404 |
+| Reassign [PoV Polish] | 200 | 200 | 404 | 403 | 404 |
 | Comment | 200 | 200 | 404 | 200 | 404 |
 | Draft edit, approve, reject | 200 | 200 | 404 | 403 | 403 |
 | Draft tab (Meeting detail) | 200 | 200 | 404 | 403 | 403 |
-| Issue `tasks` panel | data | data | n/a | null | null |
+| Issue detail `tasks` prop | data | data | n/a | null (Staff cannot open Issues) | null |
 
 Staff get 403 on draft routes (not 404) because draft binding aborts Staff first, as in S06. Staff get 404 on another user's Task because the Task binding hides it.
 
@@ -753,16 +828,16 @@ Constraint rationale:
 | `tasks_status_check` | closed status set |
 | `tasks_completed_at_check` | `completed_at` is set exactly when status is `completed`; forces the machine to write both in one statement |
 | restrict FKs on `meeting_id`, `issue_id`, `task_draft_id` | a Meeting or Issue with Tasks cannot be deleted, which also blocks S06's cascade from `meetings` to `task_drafts` for approved drafts |
-| `(assignee_id, status)` | My Tasks, per-user metrics, `EloquentTaskMetricsReader` |
-| `(department_id, status)` | Task list, per-department metrics |
-| `issue_id` | Issue panel, `EloquentIssueTaskStateReader` |
+| `(assignee_id, status)` | My Tasks, per-user counts in `TaskCounts` |
+| `(department_id, status)` | Task list, per-department counts in `TaskCounts` |
+| `issue_id` | Issue `tasks` prop, `IssueTaskCompletion` |
 | `due_date` | list ordering and overdue comparison |
 
 Application-level rules the schema cannot express: the assignee belongs to the Task's department, the Issue and Meeting belong to the Task's department, and the Issue is in the Meeting's `meeting_issues`. These are enforced by `AllowedAssignees` and the Form Requests.
 
 ### Documentation follow-ups (Req 20.10)
 
-On implementation, update `docs/data-model.md` (`rejection_reason`, the two Task constraints, the indexes, the reciprocal foreign keys) and `docs/architecture.md` (the two contract bindings, the `tasks` panel provider, the draft-tab binding, the event list and the notification type).
+On implementation, update `docs/data-model.md` (`rejection_reason`, the two Task constraints, the indexes, the reciprocal foreign keys) and `docs/architecture.md` (the `DashboardMetrics` extension with `TaskCounts`, the `tasks` prop on `IssueController::show`, the `TaskDraftsTab.vue` extension, the S07 calls to `IssueLifecycle` including `returnToAction` on reopen, the event list and the notification type).
 
 ### Inertia props
 
@@ -776,12 +851,12 @@ On implementation, update `docs/data-model.md` (`rejection_reason`, the two Task
     status: TaskStatus; isOverdue: boolean; daysOverdue: number | null;
     issue: { id: number; title: string } | null; url: string;
   }>;                                     // 15 per page, sort per D4
-  filters: { status: TaskStatus | null; assignee: number | null; issue: number | null;
-             department: number | null; overdue: boolean };   // echoed from query string, out-of-scope values dropped
-  options: { assignees: {id,name}[]; issues: {id,title}[]; departments: {id,name}[] | null /* null for Manager */ };
-  summary: { open: number; overdue: number };       // from TaskMetricsReader for the same scope
+  filters: { status: TaskStatus | null; assignee: number | null; overdue: boolean;
+             issue: number | null; department: number | null };   // issue and department are [PoV Polish]; echoed from query string, out-of-scope values dropped
+  options: { assignees: {id,name}[]; issues: {id,title}[] /* Polish */; departments: {id,name}[] | null /* Polish; null for Manager */ };
+  summary: { open: number; overdue: number };       // TaskCounts, the same source as DashboardMetrics
   businessToday: string;
-  can: { create: boolean };
+  can: { create: boolean };                         // create is [PoV Polish]
 }
 ```
 
@@ -791,7 +866,7 @@ On implementation, update `docs/data-model.md` (`rejection_reason`, the two Task
 {
   sections: { overdue: TaskRow[]; open: TaskRow[]; completed: TaskRow[]; cancelled: TaskRow[] | null };
   filters: { status: TaskStatus | null; showCancelled: boolean };
-  summary: { open: number; overdue: number };       // EloquentTaskMetricsReader, TaskScope::user
+  summary: { open: number; overdue: number };       // DashboardMetrics::staffTaskSummary (TaskCounts::forUser)
   businessToday: string;
 }
 // TaskRow adds: allowedTransitions: TaskStatus[]   // machine targets filtered by what this Actor may do
@@ -810,24 +885,25 @@ On implementation, update `docs/data-model.md` (`rejection_reason`, the two Task
   excerpt: string | null;                                              // the draft's transcript_excerpt
   decisions: { summary: string; excerpt: string }[] | null;            // Owner and Manager only
   issue: { id; title; severity; status; url: string | null;
+           resolvedNotice: string | null;                              // "Linked issue already resolved; outcome unchanged" when status is resolved
            evidence: { metricName: string; baseline: string; latest: string } | null } | null;
   comments: { id; body; author: {name; role}; createdAt }[];
-  can: { changeStatus: TaskStatus[]; reassign: boolean; comment: true };
-  reassignOptions: {id,name}[] | null;                                 // only when can.reassign
+  can: { changeStatus: TaskStatus[]; reassign: boolean; comment: true };   // reassign is [PoV Polish]
+  reassignOptions: {id,name}[] | null;                                 // [PoV Polish] only when can.reassign
   businessToday: string;
 }
 ```
 
-`Tasks/Create`: `{ departments: {id,name}[] | null, defaultDepartmentId, assigneeOptionsByDepartment: Record<number, {id,name}[]>, issueOptions: {id,title,departmentId}[], meetingOptions: {id,title,meetingDate,departmentId,issueIds}[], prefill: { issueId, meetingId }, minDueDate }`.
+`Tasks/Create` [PoV Polish]: `{ departments: {id,name}[] | null, defaultDepartmentId, assigneeOptionsByDepartment: Record<number, {id,name}[]>, issueOptions: {id,title,departmentId}[], meetingOptions: {id,title,meetingDate,departmentId,issueIds}[], prefill: { issueId, meetingId }, minDueDate }`.
 
 No page receives `sales_records`, full transcripts, `recording_path` or raw rejection reasons of other users. Task text is rendered with Vue interpolation, and `v-html` is not used anywhere (Req 11.10).
 
 ### Vue pages and behavior
 
-- `Tasks/Index.vue`: `PageHeader` with "Create task"; `TaskFilters` bound to the query string via `router.get(..., { preserveState: true })`; rows as a table at 768 px and above and stacked cards below; `OverdueBadge` with text ("3 days overdue") in addition to color; `EmptyState` with "Create task"; skeleton rows while loading; `ErrorState` with retry.
-- `Tasks/Mine.vue`: summary row, status filter, grouped sections, "Show cancelled" toggle, and one-step buttons from `allowedTransitions`. Empty state "No tasks assigned to you". Staff land here after sign-in (Req 10.2) through the S02 post-login redirect resolution; the implementation step locates that single redirect point and adds the Staff branch there.
-- `Tasks/Show.vue`: `StatusActions` (buttons for `can.changeStatus`; Cancel opens a confirmation dialog), `ReassignDialog` (confirmation), `CommentThread` (chronological, author and role, company-timezone time, line breaks preserved with CSS `white-space: pre-wrap`, no editing), and `TaskContextCard` showing the Meeting and Issue summaries as links for Owner and Manager and as read-only text for Staff.
-- `DraftReviewTab.vue`: one `DraftCard` per pending draft with inline edit fields; Approve is disabled with a visible reason while a title, employee or deadline is missing; Approve has no confirmation; Reject opens a dialog with an optional reason (0 to 500); both buttons disable while the request is in flight (Req 21.6).
+- `Tasks/Index.vue`: `PageHeader` (with "Create task" [PoV Polish]); `TaskFilters` for status, employee and overdue (Issue and department selects are [PoV Polish]) bound to the query string via `router.get(..., { preserveState: true })`; rows as a table at 768 px and above and stacked cards below; `OverdueBadge` with text ("3 days overdue") in addition to color; `EmptyState` (with "Create task" once manual creation exists); skeleton rows while loading; `ErrorState` with retry.
+- `Tasks/Mine.vue`: summary row, status filter, grouped sections, "Show cancelled" toggle, and one-step buttons from `allowedTransitions`. Empty state "No tasks assigned to you". Staff land here after sign-in (Req 10.2) through the S02 post-login redirect resolution, and Staff opening Today are redirected here by `DashboardController`; the implementation step locates the single post-login redirect point and adds the Staff branch there.
+- `Tasks/Show.vue`: `StatusActions` (buttons for `can.changeStatus`; Cancel opens a confirmation dialog; the reopen button for a completed Task is shown to Owner and Manager and, when `issue.resolvedNotice` is set, the notice appears beside it), `ReassignDialog` [PoV Polish] (confirmation), `CommentThread` (chronological, author and role, company-timezone time, line breaks preserved with CSS `white-space: pre-wrap`, no editing), and `TaskContextCard` showing the Meeting and Issue summaries as links for Owner and Manager and as read-only text for Staff.
+- `TaskDraftsTab.vue` (S06 file, extended): one `DraftCard` per pending draft with inline edit fields; Approve is disabled with a visible reason while a title, employee or deadline is missing; Approve has no confirmation; Reject opens a dialog with an optional reason (0 to 500); both buttons disable while the request is in flight (Req 21.6).
 - Shared: single column below 768 px, no horizontal scroll at 360 px, visible focus style, 422 field errors beside the field, other errors as a toast, the term "employee" for the Assignee.
 
 ## Error Handling
@@ -841,7 +917,9 @@ No page receives `sales_records`, full transcripts, `recording_path` or raw reje
 | Approve on `approved` draft (repeat or concurrent) | 200 with the existing Task | none, no events, no notification |
 | Unique violation on `tasks.task_draft_id` | caught outside the transaction; existing Task returned | none |
 | Any exception after Task insert, before commit | transaction rolls back; 500 with generic message; error logged with draft id and exception class only | none; no notification, no events |
-| `IssueLifecycle` throws after commit | Task kept; logged; the Actor sees the normal success | Issue unchanged |
+| `IssueLifecycle` throws after commit (`startAction`, `startMonitoring` or `returnToAction`) | Task kept; logged with ids and class only; the Actor sees the normal success | Issue unchanged |
+| Reopen of a completed Task whose Issue is `resolved` | 200; Task `in_progress`; no `IssueLifecycle` call | Issue and outcomes unchanged; Task page shows "Linked issue already resolved; outcome unchanged" |
+| Reopen of a completed Task whose Issue is `monitoring` | 200; Task `in_progress`; `returnToAction` after commit | Issue `action_in_progress`; `monitoring_started_at` cleared; baseline and outcomes unchanged |
 | Edit on non-`pending` draft | 422 | none |
 | Reject on `approved` or `superseded` draft | 422 | none |
 | Reject on `rejected` draft | 200, no change | none |
@@ -854,21 +932,35 @@ No page receives `sales_records`, full transcripts, `recording_path` or raw reje
 | Staff on Task list, create, draft routes | 403 | none |
 | Throttle exceeded | 429 with `Retry-After` | none |
 | Notification dedupe hit | silent skip | none |
-| Metrics or panel query failure | page-level `ErrorState` with retry; the S05 Dashboard already shows its own section error | none |
+| Task counts or `tasks` prop query failure | page-level `ErrorState` with retry; the S05 Dashboard already shows its own section error | none |
 
 Logging records ids, the action name, and the exception class. It never records comment bodies, descriptions, rejection reasons or transcript text.
 
 ## Testing Strategy
 
-Property-based testing does not apply. S07 is mostly CRUD, state transitions guarded by locks and constraints, and framework side effects, and the project excludes automated suites for Stage 1 (A17, `.kiro/steering/verification.md`). This design therefore has no Correctness Properties section and no prework analysis. `TaskStatusMachine`, `OverdueCondition` and `TaskDueDateRule` are pure and would suit property tests if that policy changes. Results are reported as observed; passing them does not make the application production-ready.
+Per R5, S07 uses a small set of focused Laravel feature tests on PostgreSQL, plus manual acceptance, static checks and demo rehearsals. Property-based frameworks, browser automation and heavy mocking are not used, so this design has no Correctness Properties section and no prework analysis. No test calls an external AI Provider. Results are reported as observed; passing them does not make the application production-ready.
+
+### Automated feature tests [PoV Core] (Req 23)
+
+All tests use `RefreshDatabase` on `businesspulse_testing` (PostgreSQL, no SQLite), the S02 role factories, a fixed `BusinessClock` date, and S06's `Meeting`, `TaskDraft` and `meeting_issues` factories. `Event::fake()` is used only to count dispatched events; the database is real.
+
+| Test class | Cases | Req |
+|---|---|---|
+| `TaskApprovalRulesTest` | Extraction (an S06 `ExtractMeetingTasksJob` fixture result stored as drafts) leaves `tasks` empty. Approve by Owner and by Manager of the Meeting's department creates one Task; Staff gets 403 and no Task. Approve rejects with 422 and no Task for: missing, inactive, other-department, Owner as assignee; missing, before-meeting-date, before-today due date; accepts due date equal to today. A draft with `assignee_resolution = ambiguous` or `unmatched` and no chosen assignee, or `deadline_resolution = ambiguous` or `none` and no chosen deadline, returns 422 on a direct POST. Issue outside `meeting_issues` returns 422. Approve ignores body fields `status`, `assigned_by`, `task_draft_id`, `department_id`. | 23.2 to 23.5 |
+| `TaskApprovalIdempotencyTest` | Two sequential approvals return the same Task id with one `tasks` row, one `notifications` row and one `TaskDraftApproved`. A draft already `approved` returns its Task and ignores edits. A pre-inserted competing Task with the same `task_draft_id` forces the unique-violation path, and the action returns the existing Task with no second row. Approve on `rejected` or `superseded` returns 422. | 23.6, 23.7 |
+| `TaskAccessTest` | Staff opens another Staff user's Task: 404, same body as a missing id. Manager of another department: 404 on Task show, status change, and on a Task_Draft show, edit, approve and reject. Staff: 403 on every draft route and on the Task list. Staff Today request redirects to My Tasks. Owner and own-department Manager succeed. | 23.8 |
+| `TaskIssueLifecycleTest` | With two linked Tasks on an `action_in_progress` Issue, completing one leaves the Issue unchanged; completing the second moves it to `monitoring`, never `resolved`. A cancelled Task is ignored: with one completed and one cancelled, the Issue moves to `monitoring`; cancelling the last open Task while another is completed moves it to `monitoring`; all cancelled leaves it unchanged. First approval on an `open` Issue moves it to `action_in_progress` and sets `action_started_at`. Staff cannot cancel (403). Invalid transition returns 422 with the current status. A Task due today is not overdue and one due yesterday is. | 23.9, 23.10, 23.13, 23.14 |
+| `TaskReopenTest` | Owner reopens a completed Task whose Issue is `monitoring`: Issue becomes `action_in_progress`, `monitoring_started_at` is null, and `action_started_at`, `baseline_evaluation_id` and existing outcome rows are unchanged. Reopen with a `resolved` Issue leaves the Issue and outcome rows unchanged and the Task page prop carries `resolvedNotice`. Approving a new linked Task while the Issue is `monitoring` returns it to `action_in_progress`. Staff reopen returns 403. | 23.11, 23.12 |
+
+True parallel requests cannot be made inside one test process, so the concurrency cases rely on the locked re-read and on the unique-constraint backstop (D12). The manual concurrency checks below remain required.
 
 ### Static and build checks
 
-`php -l` on changed files, `composer validate`, Pint, `npm run type-check`, ESLint, Prettier, `npm run build`, `php artisan migrate:fresh --seed` on a scratch database, and `php artisan migrate:rollback --step=3` followed by `migrate` again to prove the reciprocal foreign keys drop and recreate cleanly.
+`php -l` on changed files, `composer validate`, Pint, `composer test`, `npm run type-check`, ESLint, Prettier, `npm run build`, `php artisan migrate:fresh --seed` on a scratch database, and `php artisan migrate:rollback --step=3` followed by `migrate` again to prove the reciprocal foreign keys drop and recreate cleanly.
 
 ### Fixture verification (Req 22.3 to 22.7, 22.10)
 
-Preconditions: `demo:reset --force`, `DEMO_MODE=true`, `demo:set-date 2026-09-28`, the S06 demo meeting in `ready_for_review` with the four drafts of `docs/demo-scenario.md` section 5, linked Issue "Weekly revenue decline" in a status from which S04 allows `markActionInProgress`. Sign in as Owner Lim Wei Han (an Owner may review; the Manager path is repeated in the matrix).
+Preconditions: `demo:reset --force`, `DEMO_MODE=true`, `demo:set-date 2026-09-28`, the S06 demo meeting in `ready_for_review` with the four drafts of `docs/demo-scenario.md` section 5, linked Issue "Weekly revenue decline" in a status from which S04 allows `startAction` (`open` or `acknowledged`). Sign in as Owner Lim Wei Han (an Owner may review; the Manager path is repeated in the matrix).
 
 | Step | Action | Expected |
 |---|---|---|
@@ -881,11 +973,12 @@ Preconditions: `demo:reset --force`, `DEMO_MODE=true`, `demo:set-date 2026-09-28
 | 7 | Reject draft 4 with reason "Not an agreed action" | Draft 4 `rejected`, `rejection_reason` stored, no Task. It appears in the history section. Repeat the request: 200, no change. Approve it afterwards: 422. |
 | 8 | Check injection line | No Task has the Owner as assignee. |
 | 9 | Repeat approval of draft 1 (resubmit the same request) | Same Task id, no second row, no second notification (count by key = 1), no second `TaskAssigned` event. |
-| 10 | Sign in as Priya (Staff) | Landing page is My Tasks; one Task under Open. Summary shows open 1, overdue 0, and the same numbers as `EloquentTaskMetricsReader`. Task detail shows the transcript excerpt and read-only Issue summary, no links, no decisions list. The bell shows the assignment notification linking to the Task. |
+| 10 | Sign in as Priya (Staff) | Landing page is My Tasks; one Task under Open. Summary shows open 1, overdue 0, and the same numbers as `TaskCounts::forUser` and `DashboardMetrics::staffTaskSummary`. Opening Today as Priya redirects to My Tasks. Task detail shows the transcript excerpt and read-only Issue summary, no links, no decisions list. The bell shows the assignment notification linking to the Task. |
 | 11 | Priya moves her Task `pending` to `in_progress` to `completed` | `completed_at` set. Issue still `action_in_progress` (two Tasks open). Priya cannot Cancel (403) or reopen (403). |
 | 12 | Sign in as Farid, complete his Task | Issue still `action_in_progress` (Daniel's Task open). |
-| 13 | Sign in as Daniel Tan, set `blocked` (no comment needed), then `in_progress`, then `completed` | After the last transition the Issue status is `monitoring`, not `resolved`. `IssueTaskStateReader::readyForMonitoring` is true; with Daniel's Task `in_progress` it was false. |
-| 14 | Owner reopens Daniel's Task | Task `in_progress`, `completed_at` null. Issue stays `monitoring` (A16). |
+| 13 | Sign in as Daniel Tan, set `blocked` (no comment needed), then `in_progress`, then `completed` | After the last transition the Issue status is `monitoring` (`monitoring_started_at` set), not `resolved`. `IssueTaskCompletion::isSatisfied` is true; with Daniel's Task `in_progress` it was false. |
+| 14 | Owner reopens Daniel's Task | Task `in_progress`, `completed_at` null. The Issue returns to `action_in_progress` with `monitoring_started_at` cleared and `action_started_at` unchanged (A16). Complete the Task again: the Issue returns to `monitoring`. |
+| 15 | Resolve the Issue manually in S04 (reason required), then reopen a completed Task | Issue stays `resolved`, outcomes unchanged. Task page shows "Linked issue already resolved; outcome unchanged". |
 
 ### Concurrency checks (Req 22.6)
 
@@ -899,7 +992,7 @@ Preconditions: `demo:reset --force`, `DEMO_MODE=true`, `demo:set-date 2026-09-28
 
 ### Overdue and metrics checks (Req 22.9, 22.10)
 
-With `DEMO_FIXED_DATE` 2026-09-28, create a manual Task due `2026-09-28`: not overdue. Run `demo:set-date 2026-09-29`: the same Task shows "1 day overdue" in list, My Tasks Overdue section and Task detail, and the Overdue filter lists it. Complete it: it leaves the overdue count. Compare `openCount` and `overdueCount` from `tinker` (`TaskScope::department` and `TaskScope::user`) with the counts on the Task list and My Tasks. Open the S05 Dashboard: task counts show numbers, not "Not available yet". Run `DB::enableQueryLog()` around each reader call and confirm one aggregate query and no Task rows loaded.
+With the demo clock set to 2026-09-28 (`demo:set-date 2026-09-28`), create a manual Task due `2026-09-28`: not overdue. Run `demo:set-date 2026-09-29`: the same Task shows "1 day overdue" in list, My Tasks Overdue section and Task detail, and the Overdue filter lists it. Complete it: it leaves the overdue count. Compare `TaskCounts::forDepartment` and `TaskCounts::forUser` from `tinker` with the counts on the Task list, My Tasks and the Dashboard KPI cards. Open the S05 Dashboard: task counts show numbers, not "Not available yet". Run `DB::enableQueryLog()` around each `TaskCounts` call and confirm one aggregate query and no Task rows loaded.
 
 ### Authorization matrix (Req 22.8)
 

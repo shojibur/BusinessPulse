@@ -10,3 +10,5 @@ inclusion: always
 - Local: native PHP, Composer, Node, npm, PostgreSQL, `php artisan serve`, `npm run dev`, `php artisan queue:work`. **No Docker.**
 - Deploy: single Ubuntu VPS, Nginx, PHP-FPM, PostgreSQL, Supervisor, cron schedule, HTTPS.
 - Verify versions before implementing and record them in `docs/architecture.md` section 11.
+- Tests: Laravel's test framework (Pest if the starter kit ships it) on a PostgreSQL test database. No Playwright/Cypress.
+- Queue: database connection, queues `default` and `ai`.

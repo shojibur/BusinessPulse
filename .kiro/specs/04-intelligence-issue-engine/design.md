@@ -5,31 +5,42 @@
 S04 is the Business Intelligence and Issue Engine. It consumes confirmed sales data from S03 and does four things:
 
 1. Computes deterministic metrics with decimal-string math (`bcmath`, no floats).
-2. Evaluates three predefined rules per department and stores every evaluation with a full evidence snapshot.
-3. Creates and maintains deduplicated Issues, and owns the Issue lifecycle state machine, including an append-only status history stored on the Issue row.
+2. Evaluates three predefined rules per department against the S03 reporting calendar (due days, closed weeks) and stores every evaluation with a full evidence snapshot.
+3. Creates and maintains deduplicated Issues, and owns the Issue lifecycle state machine (R4), including an append-only status history stored on the Issue row.
 4. Notifies the Owner and department Managers of high-severity Issues through Laravel database notifications.
 
-S04 also defines the extension contracts that S05 to S08 plug into: `IssueEvidence`, `IssuePanelProvider` with the `panels` Inertia prop, `IssueTaskStateReader`, the lifecycle entry points, and the event set.
+S04 supplies `IssueEvidence` (read model for S05 and S08), the lifecycle methods called by S07 and S08, and the Core events. It defines no panel registry and no task-state reader (R7). Later specs add their own props to `IssueController::show` and their own Vue panel components to the Issue detail page.
+
+### Priority tiers (R1)
+
+| Tier | Contents |
+|---|---|
+| [PoV Core] | `MetricCalculator`, `EvaluationContext`, three evaluators, seeded fixed rules, `EvaluateRulesJob`, listener, Refresh intelligence, `IssueEngine`, `IssueLifecycle`, `UrgentIssueNotifier`, notification feed and bell, Issue list and detail, `IssueEvidence`, events `IssueCreated`, `IssueStatusChanged`, `UrgentIssueNotified`, `EvaluationRunCompleted`, Feature tests |
+| [PoV Polish] | Settings "Rules" tab (read-only display and editing), `UpdateBusinessRule`, events `BusinessRuleUpdated`, `RuleEvaluated`, `IssueRedetected`, Owner department filter on the Issue list |
+
+Rule evaluations and re-detections are persisted in Core. Only their events are Polish: the dispatch calls for `RuleEvaluated` and `IssueRedetected` are added in the Polish pass, and no placeholder event classes exist in Core.
 
 Decisions fixed for this design (resolving gaps in the requirements):
 
 | # | Gap | Decision |
 |---|---|---|
-| G1 | Status timeline source (Req 14.4) | Append-only JSONB column `issues.status_history`, written by `IssueLifecycle` (and by `IssueEngine` at creation) inside the same transaction as the status change. No new table. No dependency on S08 `activity_logs`. |
-| G2 | `BusinessRuleUpdated` event (Req 3.14) | Kept. Defined in `App\Events\Intelligence` next to the other S04 events. |
-| G3 | Per-department evaluation lock (Req 4.7) | `Cache::store('database')->lock("evaluate:{$departmentId}", 120)`. On contention the job releases itself back to the queue. Correctness never depends on the lock (see section "Evaluation lock"). |
-| G4 | "Latest evaluation time" when all evaluations are reused (Req 4.11, 14.13) | Store `departments.settings.intelligence.last_evaluated_at` (S03 already added `departments.settings` JSONB). Updated by atomic `jsonb_set` when a job finishes all rules without error. No new column. |
-| G5 | Manual resolve note (Req 10.6) | Stored as `reason` in the `status_history` entry. No `resolution_note` column. |
-| G6 | `IssuePanelProvider::$key` (Req 14.10) | PHP interfaces cannot declare properties before 8.4, so the contract is `key(): string`. Same meaning, method form. |
-| G7 | `rule_evaluations.severity` | Nullable. Set only when `result = breached` (check constraint). `docs/data-model.md` must note this. |
-| G8 | Job "3 tries" under lock contention | Contention releases do not count as failures. The job uses `maxExceptions = 3` and `retryUntil()` of 15 minutes instead of a plain `$tries = 3`. Failure backoff stays 10, 30, 60 s. |
+| G1 | Status timeline source (Req 14.4) | Append-only JSONB column `issues.status_history`, written by `IssueLifecycle` (and by `IssueEngine` at creation and re-detection) inside the same transaction as the change. No new table. No dependency on S08 `activity_logs`. |
+| G2 | `BusinessRuleUpdated` event (Req 3.14) | [PoV Polish]. Defined in `App\Events\Intelligence` with the Rules tab. |
+| G3 | Per-department serialization (Req 4.7) | Two layers: `ShouldBeUniqueUntilProcessing` with `uniqueFor = 900` and `uniqueId = departmentId` keeps at most one pending job, and `Cache::store('database')->lock("evaluate:{$departmentId}", 120)` keeps one running job. `ShouldBeUniqueUntilProcessing` (not `ShouldBeUnique`) releases the unique lock when the job starts, so a dispatch that arrives while a job runs is queued and sees the newest data. Correctness never depends on the locks (see "Evaluation lock"). |
+| G4 | "Latest evaluation time" when all evaluations are reused (Req 4.12) | Store `departments.settings.intelligence.last_evaluated_at` (jsonb key per `docs/data-model.md`). Updated by atomic `jsonb_set` with a `BusinessClock::now()` value bound as a parameter, when a job finishes with at least one rule processed. |
+| G5 | Manual reason storage | Manual resolve reason goes to `issues.resolution_note` and to the `status_history` entry. Other manual transitions put the reason in the `status_history` entry only. |
+| G6 | `rule_evaluations.severity` | Nullable. Set only when `result = breached` (check constraint). |
+| G7 | Pending job drops a later trigger's metadata | A second dispatch while one is pending is dropped. The pending job reads current data when it runs, so evaluation is correct. `EvaluationRunCompleted.importId` and `actorUserId` then describe the first dispatch. Accepted for Stage 1. |
+| G8 | Demo expectation for the correction fixture | `week8-correction.csv` lifts W8 to 126,000.00. The decline Issue is re-detected (−18.71, count 2). The target achievement becomes 80.77 and is `not_breached`, so the target Issue is not touched. |
+| G9 | `as_of_date` nullability | Null only when the department has no Active_Record (`no_records`). `docs/data-model.md` gets a note (task 11.2). |
+| G10 | Evaluation timestamps | `evaluated_at`, `first_detected_at`, `last_detected_at`, `action_started_at`, `monitoring_started_at`, `resolved_at` and history `at` use `BusinessClock::now()` (A11). |
 
 ### Research notes
 
-- Laravel atomic locks: the `database` cache store supports `Cache::lock($name, $seconds)` backed by the `cache_locks` table; `release()` only releases when the owner token matches, so a job whose lock expired cannot free another job's lock. See [Laravel atomic locks](https://laravel.com/docs/cache#atomic-locks).
-- PostgreSQL `INSERT ... ON CONFLICT (cols) WHERE predicate DO NOTHING RETURNING id` can infer a partial unique index when the predicate is repeated. This gives race-free issue creation without relying on exception handling inside an aborted transaction. See [PostgreSQL INSERT](https://www.postgresql.org/docs/current/sql-insert.html).
+- Laravel atomic locks: the `database` cache store supports `Cache::lock($name, $seconds)` backed by the `cache_locks` table; `release()` only releases when the owner token matches. See [Laravel atomic locks](https://laravel.com/docs/cache#atomic-locks).
+- Laravel unique jobs: `ShouldBeUniqueUntilProcessing` releases the unique lock when processing starts, whereas `ShouldBeUnique` holds it until the job finishes. See [Laravel queues, unique jobs](https://laravel.com/docs/queues#unique-jobs).
+- PostgreSQL `INSERT ... ON CONFLICT (cols) WHERE predicate DO NOTHING RETURNING id` can infer a partial unique index when the predicate is repeated. This gives race-free issue creation. See [PostgreSQL INSERT](https://www.postgresql.org/docs/current/sql-insert.html).
 - PostgreSQL `numeric` `SUM()` is exact, so weekly totals are summed in SQL and only divisions and roundings run in `bcmath`.
-- Laravel jobs: `release($delay)` counts as an attempt, which is why G8 uses `retryUntil` and `maxExceptions`. See [Laravel queues, max attempts](https://laravel.com/docs/queues#max-job-attempts-and-timeout).
 
 Content was rephrased for compliance with licensing restrictions.
 
@@ -38,21 +49,21 @@ Content was rephrased for compliance with licensing restrictions.
 ```mermaid
 flowchart TD
   IC((ImportCompleted from S03)) --> L[EvaluateAfterImportListener]
-  UI[Re-evaluate action, Owner or Manager] --> EJ
-  L --> EJ[EvaluateRulesJob departmentId, importId?, actorId?]
+  UI[Refresh intelligence, Owner or Manager] --> EJ
+  L --> EJ[EvaluateRulesJob departmentId, importId?, actorId? queue default, afterCommit]
   EJ --> LK{Cache lock evaluate:departmentId, 120s}
-  LK -- contended --> REL[release 5-15s, retry]
-  LK -- acquired --> CTX[Build EvaluationContext: asOf, target week, coverage]
+  LK -- contended after 30s wait --> REL[release 15s, retry]
+  LK -- acquired --> CTX[Build EvaluationContext: calendar, last due date, latest closed week, preceding week, missing-data window]
   CTX --> LOOP[For each active rule, independently]
   LOOP --> RE[RuleEvaluator, pure read]
   RE --> TX[Transaction per rule]
   TX --> INS[INSERT rule_evaluation ON CONFLICT DO NOTHING]
   INS -- existing run_key --> REUSE[Reuse: no events, no issue change]
   INS -- inserted --> BR{breached?}
-  BR -- no --> EV1((RuleEvaluated after commit))
+  BR -- no --> OK[done]
   BR -- yes --> IE[IssueEngine.applyBreach]
   IE --> UN[UrgentIssueNotifier, same transaction]
-  IE --> EV2((RuleEvaluated, IssueCreated or IssueRedetected, UrgentIssueNotified after commit))
+  IE --> EV2((IssueCreated, UrgentIssueNotified after commit; Polish: RuleEvaluated, IssueRedetected))
   LOOP --> DONE[jsonb_set last_evaluated_at, release lock]
   DONE --> ERC((EvaluationRunCompleted, once per run, if at least one rule succeeded))
 ```
@@ -60,15 +71,14 @@ flowchart TD
 ```mermaid
 flowchart LR
   subgraph Web
-    IL[IssueController index/show] --> REG[IssuePanelRegistry]
+    IL[IssueController index/show] --> IE2[IssueEvidence, evaluations, status history]
     TR[IssueTransitionController] --> LC[IssueLifecycle]
-    RS[RuleSettingsController] --> BRU[UpdateBusinessRule action]
+    RF[RefreshIntelligenceController]
     NF[NotificationController]
+    RS[RuleSettingsController, Polish]
   end
-  REG -.providers registered by S05..S08.-> P[IssuePanelProvider]
   LC --> EV((IssueStatusChanged))
-  BRU --> EV3((BusinessRuleUpdated))
-  S07[S07 task events] -.-> LC
+  S07[S07 task approval and completion] -.startAction / startMonitoring / returnToAction.-> LC
   S08[S08 outcomes] -.resolveVerified / reopen.-> LC
 ```
 
@@ -77,7 +87,7 @@ flowchart LR
 ```
 app/
   Models/{BusinessRule,RuleEvaluation,Issue}.php
-  Enums/{RuleKey,RuleResult,InsufficientReason,IssueSeverity,IssueStatus,ResolutionType,StatusTrigger}.php
+  Enums/{RuleKey,RuleResult,InsufficientReason,IssueSeverity,IssueStatus,ResolutionType}.php
   Policies/{IssuePolicy,BusinessRulePolicy,RuleEvaluationPolicy}.php
   Services/Intelligence/
     MetricCalculator.php
@@ -87,20 +97,23 @@ app/
     EvidenceBuilder.php
     IssueEngine.php
     IssueLifecycle.php
-    IssueEvidence.php            (read model + IssueEvidenceFactory)
+    IssueTransitionNotAllowedException.php
+    IssueEvidence.php            (read model)
     UrgentIssueNotifier.php
-    Panels/{IssuePanelProvider,IssuePanelRegistry}.php
-    Contracts/IssueTaskStateReader.php   (+ NullIssueTaskStateReader default binding)
-  Actions/Intelligence/{SeedDefaultRules,UpdateBusinessRule,DispatchEvaluation}.php
+  Actions/Intelligence/{SeedDefaultRules,DispatchEvaluation}.php
+  Actions/Intelligence/UpdateBusinessRule.php                                   [PoV Polish]
   Jobs/EvaluateRulesJob.php
   Listeners/Intelligence/EvaluateAfterImportListener.php
   Notifications/UrgentIssueNotification.php
-  Events/Intelligence/{RuleEvaluated,IssueCreated,IssueRedetected,IssueStatusChanged,UrgentIssueNotified,BusinessRuleUpdated,EvaluationRunCompleted}.php
-  Http/Controllers/{IssueController,IssueTransitionController,RuleSettingsController,ReevaluateController,NotificationController}.php
-  Http/Requests/{UpdateRulesRequest,ResolveIssueRequest}.php
+  Events/Intelligence/{IssueCreated,IssueStatusChanged,UrgentIssueNotified,EvaluationRunCompleted}.php
+  Events/Intelligence/{RuleEvaluated,IssueRedetected,BusinessRuleUpdated}.php   [PoV Polish]
+  Http/Controllers/{IssueController,IssueTransitionController,RefreshIntelligenceController,NotificationController}.php
+  Http/Controllers/RuleSettingsController.php                                   [PoV Polish]
+  Http/Requests/{TransitionIssueRequest}.php, UpdateRulesRequest.php            [PoV Polish]
 resources/js/pages/Issues/{Index,Show}.vue
-resources/js/pages/Settings/Tabs/Rules.vue
-resources/js/issue-panels/index.ts      (registerIssuePanel(name, component))
+resources/js/pages/Settings/Tabs/Rules.vue                                      [PoV Polish]
+tests/Feature/Intelligence/                                                     [PoV Core]
+database/demo/expected.json                                                     (adds `evaluations`)
 ```
 
 ## Components and Interfaces
@@ -115,7 +128,7 @@ ZERO_DENOMINATOR = sentinel value (not a string, not null)
 
 function roundHalfUp(x: DecString, places: int): DecString
     negative = x starts with '-'
-    a = abs(x)                                    // strip sign
+    a = abs(x)
     half = '0.' + repeat('0', places) + '5'       // places=4 -> '0.00005'
     r = bcadd(a, half, places)                    // bcadd truncates beyond `places`
     if bccomp(r, '0', places) == 0: return r      // never return '-0.0000'
@@ -127,17 +140,10 @@ function pct(numerator: Money, denominator: Money): Dec4 | ZERO_DENOMINATOR
     return roundHalfUp(q, 4)
 
 function targetAchievementPct(revenue, target): Dec4 | ZERO_DENOMINATOR
-    return pct(revenue, target)
-
 function weeklyChangePct(current, comparison): Dec4 | ZERO_DENOMINATOR
     return pct(bcsub(current, comparison, 2), comparison)
-
 function coveragePct(present: int, expected: int): Dec4 | ZERO_DENOMINATOR
-    if expected == 0: return ZERO_DENOMINATOR
-    return pct(string(present), string(expected))
-
-function display2(x4: Dec4): Dec2            // stored in numeric(8,2) and shown in UI
-    return roundHalfUp(x4, 2)
+function display2(x4: Dec4): Dec2
 
 function weekTotals(department, weekStart): {revenue: Money, target: Money}
     // one SQL query, exact numeric arithmetic:
@@ -147,30 +153,36 @@ function weekTotals(department, weekStart): {revenue: Money, target: Money}
 ```
 
 Rules of use:
-- No `float`, `round()` or `number_format()` anywhere in S04 code. Money is never cast to float for display; the UI formats strings.
-- Threshold comparisons use the 4 dp value (`bccomp(a, b, 4)`), never the 2 dp display value. A drop of 15.00004 percent rounds to 15.0000 and is not strictly greater than a threshold of 15.00.
-- Double rounding (12 dp to 4 dp to 2 dp) is intentional and deterministic. Example: 124000 / 156000 gives 79.487179... then 79.4872 then 79.49.
-- The calculator never decides whether a period is comparable. The evaluators do (Req 1.10).
+- No `float`, `round()` or `number_format()` anywhere in S04 code.
+- Threshold comparisons use the 4 dp value (`bccomp(a, b, 4)`), never the 2 dp display value.
+- Double rounding (12 dp, 4 dp, 2 dp) is intentional and deterministic: 124000 / 156000 gives 79.487179..., then 79.4872, then 79.49.
+- The calculator never decides whether a period is comparable. The evaluators do.
 
 ### EvaluationContext
 
-Built once per job run, shared by the three evaluators so they agree on dates and read coverage once.
+Built once per job run from `ReportingCoverage` (S03) and shared by the three evaluators, so they agree on dates and read coverage once.
 
 ```
 function buildContext(department): EvaluationContext
-    asOf = ReportingCoverage.asOfDate(department)          // null when no Active_Record
-    if asOf == null: return Context(noData=true)
-    targetStart  = asOf.startOfIsoWeek()                   // Monday
-    targetEnd    = targetStart + 6 days
-    compStart    = targetStart - 7 days
-    compEnd      = compStart + 6 days
-    return Context(
-        asOf, targetStart, targetEnd, compStart, compEnd,
-        targetCoverage = ReportingCoverage.weekCoverage(department, targetStart),
-        compCoverage   = ReportingCoverage.weekCoverage(department, compStart),
-        expectedBranches = ReportingCoverage.expectedBranches(department),
-        businessToday = BusinessClock.today())
+    now          = BusinessClock.now()
+    asOf         = ReportingCoverage.latestSalesDate(department)        // null when no Active_Record
+    lastDue      = ReportingCoverage.lastDueDate(department, now)
+    latest       = ReportingCoverage.latestClosedWeek(department, now)  // WeekState, any completeness
+    prevStart    = latest.weekStart - 7 days
+    preceding    = ReportingCoverage.weekState(department, prevStart, null, now)   // always closed
+    winStart     = startOfIsoWeek(BusinessClock.today()) - 7 days
+    gaps         = ReportingCoverage.missingDueBranchDays(department, winStart, lastDue, null, now)
+    expectedBr   = ReportingCoverage.expectedBranches(department)
+    dueDates     = [d for d in tradingDates over [winStart .. lastDue] if isDue(d)]
+    return Context(now, asOf, lastDue, latest, preceding, window(winStart, lastDue), gaps,
+                   expectedBr, dueDates, calendarSettings(company.trading_days,
+                   company.reporting_cutoff_time, company.reporting_cutoff_lag_days),
+                   noRecords = (asOf == null))
 ```
+
+`latestClosedWeek` is a calendar fact and works without records (its completeness is `absent`). The `noRecords` flag is derived from `asOf == null`.
+
+Freshness (`ReportingCoverage::freshness`) is never read by the engine. It is a live display value for S03 and S05 and creates no Issue.
 
 ### Rule evaluator algorithms
 
@@ -184,35 +196,32 @@ interface RuleEvaluator {
 // EvaluationOutcome: result, severity?, insufficientReason?, metricName,
 // periodStart, periodEnd, comparisonStart?, comparisonEnd?,
 // currentValue?, comparisonValue?, differenceValue?, differencePct4? (Dec4),
-// evidence (array), contributingRecordIds (int[])
+// asOfDate?, lastDueDate, evidence (array), contributingRecordIds (int[]), contributingImportIds (int[])
 ```
 
 **Weekly revenue decline** (`weekly_change_pct`):
 
 ```
 function evaluateDecline(rule, dept, ctx):
-    T = rule.threshold                                   // e.g. '15.00'
-    high = rule.params.high_drop_pct                     // e.g. '25'
-    base = outcome(metric='weekly_change_pct', period=ctx.target, comparison=ctx.comp)
+    T = rule.threshold; high = rule.params.high_drop_pct
+    base = outcome(metric='weekly_change_pct', period=ctx.latest, comparison=ctx.preceding)
 
-    if ctx.noData:                               return insufficient(base, NO_DATA)
-    if ctx.targetCoverage.status != complete:    return insufficient(base, CURRENT_PERIOD_PARTIAL)
-    if ctx.compCoverage.status == absent:        return insufficient(base, COMPARISON_PERIOD_UNAVAILABLE)
-    if ctx.compCoverage.status != complete:      return insufficient(base, COMPARISON_PERIOD_PARTIAL)
+    if ctx.noRecords:                              return insufficient(base, NO_RECORDS)
+    if ctx.latest.completeness == absent:          return insufficient(base, PERIOD_ABSENT)
+    if ctx.latest.completeness == incomplete:      return insufficient(base, INCOMPLETE_PERIOD)
+    if ctx.preceding.completeness == absent:       return insufficient(base, PERIOD_ABSENT)
+    if ctx.preceding.completeness == incomplete:   return insufficient(base, INCOMPLETE_PERIOD)
 
-    cur  = weekTotals(dept, ctx.targetStart).revenue
-    prev = weekTotals(dept, ctx.compStart).revenue
+    cur  = weekTotals(dept, ctx.latest.weekStart).revenue
+    prev = weekTotals(dept, ctx.preceding.weekStart).revenue
     chg  = weeklyChangePct(cur, prev)
-    if chg == ZERO_DENOMINATOR:                  return insufficient(base, ZERO_DENOMINATOR)
+    if chg == ZERO_DENOMINATOR:                    return insufficient(base, ZERO_DENOMINATOR)
 
-    base.currentValue    = cur
-    base.comparisonValue = prev
-    base.differenceValue = bcsub(cur, prev, 2)
-    base.differencePct4  = chg
+    base.currentValue = cur; base.comparisonValue = prev
+    base.differenceValue = bcsub(cur, prev, 2); base.differencePct4 = chg
 
-    // breached when drop strictly greater than threshold, i.e. chg < -T
-    if bccomp(chg, '-' + T, 4) < 0:
-        sev = bccomp(chg, '-' + high, 4) <= 0 ? HIGH : MEDIUM   // drop >= high_drop_pct
+    if bccomp(chg, '-' + T, 4) < 0:                // drop strictly greater than threshold
+        sev = bccomp(chg, '-' + high, 4) <= 0 ? HIGH : MEDIUM
         return breached(base, sev)
     return notBreached(base)
 ```
@@ -221,115 +230,139 @@ function evaluateDecline(rule, dept, ctx):
 
 ```
 function evaluateTarget(rule, dept, ctx):
-    T = rule.threshold                                   // '80.00'
-    highBelow = rule.params.high_below_pct               // '70'
-    if ctx.noData:                               return insufficient(base, NO_DATA)
-    if ctx.targetCoverage.status != complete:    return insufficient(base, CURRENT_PERIOD_PARTIAL)
+    T = rule.threshold; highBelow = rule.params.high_below_pct
+    if ctx.noRecords:                              return insufficient(base, NO_RECORDS)
+    if ctx.latest.completeness == absent:          return insufficient(base, PERIOD_ABSENT)
+    if ctx.latest.completeness == incomplete:      return insufficient(base, INCOMPLETE_PERIOD)
 
-    {revenue, target} = weekTotals(dept, ctx.targetStart)
+    {revenue, target} = weekTotals(dept, ctx.latest.weekStart)
     ach = targetAchievementPct(revenue, target)
-    if ach == ZERO_DENOMINATOR:                  return insufficient(base, ZERO_DENOMINATOR)
+    if ach == ZERO_DENOMINATOR:                    return insufficient(base, ZERO_DENOMINATOR)
 
     base.currentValue = revenue; base.comparisonValue = target
     base.differenceValue = bcsub(revenue, target, 2); base.differencePct4 = ach
 
-    // breached when achievement strictly below threshold
-    if bccomp(ach, T, 4) < 0:
-        sev = bccomp(ach, highBelow, 4) < 0 ? HIGH : MEDIUM     // achievement < high_below_pct
+    if bccomp(ach, T, 4) < 0:                      // strictly below threshold
+        sev = bccomp(ach, highBelow, 4) < 0 ? HIGH : MEDIUM
         return breached(base, sev)
     return notBreached(base)
 ```
 
-**Missing sales data** (`coverage_pct`, window = Monday of Target_Week through As_Of_Date inclusive):
+**Missing sales data** (`coverage_pct`, window = Monday of the ISO week before the week of `BusinessClock::today()` through `last_due_date`):
 
 ```
 function evaluateMissingData(rule, dept, ctx):
-    if ctx.noData: return insufficient(base, NO_DATA)
-    windowStart = ctx.targetStart
-    windowEnd   = ctx.asOf
-    gap = ReportingCoverage.missingBranchDays(dept, windowStart, windowEnd)   // CoverageGap[]
-    expected = count(ctx.expectedBranches) * countTradingDays(dept.company, windowStart, windowEnd)
-    present  = expected - count(gap)
+    if ctx.noRecords: return insufficient(base, NO_RECORDS)
+    gaps     = ctx.gaps                          // Due_Branch_Days with no Active_Record, kind inside_period | after_latest
+    expected = count(ctx.expectedBranches) * count(ctx.dueDates)
+    if expected == 0: return insufficient(base, ZERO_DENOMINATOR)
+    present  = expected - count(gaps)
 
+    base.period = ctx.window; base.comparison = null
     base.currentValue = string(present); base.comparisonValue = string(expected)
-    if expected == 0: return insufficient(base, NO_DATA)
+    base.differencePct4 = coveragePct(present, expected)
+    base.evidence.missingDueBranchDays = gaps    // [{branch_code, date, kind}]
 
-    cov = coveragePct(present, expected)                 // ZERO_DENOMINATOR impossible, expected>0 checked above
-    base.differencePct4 = cov
-    base.evidence.missingBranchDays = gap                // [{branch_code, date}], stored verbatim
-
-    if count(gap) > 0: return breached(base, MEDIUM)      // severity fixed at medium (Req 7.10, A7's "critical unused")
+    if count(gaps) > 0: return breached(base, MEDIUM)
     return notBreached(base)
 ```
 
-Severity classification for all three evaluators only applies when `result = breached` (G7): `rule_evaluations.severity` is written, otherwise left `null`.
+Properties of the missing-data window that make the demo values hold:
+- A not-yet-due day is never inside `dueDates` and `missingDueBranchDays` never returns a date after `last_due_date`, so an Open_Week never alerts (Req 5.11).
+- At clock 2026-09-28 the window is 2026-09-21 to 2026-09-26 (18 Due_Branch_Days). With the W8 file: 18 of 18. With the errors file: 17 of 18. With no W8 file: 0 of 18. The week of 2026-09-28 has no due day yet.
+- At clock 2026-09-21 the window is 2026-09-14 to 2026-09-19 (W7): 18 of 18.
+
+Severity applies only when `result = breached` (G6).
+
+Demo walk-through of reasons: `week8-with-errors.csv` at clock 09-28 makes W8 a closed, incomplete week, so decline and target record `incomplete_period`. Refresh at 09-28 before any W8 upload makes W8 closed and absent, so they record `period_absent`.
 
 ### Run_Key and evidence
 
 ```
-function computeRunKey(rule, dept, ctx, recordIds: int[]): string
+function computeRunKey(rule, dept, ctx, outcome, recordIds: int[], importIds: int[]): string
     payload = {
-        ruleKey: rule.key, departmentId: dept.id,
-        periodStart: ctx.periodStart, periodEnd: ctx.periodEnd,
-        comparisonStart: ctx.comparisonStart, comparisonEnd: ctx.comparisonEnd,
-        recordIds: sort(recordIds),                      // ids of Active_Records read, both periods
-        ruleConfig: { threshold: rule.threshold, severity: rule.severity, params: rule.params },
+        ruleId: rule.id,
+        threshold: rule.threshold, params: rule.params,
+        periodStart: outcome.periodStart, periodEnd: outcome.periodEnd,
+        comparisonStart: outcome.comparisonStart, comparisonEnd: outcome.comparisonEnd,
+        asOfDate: ctx.asOf, lastDueDate: ctx.lastDue,
+        expectedBranches: ctx.expectedBranches,            // sorted
+        tradingDays: company.trading_days,                 // sorted ints
+        cutoff: { time: company.reporting_cutoff_time, lagDays: company.reporting_cutoff_lag_days },
+        recordIds: sort(recordIds),                        // active sales_record ids in scope
+        importIds: sort(importIds),                        // import ids of those records
     }
-    return sha256(canonicalJson(payload))                 // stable key order, no whitespace
+    return sha256(canonicalJson(payload))                   // stable key order, no whitespace
 ```
 
-`recordIds` are the ids of the `sales_records` rows read by `weekTotals`/`missingBranchDays` for the periods in scope (Req 8.3). When the set exceeds 1,000 ids, the evidence snapshot stores compact id ranges (`[[minId,maxId], ...]` over contiguous runs) instead of the full list (Req 8.6); `Run_Key` hashing always uses the full sorted id list before compaction, so compaction never changes the key.
+Scope of record ids per rule: decline reads the ids of both weeks, target reads the latest closed week, missing data reads the ids inside the window. Record ids and import ids are read in the same query that sums the totals. When the id set exceeds 1,000, the evidence snapshot stores compact `[[minId,maxId], ...]` ranges, and Run_Key hashing always uses the full sorted id list before compaction.
+
+Consequence of including `last_due_date`: the same unchanged data evaluated on a later business day yields a new Rule_Evaluation, and a breach is re-detected (count + 1). Evaluating again within the same due state is a reuse. This is the intended behavior: a rule is judged against the calendar it was evaluated in.
+
+The unique constraint stays `(business_rule_id, period_start, period_end, run_key)`.
 
 `EvidenceBuilder` assembles the JSONB payload stored in `rule_evaluations.evidence`:
 
 ```
 evidence = {
-  asOfDate, thresholdUsed, paramsUsed,
-  periods: { target: {start,end,revenue,target}, comparison: {start,end,revenue,target}? },
-  coverage: { expectedBranches, expectedBranchDays, presentBranchDays, missingBranchDays: [{branch_code,date}] },
+  asOfDate, lastDueDate, thresholdUsed, paramsUsed,
+  calendar: { tradingDays, cutoffTime, cutoffLagDays, timezone },
+  periods: { current: {start,end,status,completeness,revenue,target}, comparison: {...}? },
+  coverage: { expectedBranches, expectedDueBranchDays, presentDueBranchDays,
+              missingDueBranchDays: [{branch_code,date,kind}] },
   contributingImportIds: int[],
   contributingRecordIds: int[] | [[min,max],...],
 }
 ```
 
-All money values are decimal strings; all percentages are decimal strings at 4 dp (Req 8.7).
+All money values are decimal strings; all percentages are decimal strings at 4 dp.
 
 ### Evaluation lock and job
 
 ```php
-final class EvaluateRulesJob implements ShouldQueue
+final class EvaluateRulesJob implements ShouldQueue, ShouldBeUniqueUntilProcessing
 {
-    public int $maxExceptions = 3;
-    public array $backoff = [10, 30, 60];
+    use Queueable;   // onQueue('default'), dispatched with ->afterCommit()
 
-    public function retryUntil(): DateTime { return now()->addMinutes(15); }
+    public int $timeout = 120;
+    public int $tries = 3;
+    public int $uniqueFor = 900;
+
+    public function __construct(public int $departmentId, public ?int $importId = null, public ?int $actorUserId = null) {
+        $this->onQueue('default');
+        $this->afterCommit();
+    }
+
+    public function uniqueId(): string { return (string) $this->departmentId; }
+    public function backoff(): array { return [10, 30, 60]; }
 
     public function handle(SeedDefaultRules $seed, EvidenceBuilder $evidence, IssueEngine $issues, UrgentIssueNotifier $notifier): void
     {
         $lock = Cache::store('database')->lock("evaluate:{$this->departmentId}", 120);
-        if (! $lock->get()) {
-            $this->release(random_int(5, 15));   // contention: not a failure, not counted against maxExceptions
+        try {
+            $lock->block(30);                           // wait up to 30 s; LockTimeoutException otherwise
+        } catch (LockTimeoutException) {
+            $this->release(15);                         // contention: retry later
             return;
         }
         try {
-            $seed->ensureRulesExist($this->departmentId);     // idempotent, cheap no-op after first run
+            $seed->ensureRulesExist($this->departmentId);          // idempotent, cheap no-op after first run
             $ctx = EvaluationContext::build($department);
-            $anyWritten = false;
+            $anyProcessed = false;
             $evaluationIds = [];
             foreach ($department->businessRules()->where('is_active', true)->get() as $rule) {
                 try {
                     // returns the rule_evaluations id, whether newly inserted or reused
-                    $evaluationIds[] = $this->evaluateOneRule($rule, $ctx, $evidence, $issues, $notifier); // own transaction, own event dispatch
-                    $anyWritten = true;
+                    $evaluationIds[] = $this->evaluateOneRule($rule, $ctx, $evidence, $issues, $notifier); // own transaction
+                    $anyProcessed = true;
                 } catch (Throwable $e) {
                     Log::warning('rule_evaluation_failed', ['rule_id' => $rule->id, 'department_id' => $this->departmentId]);
-                    // continue to next rule (Req 4.8); counts toward maxExceptions only if rethrown
                 }
             }
-            if ($anyWritten) {
-                Department::query()->whereKey($department->id)
-                    ->update(['settings' => DB::raw("jsonb_set(settings, '{intelligence,last_evaluated_at}', to_jsonb(now()::text))")]);
-
+            if ($anyProcessed) {
+                Department::query()->whereKey($department->id)->update(['settings' => DB::raw(
+                    "jsonb_set(settings, '{intelligence,last_evaluated_at}', to_jsonb(?::text))"  // bound: BusinessClock::now() ISO string
+                )]);
                 $this->announceRunCompleted($department->id, array_values(array_unique($evaluationIds)));
             }
         } finally {
@@ -337,35 +370,31 @@ final class EvaluateRulesJob implements ShouldQueue
         }
     }
 
-    /** Req 16.10-16.14. A failure to announce must not fail an evaluation that already committed. */
     private function announceRunCompleted(int $departmentId, array $evaluationIds): void
     {
-        sort($evaluationIds);   // ascending, no duplicates, never empty here
+        sort($evaluationIds);
         try {
-            EvaluationRunCompleted::dispatch(
-                $departmentId, $this->importId, $this->actorUserId, $evaluationIds, CarbonImmutable::now(),
-            );
+            EvaluationRunCompleted::dispatch($departmentId, $this->importId, $this->actorUserId, $evaluationIds, BusinessClock::now()->toImmutable());
         } catch (Throwable $e) {
-            Log::warning('evaluation_run_completed_dispatch_failed', [
-                'department_id' => $departmentId, 'exception' => $e::class,   // ids and class only
-            ]);
+            Log::warning('evaluation_run_completed_dispatch_failed', ['department_id' => $departmentId, 'exception' => $e::class]);
         }
     }
 }
 ```
 
-`EvaluationRunCompleted` is dispatched once per job run, after the rule loop and the `last_evaluated_at` update, and only when at least one rule was processed without error (`$anyWritten`). It is not dispatched when the lock is not acquired (the job returns early after `release()`), when every rule throws, or when the job fails. At dispatch time no transaction is open (each rule has its own committed transaction), so it fires immediately; `ShouldDispatchAfterCommit` keeps it safe if a caller wraps the job in a transaction.
+(The `jsonb_set` call creates the `intelligence` object path when missing, via `jsonb_set(coalesce(settings,'{}'), '{intelligence}', coalesce(settings->'intelligence','{}') || ...)` in the implementation; the call shown is the shape, the migration or action guarantees the `intelligence` key exists first.)
 
-Why correctness never depends on the lock: the uniqueness of `rule_evaluations` is enforced by the database unique index on `(business_rule_id, period_start, period_end, run_key)`, and Issue creation uses `INSERT ... ON CONFLICT` against the partial unique index on `issues` (see below). The lock only reduces wasted work (two jobs computing the same `run_key` and racing on the conflict) and keeps the per-department query load serialized; a lock loss (e.g. TTL expiry under a very slow run) degrades to "two jobs do the same idempotent work", not to a correctness bug.
+`EvaluationRunCompleted` is dispatched once per job run, after the rule loop and the `last_evaluated_at` update, and only when at least one rule was processed without error. It is not dispatched when the lock is not acquired, when every rule throws, or when the job fails. No transaction is open at dispatch time (each rule has its own committed transaction).
 
-`EvaluateAfterImportListener` (Req 4.1) listens for `ImportCompleted` with status `completed` or `completed_with_errors`, and dispatches `EvaluateRulesJob::dispatch($departmentId, $importId, actorUserId: null)`. `ReevaluateController` (Req 4.3-4.6) is throttled with Laravel's `throttle:6,1` middleware keyed by user id, authorizes via `BusinessRulePolicy`/`IssuePolicy` (403 in scope, 404 cross-department via `visibleTo()`), and dispatches the same job with `importId: null, actorUserId: $request->user()->id`.
+Why correctness never depends on the locks: uniqueness of `rule_evaluations` is enforced by the unique index, and Issue creation uses `INSERT ... ON CONFLICT` against the partial unique index on `issues`. The locks only reduce wasted work. A lock loss degrades to "two jobs do the same idempotent work".
+
+`EvaluateAfterImportListener` listens for `ImportCompleted` with status `completed` or `completed_with_errors` and dispatches `EvaluateRulesJob::dispatch($departmentId, $importId, null)->afterCommit()`. `RefreshIntelligenceController` is throttled with `throttle:6,1`, authorizes through `IssuePolicy::refresh` (403 Staff, 404 cross-department via `visibleTo()`), and dispatches the job with `importId: null, actorUserId: $request->user()->id`.
 
 ### Issue creation and dedup transaction
 
-Per rule evaluation, after a `breached` result is persisted:
+Per rule evaluation, after a `breached` result is persisted (timestamps from `BusinessClock::now()`):
 
 ```sql
--- Issue creation, race-free via the partial unique index:
 INSERT INTO issues (business_rule_id, department_id, scope_key, title, severity,
                      first_detected_at, last_detected_at, detection_count,
                      period_start, period_end, baseline_evaluation_id, latest_evaluation_id,
@@ -380,104 +409,92 @@ RETURNING id;
 ```
 
 ```
-function applyBreach(rule, evaluation, now):
-    inserted = runInsertOnConflict(...)                  // SQL above, single round trip
+function applyBreach(rule, evaluation, reused, now):
+    if reused: return                                       // Req 8.4, 9.10: nothing changes
+
+    latestResolved = Issue::where(rule, dept, scope_key)->where('status','resolved')->latest('resolved_at')->first()
+    inserted = runInsertOnConflict(..., recurrence_of_issue_id: latestResolved?.id)   // SQL above; recurrence id only when no Open_Issue
     if inserted:
         dispatch IssueCreated (after commit)
-        maybeNotifyUrgent(issue)                          // same transaction
+        maybeNotifyUrgent(issue)                             // same transaction
         return
 
-    // Either an Open_Issue already existed, or it was created concurrently between
-    // our SELECT and our INSERT (Req 9.9) - both paths converge here.
-    issue = Issue::where(rule, dept, scope_key)->where('status', '!=', 'resolved')
-                  ->lockForUpdate()->first()               // row lock, same transaction
-    if issue == null:
-        // lost race against a resolve that just ran; retry the INSERT once
-        retry applyBreach once, then give up and log (extremely rare)
-        return
-
-    if evaluation.reusedExistingRunKey:                    // Req 8.4, 9.10
-        return   // no detection_count change, no event
-
-    newSeverity = max(issue.severity, evaluation.severity)  // monotonic, Req 9.4-9.5
-    issue.update(
-        last_detected_at: now,
-        latest_evaluation_id: evaluation.id,
-        detection_count: issue.detection_count + 1,
-        severity: newSeverity,
-    )
-    appendStatusHistory(issue, from: issue.status, to: issue.status, trigger: 're_detection', reason: null)
-       // "to == from": re-detection is not a status transition, but still an auditable event (see Data Models)
-    dispatch IssueRedetected (after commit)
-    if newSeverity == 'high' and issue.severity was not already 'high':
-        maybeNotifyUrgent(issue)
+    // An Open_Issue exists (or was created concurrently): both converge here (Req 9.9).
+    issue = Issue::where(rule, dept, scope_key)->where('status','!=','resolved')->lockForUpdate()->first()
+    if issue == null: retry applyBreach once, then log and skip
+    newSeverity = max(issue.severity, evaluation.severity)  // monotonic
+    previousSeverity = issue.severity
+    issue.update(last_detected_at: now, latest_evaluation_id: evaluation.id,
+                 detection_count: issue.detection_count + 1, severity: newSeverity)   // status unchanged
+    appendStatusHistory(issue, from: issue.status, to: issue.status, trigger: 're_detection')
+    [Polish] dispatch IssueRedetected (after commit)
+    if newSeverity == 'high' and previousSeverity != 'high': maybeNotifyUrgent(issue)
 ```
 
-Recurrence (Req 9.7): when the `INSERT ... ON CONFLICT DO NOTHING` returns no row **and** the `lockForUpdate` SELECT also finds no Open_Issue (because the most recent Issue of that identity is `resolved`), `IssueEngine` inserts a new Issue directly (no conflict possible, since the unique index excludes resolved rows) with `recurrence_of_issue_id` set to that resolved Issue's id and a fresh baseline.
+Re-detection never changes status (Req 9.3), including `monitoring`. A later `not_breached` or `insufficient_data` evaluation changes nothing on the Issue (Req 9.12); the page reads the latest evaluation for the rule separately (see `IssueController::show`).
 
-`baseline_evaluation_id` is set once at creation (first insert or recurrence insert) and is never updated by any later statement in `IssueEngine` or `IssueLifecycle` (Req 9.6, 10.11).
+The recurrence insert path: the partial index excludes resolved rows, so an insert never conflicts with a resolved Issue. `recurrence_of_issue_id` is set from `latestResolved` in the same statement and a fresh baseline is used.
+
+`baseline_evaluation_id` is set once at creation and never updated by any statement in `IssueEngine` or `IssueLifecycle`.
 
 ### IssueLifecycle
 
-Transition table (Req 10.1-10.12). All transitions run inside `DB::transaction()` with `Issue::lockForUpdate()` and a status check against the loaded row before writing (Req 10.3).
+Pure transition methods. Each runs inside `DB::transaction()` with `Issue::lockForUpdate()` and a status check against the locked row. All timestamps use `BusinessClock::now()`.
 
-| From | To | Entry point | Actor | Guard |
+| From | To | Method | Actor | Guard and side effects |
 |---|---|---|---|---|
-| `open` | `acknowledged` | `acknowledge(issue, actor)` | Owner / Manager in scope | none beyond status |
-| `open` | `action_in_progress` | `markActionInProgress(issue, actor)` | system (first task approved) | none |
-| `acknowledged` | `action_in_progress` | `markActionInProgress(issue, actor)` | system | none |
-| `action_in_progress` | `monitoring` | `markMonitoringIfTasksComplete(issue, actor)` | system via `IssueTaskStateReader` | ≥1 completed linked task and none pending/in_progress/blocked |
-| `action_in_progress` | `monitoring` | `moveToMonitoring(issue, actor)` | Owner / Manager in scope | none (manual override, Req 13's D13) |
-| `monitoring` | `resolved` | `resolveManually(issue, actor, note)` | Owner / Manager in scope | note non-empty, ≤2000 chars |
-| `monitoring` | `resolved` | `resolveVerified(issue, outcomeRef)` | system (S08) | none |
-| `monitoring` | `open` | `reopen(issue, reason)` | system (S08, follow-up worsened) | none |
-| any other pair | — | — | — | rejected: `IssueTransitionNotAllowedException`, issue unchanged |
+| `open` | `acknowledged` | `acknowledge(issue, actor)` | Owner / Manager in scope | none |
+| `open`, `acknowledged` | `action_in_progress` | `startAction(issue, ?actor)` | system (S07, first linked task approved or created) | sets `action_started_at` only when null; other statuses: no-op without error |
+| `action_in_progress` | `monitoring` | `startMonitoring(issue, ?actor, ?reason)` | system (actor null), called by S07 when all non-cancelled linked tasks are completed and at least one is completed | sets `monitoring_started_at`, trigger `tasks_complete` |
+| `action_in_progress` | `monitoring` | `startMonitoring(issue, actor, reason)` | Owner / Manager in scope | reason required (1 to 2,000 chars), trigger `manual`, sets `monitoring_started_at` |
+| `monitoring` | `action_in_progress` | `returnToAction(issue, ?actor)` | system (S07, a linked task reopened or a new linked task approved) | clears `monitoring_started_at`, keeps `action_started_at` |
+| `monitoring` | `resolved` | `resolveVerified(issue, outcomeRef)` | system (S08) | `resolution_type=system_verified`, `resolved_at`, `resolved_by` null |
+| `open`, `acknowledged`, `action_in_progress`, `monitoring` | `resolved` | `resolveManual(issue, actor, reason)` | Owner / Manager in scope | reason required (1 to 2,000 chars), `resolution_type=manual`, `resolution_note`, `resolved_by`, `resolved_at` |
+| `monitoring` | `open` | `reopen(issue, reason)` | system (S08) | keeps `baseline_evaluation_id`; clears `action_started_at` and `monitoring_started_at` (A12) |
+| any other pair | | | | `IssueTransitionNotAllowedException`, issue unchanged |
 
 ```
-function transition(issue, to, actor, extra):
-    DB::transaction(function () use (...) {
+const ALLOWED = [
+  open:               [acknowledged, action_in_progress, resolved],
+  acknowledged:       [action_in_progress, resolved],
+  action_in_progress: [monitoring, resolved],
+  monitoring:         [action_in_progress, resolved, open],
+  resolved:           [],
+]
+
+function transition(issue, to, actor, reason, trigger, apply):
+    result = DB::transaction(function () use (...) {
         locked = Issue::lockForUpdate()->find(issue.id)
         from = locked.status
-        if not isAllowed(from, to):
-            throw IssueTransitionNotAllowedException(from, to)   // Req 10.2
-
-        // idempotent double-submit (Req 10.17): if a prior identical transition already
-        // landed (from == to going into this call because a concurrent request won the
-        // race under the same lock), return success without a second write or event.
-        if from == to and to != locked.status_history.lastTarget():
-            // unreachable in practice because `from` is read post-lock; kept as a documented invariant
-            pass
-
+        if from == to and isIdempotentRepeat(locked, to, trigger): return NoOp            // double submit, Req 10.19
+        if to not in ALLOWED[from]:  throw IssueTransitionNotAllowedException(from, to)
+        apply(locked, BusinessClock.now())        // column changes per method (see table)
         locked.status = to
-        if to == 'resolved':
-            locked.resolved_at = now(); 
-            locked.resolved_by = (actor is system) ? null : actor.id
-            locked.resolution_type = (actor is system) ? 'system_verified' : 'manual'
-        if to == 'open' and from == 'monitoring':
-            // reopen keeps baseline_evaluation_id untouched (Req 10.11, 9.6)
-            pass
-
-        appendStatusHistory(locked, from, to, actor, extra.reason, trigger: extra.trigger)
+        appendStatusHistory(locked, from, to, actor, reason, trigger)
         locked.save()
+        return Changed(from, to)
     })
-    dispatch IssueStatusChanged(issue.id, from, to, actor?.id, extra.reason) // after commit (Req 10.14)
+    if result is Changed: dispatch IssueStatusChanged(issue.id, from, to, actor?.id, reason)   // after commit
 ```
 
-Double-submit handling in practice: the second request's `lockForUpdate()` blocks until the first transaction commits, then reads `status == to` already, and `isAllowed(to, to)` is false by table lookup — so the second call throws `IssueTransitionNotAllowedException`. The controller treats "already in target status" as a 200 no-op response rather than surfacing the exception to the user (Req 10.17), by checking `locked.status == to` before calling `isAllowed`.
+`startAction` on an Issue that is already `action_in_progress`, `monitoring` or `resolved` returns without error and without a history entry (Req 10.5). The other methods throw on a forbidden pair, except a repeat of the same already-applied transition (double submit), which returns a no-op that the controller maps to HTTP 200.
+
+Validation (reasons): `startMonitoring` with an actor and `resolveManual` require a trimmed non-empty reason of at most 2,000 characters; otherwise a `ValidationException` is thrown before any write.
 
 `appendStatusHistory` always appends, never mutates prior entries:
 
 ```
-function appendStatusHistory(issue, from, to, actor, reason, trigger):
-    entry = { from, to, at: now()->toIso8601String(),
-              by_user_id: actor?.id,     // null for system
-              reason: reason,             // manual resolve note, or null
-              trigger: trigger }          // 'manual' | 'task_approved' | 'tasks_complete' |
-                                           // 'outcome_verified' | 'outcome_worsened' | 're_detection' | 'created'
-    issue.status_history = issue.status_history + [entry]   // JSONB array append, same transaction
+entry = { from, to, at: BusinessClock.now().toIso8601String(),
+          by_user_id: actor?.id,        // null for system
+          reason: reason,               // null when none
+          trigger: trigger }            // 'created' | 'manual' | 'task_approved' | 'tasks_complete' | 'task_reopened'
+                                        // | 'outcome_verified' | 'outcome_worsened' | 're_detection'
+issue.status_history = issue.status_history + [entry]
 ```
 
-`IssueCreated` also calls `appendStatusHistory(issue, from: null, to: 'open', actor: null, reason: null, trigger: 'created')` so history always starts from a single root entry (Req 14.4's "no history exists -> first detection only" is simply "history has exactly one entry").
+`IssueEngine` writes the root entry at creation: `{from: null, to: 'open', trigger: 'created', by_user_id: null}`.
+
+S07 decides when linked tasks are all complete and calls `startMonitoring(issue, null)`; S04 contains no task reader and no `markActionInProgress` or `markMonitoringIfTasksComplete` methods (R7).
 
 ### IssueEvidence read model
 
@@ -490,73 +507,26 @@ final class IssueEvidence implements Arrayable
         public readonly IssueSeverity $severity,
         public readonly IssueStatus $status,
         public readonly RuleKey $ruleKey,
-        public readonly EvaluationSummary $baseline,     // from baseline_evaluation_id snapshot
-        public readonly EvaluationSummary $latest,       // from latest_evaluation_id snapshot
+        public readonly EvaluationSummary $baseline,
+        public readonly EvaluationSummary $latest,
         public readonly string $primaryMetricName,       // weekly_change_pct | target_achievement_pct | coverage_pct
-        public readonly string $baselinePrimaryValue,     // decimal string, from baseline.evidence
+        public readonly string $baselinePrimaryValue,    // decimal string, from baseline evidence
         public readonly string $latestPrimaryValue,
-        public readonly array $missingBranchDays,         // [{branch_code,date}], from latest evidence
+        public readonly array $missingDueBranchDays,     // [{branch_code,date,kind}] from latest evidence
         public readonly array $importIds,
     ) {}
 
-    public static function forIssue(Issue $issue): self
-    {
-        // Reads ONLY rule_evaluations rows (baseline + latest) and their evidence JSONB.
-        // Never queries sales_records. Department scoping is the caller's responsibility
-        // (controllers/policies resolve the Issue through a scoped query first).
-    }
-
-    public function toArray(): array { /* decimal strings and ints only, JSONB-safe */ }
+    public static function forIssue(Issue $issue): self { /* reads rule_evaluations and their evidence only, never sales_records */ }
+    public function toArray(): array { /* decimal strings and ints only */ }
     public static function fromArray(array $data): self { /* inverse of toArray */ }
 }
 ```
 
-Round-trip contract (Req 15.5): `IssueEvidence::fromArray($evidence->toArray())` produces a value-equal object for any Issue — verified manually per fixture (see Testing Strategy), not by an automated property test, per the project's no-test-suite policy (`.kiro/steering/verification.md`, Req 19.1).
+Round-trip contract (Req 15.5): `fromArray(toArray($e))` is value-equal to `$e` for every Issue. A Feature test covers it for the W8 decline Issue.
 
-### IssuePanelProvider extension contract
+### IssueController::show composition (R7)
 
-```php
-interface IssuePanelProvider
-{
-    /** Stable slot identifier: 'briefs' | 'meetings' | 'tasks' | 'outcome' | 'feedback' | 'activity'. */
-    public function key(): string;
-
-    /** Returns a JSON-serializable array for the panel, or null when nothing to show yet. */
-    public function panelFor(Issue $issue, User $user): ?array;
-}
-
-final class IssuePanelRegistry
-{
-    /** @param IssuePanelProvider[] $providers tagged via each ServiceProvider's boot() */
-    public function __construct(private iterable $providers) {}
-
-    public function panelsFor(Issue $issue, User $user): array
-    {
-        // Always returns all six keys. A key with no registered provider, or whose
-        // provider returns null, maps to null (Req 14.8) so the Vue page always
-        // receives a stable prop shape for `panels`.
-        $out = array_fill_keys(['briefs','meetings','tasks','outcome','feedback','activity'], null);
-        foreach ($this->providers as $p) {
-            $out[$p->key()] = $p->panelFor($issue, $user);
-        }
-        return $out;
-    }
-}
-```
-
-`IssueController::show()` passes `panels: $registry->panelsFor($issue, $user)` as an Inertia prop. `resources/js/pages/Issues/Show.vue` renders six named slots (`<slot name="briefs" :data="panels.briefs">`), each defaulting to a `<PanelPlaceholder />` component when `panels.<key>` is `null` (Req 14.9). S05-S08 register their own `IssuePanelProvider` implementation via their service provider; S04 never imports or references their classes.
-
-### IssueTaskStateReader contract (used by `markMonitoringIfTasksComplete`)
-
-```php
-interface IssueTaskStateReader
-{
-    /** True when the issue has at least one completed linked task and none pending/in_progress/blocked. */
-    public function readyForMonitoring(Issue $issue): bool;
-}
-```
-
-S04 ships `NullIssueTaskStateReader` (`readyForMonitoring` always returns `false`) bound by default, so `markMonitoringIfTasksComplete` is a safe no-op until S07 is installed and rebinds the interface in its own service provider.
+`IssueController::show` builds the Inertia props itself: the Issue, rule, department, baseline evaluation, latest breached evaluation (`latest_evaluation_id`), the most recent evaluation of the rule and department of any result (`latestRuleEvaluation`, ordered by `evaluated_at desc, id desc`), status history, allowed actions for the user, the stale-evaluation flag (latest `last_evaluated_at` older than the department's most recent completed import) and `lastEvaluatedAt`. Later specs append their own props to this method (S05 brief links, S06 meetings, S07 tasks, S08 outcomes, feedback and trace) and add their own Vue panel components to `Issues/Show.vue`. S04 ships no registry, provider interface or slot map.
 
 ### UrgentIssueNotifier
 
@@ -567,22 +537,21 @@ function maybeNotifyUrgent(issue):
     recipients = [company.owner()] + department.activeManagers()
     foreach recipients as user:
         if user.is_active == false: continue
-        exists = DatabaseNotification::where('notifiable_id', user.id)
-                     ->where('data->>dedupe_key', dedupeKey)->exists()
+        exists = DatabaseNotification::where('notifiable_id', user.id)->where('data->>dedupe_key', dedupeKey)->exists()
         if exists: continue
         user.notify(new UrgentIssueNotification(issue, dedupeKey))   // same transaction (Req 11.6)
-    dispatch UrgentIssueNotified(issue.id, 'high', dedupeKey, recipientUserIds) // after commit
+    dispatch UrgentIssueNotified(issue.id, 'high', dedupeKey, recipientUserIds) // after commit, only when at least one was created
 ```
 
-Notification `data`: `{dedupe_key, issue_id, title, severity, department_name, summary_line, url}`. `summary_line` is built from the evaluation's `differencePct4`/`currentValue` already in scope — no extra query.
+Notification `data`: `{dedupe_key, issue_id, title, severity, department_name, summary_line, url}`. `summary_line` is built from the evaluation already in scope.
 
 ## Data Models
 
-Per `docs/data-model.md` §2, this design adds the columns below (cross-review action item to merge into that document, per Req 19.7).
+Per `docs/data-model.md` §2, this design adds the columns below.
 
-### `business_rules` (defined in data-model.md; no changes)
+### `business_rules`
 
-Columns as already documented: `department_id, key, name, threshold, severity, is_active, params (jsonb)`. Unique `(department_id, key)`.
+As documented: `department_id, key, name, threshold, severity, is_active, params (jsonb)`. Unique `(department_id, key)`.
 
 ### `rule_evaluations`
 
@@ -591,41 +560,44 @@ Columns as already documented: `department_id, key, name, threshold, severity, i
 | id | bigint PK | |
 | business_rule_id | bigint FK → business_rules | |
 | department_id | bigint FK → departments | |
-| import_id | bigint FK → imports, nullable | trigger, null for manual re-evaluate |
+| import_id | bigint FK → imports, nullable | trigger, null for Refresh intelligence |
 | period_start, period_end | date | |
 | comparison_start, comparison_end | date, nullable | |
-| metric_name | varchar | check: one of `weekly_change_pct`, `target_achievement_pct`, `coverage_pct` |
+| metric_name | varchar | check: `weekly_change_pct`, `target_achievement_pct`, `coverage_pct` |
 | current_value, comparison_value, difference_value | numeric(14,2) | nullable |
-| difference_pct | numeric(8,4) | nullable; **stored at 4 dp**, not 2 — amends data-model.md's blanket "percentages `numeric(8,2)`" for this column only, because Req 8.7 requires the evidence/metric precision at 4 dp |
+| difference_pct | numeric(8,4) | nullable |
 | result | varchar | check: `breached`, `not_breached`, `insufficient_data` |
-| severity | varchar, nullable | check: `low`,`medium`,`high`,`critical`; **must be null unless `result='breached'`** (G7) |
-| insufficient_reason | varchar, nullable | check: `no_data`,`current_period_partial`,`comparison_period_unavailable`,`comparison_period_partial`,`zero_denominator`; null unless `result='insufficient_data'` |
+| severity | varchar, nullable | check: `low`,`medium`,`high`,`critical`; null unless `result='breached'` |
+| insufficient_reason | varchar, nullable | check: `incomplete_period`,`period_absent`,`zero_denominator`,`no_records`; non-null iff `result='insufficient_data'` |
+| as_of_date | date, nullable | null only for `no_records` |
+| last_due_date | date | `ReportingCoverage::lastDueDate` at evaluation time |
 | evidence | jsonb | see EvidenceBuilder shape |
-| evaluated_at | timestamp | |
+| evaluated_at | timestamp | `BusinessClock::now()` |
 | run_key | char(64) | sha256 hex |
 
-Indexes: `(department_id, evaluated_at)`. **Unique**: `(business_rule_id, period_start, period_end, run_key)` (Req 8.2).
-Check constraints: `metric_name IN (...)`, `result IN (...)`, `severity IS NULL OR severity IN (...)`, `(result = 'breached') = (severity IS NOT NULL)`, `(result = 'insufficient_data') = (insufficient_reason IS NOT NULL)`.
+Indexes: `(department_id, evaluated_at)`. **Unique**: `(business_rule_id, period_start, period_end, run_key)`.
 
 ### `issues`
 
-All columns already in `docs/data-model.md` §2, plus one new column:
+All columns of `docs/data-model.md` §2, including:
 
 | Column | Type | Notes |
 |---|---|---|
-| status_history | jsonb | **new.** Default `'[]'`. Append-only array of `{from: string\|null, to: string, at: ISO8601 string, by_user_id: int\|null, reason: string\|null, trigger: string}`. Written only by `IssueEngine`/`IssueLifecycle`, in the same transaction as the status/detection change it records. No foreign key; `by_user_id` is a plain integer snapshot (not FK-enforced) so history survives user deletion. |
+| action_started_at | timestamp, nullable | set once per action cycle by `startAction` |
+| monitoring_started_at | timestamp, nullable | set by `startMonitoring`, cleared when leaving `monitoring` |
+| status_history | jsonb | default `'[]'`; append-only `{from, to, at, by_user_id, reason, trigger}`; no FK on `by_user_id` |
+| resolved_at, resolved_by, resolution_type | nullable | `resolution_type` check: `system_verified`, `manual` |
+| resolution_note | text, nullable | required when `resolution_type = 'manual'` |
 
-Existing columns used as documented in `docs/data-model.md`: `department_id, business_rule_id, scope_key, recurrence_of_issue_id, title, severity, status, first_detected_at, last_detected_at, resolved_at, resolved_by, resolution_type, baseline_evaluation_id, latest_evaluation_id, detection_count, period_start, period_end`.
+Indexes and constraints: **partial unique** `(business_rule_id, department_id, scope_key) WHERE status <> 'resolved'`. Checks: status and severity enums; `(status = 'resolved') = (resolved_at IS NOT NULL)`; `(status = 'resolved') = (resolution_type IS NOT NULL)`; `resolution_type <> 'manual' OR resolution_note IS NOT NULL`.
 
-Indexes/constraints: **partial unique** `(business_rule_id, department_id, scope_key) WHERE status <> 'resolved'` (Req 9.1). Check: `status IN ('open','acknowledged','action_in_progress','monitoring','resolved')`, `severity IN ('low','medium','high','critical')`, `(status = 'resolved') = (resolved_at IS NOT NULL)`.
+### `departments.settings`
 
-### `departments.settings` (S03-owned column, additive use by S04)
-
-S04 adds the `intelligence` key to the existing JSONB contract: `settings.intelligence.last_evaluated_at` (ISO8601 string, nullable). Written only via the atomic `jsonb_set` update in `EvaluateRulesJob` (G4); never read-then-written as a PHP array to avoid clobbering concurrent writers of unrelated `settings` keys (e.g. S03's `expected_branches`).
+S04 owns the subkey `settings.intelligence.last_evaluated_at` (ISO8601 string, nullable). Written only by atomic `jsonb_set`, never read-then-written as a PHP array, so concurrent writers of `expected_branches` are not clobbered.
 
 ### Laravel `notifications` table
 
-Used as-is (no migration). `type = App\Notifications\UrgentIssueNotification`, `data` JSON per the shape in `UrgentIssueNotifier` above.
+Used as-is. `type = App\Notifications\UrgentIssueNotification`, `data` JSON per the shape above.
 
 ### Migrations (new in S04)
 
@@ -659,14 +631,18 @@ Schema::create('rule_evaluations', function (Blueprint $t) {
     $t->string('result');
     $t->string('severity')->nullable();
     $t->string('insufficient_reason')->nullable();
+    $t->date('as_of_date')->nullable();
+    $t->date('last_due_date');
     $t->jsonb('evidence');
     $t->timestamp('evaluated_at');
     $t->char('run_key', 64);
+    $t->timestamps();
     $t->index(['department_id', 'evaluated_at']);
     $t->unique(['business_rule_id', 'period_start', 'period_end', 'run_key']);
 });
 DB::statement("ALTER TABLE rule_evaluations ADD CONSTRAINT rule_evaluations_metric_check CHECK (metric_name IN ('weekly_change_pct','target_achievement_pct','coverage_pct'))");
 DB::statement("ALTER TABLE rule_evaluations ADD CONSTRAINT rule_evaluations_result_check CHECK (result IN ('breached','not_breached','insufficient_data'))");
+DB::statement("ALTER TABLE rule_evaluations ADD CONSTRAINT rule_evaluations_reason_check CHECK (insufficient_reason IS NULL OR insufficient_reason IN ('incomplete_period','period_absent','zero_denominator','no_records'))");
 DB::statement("ALTER TABLE rule_evaluations ADD CONSTRAINT rule_evaluations_severity_presence_check CHECK ((result = 'breached') = (severity IS NOT NULL))");
 DB::statement("ALTER TABLE rule_evaluations ADD CONSTRAINT rule_evaluations_insufficient_presence_check CHECK ((result = 'insufficient_data') = (insufficient_reason IS NOT NULL))");
 
@@ -678,113 +654,97 @@ Schema::create('issues', function (Blueprint $t) {
     $t->foreignId('recurrence_of_issue_id')->nullable()->constrained('issues');
     $t->string('title'); $t->string('severity'); $t->string('status')->default('open');
     $t->timestamp('first_detected_at'); $t->timestamp('last_detected_at');
+    $t->unsignedInteger('detection_count')->default(1);
+    $t->date('period_start'); $t->date('period_end');
+    $t->foreignId('baseline_evaluation_id')->constrained('rule_evaluations');
+    $t->foreignId('latest_evaluation_id')->constrained('rule_evaluations');
+    $t->timestamp('action_started_at')->nullable();
+    $t->timestamp('monitoring_started_at')->nullable();
+    $t->jsonb('status_history')->default('[]');
     $t->timestamp('resolved_at')->nullable();
     $t->foreignId('resolved_by')->nullable()->constrained('users');
     $t->string('resolution_type')->nullable();
-    $t->foreignId('baseline_evaluation_id')->constrained('rule_evaluations');
-    $t->foreignId('latest_evaluation_id')->constrained('rule_evaluations');
-    $t->unsignedInteger('detection_count')->default(1);
-    $t->date('period_start'); $t->date('period_end');
-    $t->jsonb('status_history')->default('[]');
+    $t->text('resolution_note')->nullable();
     $t->timestamps();
 });
 DB::statement('CREATE UNIQUE INDEX issues_open_identity_unique ON issues (business_rule_id, department_id, scope_key) WHERE status <> \'resolved\'');
 DB::statement("ALTER TABLE issues ADD CONSTRAINT issues_status_check CHECK (status IN ('open','acknowledged','action_in_progress','monitoring','resolved'))");
 DB::statement("ALTER TABLE issues ADD CONSTRAINT issues_severity_check CHECK (severity IN ('low','medium','high','critical'))");
+DB::statement("ALTER TABLE issues ADD CONSTRAINT issues_resolution_type_check CHECK (resolution_type IS NULL OR resolution_type IN ('system_verified','manual'))");
 DB::statement("ALTER TABLE issues ADD CONSTRAINT issues_resolved_presence_check CHECK ((status = 'resolved') = (resolved_at IS NOT NULL))");
+DB::statement("ALTER TABLE issues ADD CONSTRAINT issues_resolution_type_presence_check CHECK ((status = 'resolved') = (resolution_type IS NOT NULL))");
+DB::statement("ALTER TABLE issues ADD CONSTRAINT issues_manual_note_check CHECK (resolution_type IS DISTINCT FROM 'manual' OR resolution_note IS NOT NULL)");
 ```
 
-All four migrations roll back cleanly (`Schema::dropIfExists` plus the check constraints drop automatically with their tables); `issues_open_identity_unique` is dropped explicitly in `down()` via `DROP INDEX IF EXISTS` before the table drop runs (Postgres drops indexes with their table too, but the explicit drop keeps `down()` symmetrical and safe to run standalone against a partially-migrated schema).
+`down()` drops `issues_open_identity_unique` explicitly (`DROP INDEX IF EXISTS`), then the tables in reverse order.
 
 ## Events contract
 
-Namespace `App\Events\Intelligence`. Every event carries `int $departmentId`, `?int $actorUserId` (null = system), `CarbonImmutable $occurredAt`, dispatched only after the producing transaction commits (Req 16.6).
+Namespace `App\Events\Intelligence`. Every event carries `int $departmentId`, `?int $actorUserId` (null = system), `CarbonImmutable $occurredAt`, dispatched only after the producing transaction commits.
 
-| Event | Extra properties | Dispatched when | Not dispatched when |
-|---|---|---|---|
-| `RuleEvaluated` | `ruleKey, result, severity?, importId?, evaluationId` | a `rule_evaluations` row is newly inserted | the `run_key` already existed (reused) — Req 16.8 |
-| `IssueCreated` | `issueId, severity, recurrenceOfIssueId?` | `IssueEngine` inserts a new Issue (fresh or recurrence) | re-detection of an existing Open_Issue |
-| `IssueRedetected` | `issueId, detectionCount, previousSeverity, newSeverity` | an Open_Issue's `last_detected_at`/`detection_count` is updated | the evaluation reused an existing `run_key` (Req 9.10) |
-| `IssueStatusChanged` | `issueId, from, to, reason?` | any `IssueLifecycle::transition()` succeeds | rejected transitions, no-op double submits |
-| `UrgentIssueNotified` | `issueId, severity, dedupeKey, recipientUserIds` | ≥1 new notification row created | all recipients already had the dedupe key, or severity ≠ high |
-| `BusinessRuleUpdated` | `businessRuleId, changedAttributes` (array of attribute => [old,new]) | `UpdateBusinessRule` persists a change | validation failure |
-| `EvaluationRunCompleted` | `?importId` (null for manual Re-evaluate), `evaluationIds` (`list<int>`: ids of rule_evaluations processed by the run, new or reused, sorted ascending, no duplicates, never empty, excludes inactive rules and rules whose evaluation failed). `actorUserId` is null for an import-triggered run. | `EvaluateRulesJob` finishes the rule loop and the `last_evaluated_at` update with at least one rule processed without error; once per job run | the lock was not acquired, every rule failed, or the job fails |
+| Event | Tier | Extra properties | Dispatched when | Not dispatched when |
+|---|---|---|---|---|
+| `IssueCreated` | Core | `issueId, severity, recurrenceOfIssueId?` | `IssueEngine` inserts a new Issue (fresh or recurrence) | re-detection |
+| `IssueStatusChanged` | Core | `issueId, from, to, reason?` | any `IssueLifecycle` transition succeeds | rejected transitions, no-ops |
+| `UrgentIssueNotified` | Core | `issueId, severity, dedupeKey, recipientUserIds` | at least one new notification row created | all recipients already had the key, or severity is not high |
+| `EvaluationRunCompleted` | Core | `?importId` (null for Refresh intelligence), `evaluationIds` (`list<int>` sorted ascending, unique, never empty, new or reused, excluding inactive and failed rules). `actorUserId` is null for an import-triggered run. | the job finishes the rule loop and the `last_evaluated_at` update with at least one rule processed; once per run | lock not acquired, every rule failed, the job fails |
+| `RuleEvaluated` | Polish | `ruleKey, result, severity?, importId?, evaluationId` | a `rule_evaluations` row is newly inserted | the `run_key` already existed |
+| `IssueRedetected` | Polish | `issueId, detectionCount, previousSeverity, newSeverity` | an Open_Issue's detection fields are updated | a reused evaluation |
+| `BusinessRuleUpdated` | Polish | `businessRuleId, changedAttributes` | `UpdateBusinessRule` persists a change | validation failure |
 
-`EvaluationRunCompleted` carries no figures, text or company id. Its consumer is the S08 `OutcomeVerifier` (through a listener that dispatches `VerifyOutcomesJob`). A dispatch failure is caught and logged (department id and exception class only) and leaves the committed evaluations and Issue changes untouched and the job successful. S04 writes no `activity_logs` row for it (Req 16.15).
-
-S04 writes no `activity_logs` rows (Req 16.7); S08 is expected to listen to this table and write its own entries. S04 has no dependency on S08 and does not read `activity_logs`.
+`EvaluationRunCompleted` carries no figures, text or company id. Its consumer is the S08 `OutcomeVerifier`. A dispatch failure is caught and logged (department id and exception class only). S04 writes no `activity_logs` row for any event.
 
 ## Error Handling
 
 | Layer | Failure | Handling |
 |---|---|---|
-| `EvaluateRulesJob` | lock contention | `release(random 5-15s)`; not counted as an exception/attempt (G8) |
-| `EvaluateRulesJob` | one rule's evaluator throws | caught per-rule, logged with ids/codes only, loop continues to next rule (Req 4.8); if every rule throws, job still completes without updating `last_evaluated_at` |
-| `EvaluateRulesJob` | `EvaluationRunCompleted` dispatch throws | caught in `announceRunCompleted`, logged as `evaluation_run_completed_dispatch_failed` with department id and exception class; job still succeeds (Req 16.14) |
-| `EvaluateRulesJob` | job exhausts `maxExceptions` or `retryUntil` | job marked failed, `rule_evaluations`/`issues` left exactly as before (Req 4.9); Horizon/`failed_jobs` captures it; no user-facing error page since the job never runs in-request |
-| Issue insert | partial unique index conflict | `ON CONFLICT DO NOTHING` + `lockForUpdate` re-read (Req 9.9); no exception surfaces |
-| Issue insert | lost race, no Open_Issue and no resolved Issue found on re-read | single retry of the insert; if it fails again, log and skip this evaluation's issue-side effects (evaluation row is still correctly stored) |
-| `IssueLifecycle::transition` | disallowed transition | `IssueTransitionNotAllowedException` -> controller returns 422 with the current status |
-| `IssueLifecycle::transition` | double-submit | second call sees `status == to` already, controller returns 200 no-op (Req 10.17) |
-| `IssueLifecycle::resolveManually` | empty/too-long note | `ValidationException` -> 422 field error (Req 10.7) |
-| Rules settings | invalid threshold/params | `UpdateRulesRequest` rejects with field-level message, stored config unchanged (Req 3.9) |
-| Rules/Issue/Evaluation routes | Staff access | `BusinessRulePolicy`/`IssuePolicy`/`RuleEvaluationPolicy` deny -> 403 |
-| Rules/Issue/Evaluation routes | cross-department access | scoped query (`visibleTo()`) finds nothing -> 404 |
-| Re-evaluate | throttle exceeded | Laravel `throttle:6,1` -> 429 with `Retry-After` |
-| Notifications | mark another user's notification read | scoped query finds nothing -> 404 |
-| Logging | any S04 log line | only ids, rule keys, codes, counts — no revenue, no evidence values, no file paths (Req 19.5) |
+| `EvaluateRulesJob` | lock wait of 30 s times out | `release(15)`; the attempt counts toward the 3 tries, so a persistent contention ends as a logged failed job and the next import or refresh evaluates again |
+| `EvaluateRulesJob` | one rule's evaluator throws | caught per rule, logged with ids only, loop continues (Req 4.8); if every rule throws, `last_evaluated_at` is not updated and no `EvaluationRunCompleted` is dispatched |
+| `EvaluateRulesJob` | `EvaluationRunCompleted` dispatch throws | caught, logged with department id and exception class; job succeeds (Req 16.13) |
+| `EvaluateRulesJob` | job exhausts 3 tries | marked failed, evaluations and Issues unchanged (Req 4.9) |
+| Issue insert | partial unique index conflict | `ON CONFLICT DO NOTHING` plus `lockForUpdate` re-read (Req 9.9) |
+| Issue insert | lost race, nothing found on re-read | single retry, then log and skip the Issue-side effects; the evaluation row stays |
+| `IssueLifecycle` | forbidden transition | `IssueTransitionNotAllowedException`, controller returns 422 with the current status |
+| `IssueLifecycle` | double submit | second call finds the already-applied status, controller returns 200 |
+| `IssueLifecycle` | empty or over-long reason | `ValidationException`, 422 field error |
+| Rules settings (Polish) | invalid values | `UpdateRulesRequest` rejects with field messages, stored config unchanged |
+| S04 routes | Staff access | policy denies, 403 |
+| S04 routes | cross-department access | scoped query finds nothing, 404 |
+| Refresh intelligence | throttle exceeded | `throttle:6,1`, 429 with `Retry-After` |
+| Notifications | other user's notification | scoped query, 404 |
+| Logging | any S04 log line | ids, rule keys, codes, counts only |
 
 ## Security
 
-- All S04 routes require authentication and the default CSRF middleware (Req 17.6); none are excluded.
-- `IssuePolicy`, `BusinessRulePolicy`, `RuleEvaluationPolicy` implement D23: Owner — company-wide; Manager — own department only; Staff — no access to any S04 policy-gated action (Req 17.1, 17.4).
-- `Issue`, `BusinessRule`, `RuleEvaluation` models use the existing `ScopedToDepartment` trait/global scope (from S02) so an out-of-scope id resolves to "not found" before policy checks run, yielding 404 rather than leaking existence via 403 (Req 17.2).
-- `EvaluateRulesJob` only ever queries/writes rows for `$this->departmentId`; no cross-department read ever happens inside one job run (Req 17.5).
-- All evidence text rendered on the Issue detail page is passed through Vue's default text interpolation (auto-escaped); no `v-html` is used for evidence/branch-code/title values (Req 17.7).
-- Notification `data` contains only ids, names already visible to the recipient's role, and a URL — no raw sales figures beyond what the recipient's role can already see on the Issue detail page.
+- All S04 routes require authentication and the default CSRF middleware.
+- `IssuePolicy`, `BusinessRulePolicy`, `RuleEvaluationPolicy` implement D23: Owner company-wide, Manager own department, Staff no access.
+- `Issue`, `BusinessRule`, `RuleEvaluation` use `ScopedToDepartment`, so an out-of-scope id resolves to 404 before policy checks run.
+- `EvaluateRulesJob` reads and writes only rows for its `departmentId`.
+- Evidence text on the Issue detail page uses Vue's escaped interpolation; no `v-html`.
+- Notification `data` contains ids, names visible to the recipient's role, and a URL.
 
 ## Testing Strategy
 
-No automated unit, property-based, or end-to-end tests are included in S04, per `.kiro/steering/verification.md` and Req 19.1. All of `MetricCalculator`'s arithmetic, `RuleEvaluator`'s branching, `IssueEngine`'s dedup/recurrence logic, and `IssueEvidence`'s round-trip would be strong PBT candidates in isolation (deterministic pure functions, clear invariants such as "breached implies severity set", "resolved implies resolved_at set", "serialize then deserialize is identity") — but the project-wide Stage 1 policy excludes PBT and unit tests for every spec, so S04 verification is entirely manual against fixed fixtures and the authorization matrix, run after the S03 fixtures in sequence (S04 reads the `sales_records` left behind by those imports).
+Per R5, tests are Laravel Feature tests in `tests/Feature/Intelligence`, using the starter kit's framework (Pest if shipped, otherwise PHPUnit), `RefreshDatabase` on the PostgreSQL database `businesspulse_testing`, and the S01 harness. They use no SQLite, no browser automation, no property-based framework, no mocking of the database and no external call. The Business_Clock is fixed per test. Data comes from the S03 fixtures imported through the real import path (a test helper wraps `CreateImportFromUpload` and `ConfirmImport` with the queue set to `sync`), so evaluation runs through the same `EvaluateRulesJob` as production.
 
-### Fixture verification procedure (Req 18, 19.2)
+`database/demo/expected.json` gets an `evaluations` list per fixture, authored by hand with literal values (clock, rule key, result, severity, reason, current, comparison, difference, difference percentage at 2 dp, present and expected Due_Branch_Days). One test reads it and asserts every entry, so the file is the single source of the Requirement 18 numbers. Task 10.1 confirms the S03 `demo:check-fixtures` reader tolerates the added key.
 
-Preconditions: demo company reset (`demo:reset --force`), `DEMO_MODE=true`, `DEMO_FIXED_DATE` unset until step 1 (natural business-today), S03 fixtures imported and confirmed in the order below. Each row is checked by reading the created/updated `rule_evaluations` and `issues` rows directly (e.g. via `php artisan tinker` or the Issue detail page) against the exact expected value — no tolerance beyond the stated 2 dp.
+| Test file | Covers |
+|---|---|
+| `MetricCalculatorTest` | rounding half up, no `-0.0000`, zero denominator indicator (pure unit-level Feature test, no database) |
+| `RuleEvaluationTest` | decline −20.00% on W8 (124,000.00 vs 155,000.00, severity high), target 79.49% on W8, zero comparison revenue and zero target give `zero_denominator`, boundary strictness (drop exactly equal to the threshold is not breached) |
+| `CoverageAndCutoffTest` | not-yet-due day not alerted (clock 2026-09-28, week of 09-28), due trailing days alerted (0 of 18 after a refresh before the W8 upload), incomplete closed week gives `incomplete_period` (`week8-with-errors.csv`, 17 of 18), absent closed week gives `period_absent`, no records gives `no_records` |
+| `IssueEngineTest` | second evaluation updates the same Issue (count 2, monotonic severity), partial unique index rejects a second Open_Issue by direct insert, recurrence after `resolveManual`, reused Run_Key changes nothing, re-upload of an unchanged file creates nothing |
+| `EvidencePreservationTest` | after `week8-correction.csv` the baseline evaluation row and the Issue `baseline_evaluation_id` are unchanged, the decline Issue is re-detected (−18.71, count 2), `IssueEvidence` round-trip |
+| `IssueLifecycleTest` | every allowed and every forbidden pair of the table (data provider over all 25 status pairs per method), reasons required, `startAction` sets `action_started_at` once, `startMonitoring` and `returnToAction` timestamps, `resolveVerified` fields, `reopen` clears the timestamps and keeps the baseline, double submit applies once |
+| `UrgentNotificationTest` | Owner and active Managers notified on high creation, severity escalation and recurrence, `issue_id:severity` dedupe, medium creates none, inactive users skipped |
+| `IssueAuthorizationTest` | Owner and in-scope Manager can list and view, Staff 403, other-department Manager 404, Refresh intelligence and transition endpoints follow the same matrix, notification mark-read of another user's item 404 |
+| `DemoExpectationsTest` | all `evaluations` entries of `expected.json`, `EvaluationRunCompleted` once per run with sorted unique ids (also when all evaluations are reused) and not on lock contention |
 
-| Step | Import | Rule | Expected result | Expected severity | Key figures |
-|---|---|---|---|---|---|
-| 1 | `history.csv`, as-of 2026-09-19 | `weekly_revenue_decline` | `not_breached` | — | current 155,000.00, comparison 154,000.00, difference_pct **+0.65** |
-| 1 | (same) | `sales_target_shortfall` | `not_breached` | — | achievement **99.36** |
-| 1 | (same) | `missing_sales_data` | `not_breached` | — | coverage **100.00** |
-| 2 | `week8-decline.csv` | `weekly_revenue_decline` | `breached` | **high** | current 124,000.00, comparison 155,000.00, difference −31,000.00, difference_pct **−20.00** |
-| 2 | (same) | `sales_target_shortfall` | `breached` | **medium** | current 124,000.00, comparison 156,000.00, achievement **79.49** |
-| 2 | (same) | `missing_sales_data` | `not_breached` | — | coverage **100.00** |
-| 2 | (same) | — | — | — | exactly 2 Open_Issues created (`open`), 1 urgent notification (decline, severity high) to Owner + Manager, **0** notifications for the shortfall issue |
-| 3 (fresh reset) | `week8-with-errors.csv` | `missing_sales_data` | `breached` | medium | present **17**, expected **18**, coverage **94.44** |
-| 3 | (same) | `weekly_revenue_decline` | `insufficient_data` | — | reason per current data shape (current_period_partial or comparison_period_unavailable depending on which week is short) |
-| 3 | (same) | `sales_target_shortfall` | `insufficient_data` | — | reason as above |
-| 4 | `week9-recovery.csv` (after step 2's issues exist) | `weekly_revenue_decline` | `not_breached` | — | difference_pct **+20.97** |
-| 4 | (same) | `sales_target_shortfall` | `not_breached` | — | achievement **96.15** |
-| 4 | (same) | — | — | — | if the decline Issue from step 2 is in `monitoring`, it is left unchanged by S04 (no write to that Issue row) — resolution is S08's `resolveVerified` |
-| 5 | re-upload step 2's file unchanged | all | — | — | **0** new `rule_evaluations`, **0** new Issues, **0** new notifications (same `run_key`s reused). `EvaluationRunCompleted` still dispatches once, with `evaluationIds` holding the reused ids |
-| 6 | `week8-correction.csv` after `week8-decline.csv` | all affected | new evaluations, different `run_key` | — | existing Issues re-detected, `detection_count = 2`, original `baseline_evaluation_id`/evidence unchanged |
+A short manual checklist in `docs/s04-manual-verification.md` covers what tests do not: the S04 steps of the 22-step demo walkthrough, the bell and Issue pages at 360, 768 and 1280 px with keyboard use, and a migration rollback on a scratch database.
 
-Additional manual checks:
+### Documentation follow-up (Req 19.16, cross-review action item)
 
-1. **Authorization matrix**: for Issue list, Issue detail, Rules tab (view+update), Re-evaluate, notification endpoints — exercise as Owner, Manager (own department), Manager (other department), Staff; confirm 403 for Staff everywhere, 404 for Manager cross-department, 200 otherwise.
-2. **Notification dedupe**: trigger the same high-severity re-detection twice (e.g. re-run evaluate without new data) and confirm no duplicate notification row for the same user and `issue_id:severity`.
-3. **Double-submit**: click "Acknowledge" twice in quick succession on one Issue; confirm one `IssueStatusChanged` event (checked via a temporary log line or `Event::fake()->assertDispatchedTimes` run manually once, not kept as a test) and `status_history` has exactly one new entry.
-4. **Status history round-trip**: for one Issue, read `status_history`, confirm entries are in chronological order with `from -> to` matching the transition table, and that `baseline_evaluation_id` never changed across any entry.
-5. **IssueEvidence round-trip**: for the step-2 decline Issue, call `IssueEvidence::forIssue()->toArray()` then `::fromArray()` and confirm the reconstructed object's properties equal the original (Req 15.5).
-6. **Lock behavior**: dispatch two `EvaluateRulesJob` for the same department back-to-back (e.g. one from import completion, one from a manual Re-evaluate click within the same second); confirm the second either waits and reuses `run_key`s (no duplicate evaluations) or is released and retried, and that exactly one set of evaluations results.
-7. **Responsive and keyboard**: Issue list and Issue detail at 360px, 768px, 1280px; full Acknowledge -> Monitoring -> Resolve flow using only the keyboard.
-8. **Migration check**: `php artisan migrate:fresh` then roll back the four S04 migrations on a scratch database; confirm the partial unique index, both unique constraints, and all check constraints apply and drop cleanly.
-9. **Performance check (Req 19.3)**: seed one department with 10,000 Active_Records and confirm `EvaluateRulesJob` completes within 10 seconds, with query count independent of total row count (checked via Laravel's query log count before/after doubling unrelated departments' data).
-
-### Documentation follow-up (Req 19.7, cross-review action item)
-
-This design is not itself the update, but it specifies text to merge into `docs/data-model.md` and `docs/architecture.md` before or alongside implementation:
-- `docs/data-model.md` §2 `issues` row: add `status_history jsonb` and its shape.
-- `docs/data-model.md` §2 `rule_evaluations` row: note `difference_pct numeric(8,4)` as an exception to the document's general "percentages `numeric(8,2)`" statement, and `severity` nullability tied to `result`.
-- `docs/data-model.md` §2 `departments` row: note the additive `settings.intelligence.last_evaluated_at` key (S03's `settings` column, S04-owned subkey).
-- `docs/architecture.md`: add the `IssuePanelProvider`/`IssuePanelRegistry` contract, the `IssueTaskStateReader` contract and its null default binding, and the S04 event list, to the cross-module contracts section.
+Text to merge into the project docs (task 11.2):
+- `docs/data-model.md` `rule_evaluations`: note `as_of_date` is null only when `insufficient_reason = no_records`.
+- `docs/architecture.md`: the S04 event list with tiers, the `IssueLifecycle` method set (`acknowledge`, `startAction`, `startMonitoring`, `returnToAction`, `resolveManual`, `resolveVerified`, `reopen`), the status history storage, and the statement that S05 to S08 extend `IssueController::show` directly.

@@ -20,17 +20,17 @@ Deliver a deployable, browser-accessible, client-demonstrable application that e
 Multi-company, billing, extra departments, ERP/CRM/accounting/HR integrations, auto sync, Excel import, WhatsApp, external email, scheduled briefs, reminders, escalation, native mobile, live bots/transcription, forecasting, anomaly detection, cross-department correlation, autonomous agents, chatbot, automatic rule modification, model training, advanced permissions, report builders, workflow builders, advanced analytics. Also: Kanban, subtasks, recurring tasks, attachments, time tracking.
 
 ## 4. Demonstration requirements
-See `docs/demo-scenario.md`. All 20 steps must work through the real application on fictional data, with transcript-input fallback for transcription outages.
+See `docs/demo-scenario.md`. All 22 steps must work through the real application on fictional data, with transcript-input fallback for transcription outages.
 
 ## 5. Acceptance criteria
-The 26 items of the Stage 1 Definition of Done (product brief section 20) are the acceptance criteria. They are verified manually per `.kiro/steering/verification.md` and S09.
+The 26 items of the Stage 1 Definition of Done in section 10 below are the acceptance criteria. They are verified by manual acceptance, focused automated tests, static and build checks, and rehearsals per `.kiro/steering/verification.md` and S09.
 
 ## 6. Assumptions (demonstration defaults, not confirmed client requirements)
 - A1 Currency MYR, `numeric(14,2)`, timezone `Asia/Kuala_Lumpur`.
 - A2 Sales grain: one row per branch per day. Branches are fictional (KL, Penang, JB).
-- A3 Reporting week is ISO Monday–Sunday; expected trading days Monday–Saturday (Sunday closed). Configurable per company, not per branch.
-- A4 Rule thresholds: decline > 15%, achievement < 80%, outcome change band ±2.0 percentage points.
-- A5 Resolution condition: not breached on 1 follow-up complete week.
+- A3 Reporting week is ISO Monday–Sunday; trading days Monday–Saturday; reporting cutoff 12:00 the day after (`reporting_cutoff_lag_days=1`). Configurable per company, not per branch. Expected branches are explicit.
+- A4 Rule thresholds: decline > 15%, achievement < 80%, outcome change band ±2.0% (revenue, relative) or ±2.0 percentage points (percentage metrics).
+- A5 Resolution condition: one closed, complete, post-action week meeting the rule's recovery condition (see `stage-1-refinements.md` R3).
 - A6 Recordings: max 20 MB and ~15 minutes, formats mp3/m4a/wav/webm/mp4; confirm against provider limits at implementation.
 - A7 Language: English demo recordings. Multilingual (Malay, Mandarin) not guaranteed.
 - A8 Recording retention 30 days, deletable by Owner earlier.
@@ -73,3 +73,6 @@ Stage 1 is ready for the client demonstration only when all of these hold:
 24. A complete demonstration can be repeated using fictional data.
 25. The application passes the defined manual verification and build checks.
 26. Local setup and deployment instructions are documented.
+
+## 11. Implementation priorities
+Tasks are tagged PoV Core (needed for the 22-step demo) or PoV Polish (secondary admin, broader history views, extra config). Details and the per-spec split are in `docs/stage-1-refinements.md` R1. Polish stays in Stage 1 scope and is built after the Core slice of each milestone works.

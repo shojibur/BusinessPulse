@@ -14,34 +14,48 @@
 
 Passwords come from the `DEMO_PASSWORD` env value at seeding and are never committed. Two Daniels exist on purpose to exercise ambiguous assignee resolution.
 
-## 2. Sales data
-Daily target per branch: KL 12,000, PG 8,000, JB 6,000. That is 26,000 per day and 156,000 per six-day week. The demo clock is set with `DEMO_MODE=true` and `DEMO_FIXED_DATE`.
+## 2. Sales data and reporting calendar
+Daily target per branch: KL 12,000, PG 8,000, JB 6,000 (26,000 per day, 156,000 per six-day week). Expected branches KL, PG, JB are seeded explicitly. Trading days Mon–Sat. Cutoff: 12:00 the day after (lag 1). The demo clock is a fixed date at 09:00 company time, set by `demo:set-date`.
 
 | File | Coverage | Weekly total (MYR) |
 |---|---|---|
-| `history.csv` | Mon 2026-08-03 to Sat 2026-09-19 (W1–W7), imported through the real import flow during setup | W1 150,000; W2 152,000; W3 149,000; W4 153,000; W5 151,000; W6 154,000; W7 155,000 |
+| `history.csv` | Mon 2026-08-03 to Sat 2026-09-19 (W1–W7) | W1 150,000; W2 152,000; W3 149,000; W4 153,000; W5 151,000; W6 154,000; W7 155,000 |
 | `week8-decline.csv` | Mon 2026-09-21 to Sat 2026-09-26 (W8), complete | 124,000 |
-| `week8-with-errors.csv` | W8 rows with 3 invalid rows (bad date, negative revenue, non-numeric target) and JB Saturday missing | validation demo only |
-| `week8-correction.csv` | 2 corrected W8 rows (optional correction demo) | new W8 total documented in the fixture header |
-| `week9-recovery.csv` | Mon 2026-09-28 to Sat 2026-10-03 (W9), complete | 150,000 |
+| `week8-with-errors.csv` | W8 rows with 3 invalid rows (bad date, negative revenue on Sunday 2026-09-27, non-numeric target on JB Saturday); JB Saturday therefore missing | validation demo only |
+| `week8-correction.csv` | 2 corrected W8 rows, KL Wed 09-23 and PG Thu 09-24 each +1,000 (optional correction demo) | 126,000: decline issue re-detected at −18.71%; target achievement 80.77% no longer breached |
+| `week9-interim.csv` | Mon 2026-09-28 to Sat 2026-10-03 (W9), complete, during action | 138,000 |
+| `week10-recovery.csv` | Mon 2026-10-05 to Sat 2026-10-10 (W10), complete, post action | 150,000 |
 
-Branch split per day is 12:8:6 with integer rounding and the remainder assigned to KL, so branch-days sum exactly to the weekly totals. S09 provides a fixture check command that verifies this.
+Branch split: daily total from the weekly total with remainder spread from Monday, then PG = floor(D×8/26), JB = floor(D×6/26), KL the rest. S03 owns the generator and `demo:check-fixtures`.
+
+Clock timeline:
+| Clock (09:00) | Event |
+|---|---|
+| 2026-09-21 | Seeding imports `history.csv` (last due day Sat 09-19, W7 closed and complete). Rules healthy. |
+| 2026-09-28 | Demo starts. Last due day is Sat 09-26, so W8 is overdue: the freshness banner says 6 trading days × 3 branches are not received. Do not click Refresh before uploading. |
+| 2026-09-30 | Staff complete tasks. `monitoring_started_at` = 09-30. |
+| 2026-10-05 | Upload `week9-interim.csv`. W9 starts before monitoring started, so it is `during_action`. |
+| 2026-10-12 | Upload `week10-recovery.csv`. W10 starts after monitoring began, so it is `post_action`. |
 
 ## 3. Expected rule results
 | After | Rule | Result | Values |
 |---|---|---|---|
-| history import (as-of 2026-09-19) | Weekly decline W7 vs W6 | not_breached | +0.65% (155,000 vs 154,000) |
-| | Target shortfall W7 | not_breached | 99.36% |
-| | Missing data | not_breached | coverage 100% |
-| week8-decline | Weekly decline W8 vs W7 | breached, severity **high** | −20.00% (124,000 vs 155,000, difference −31,000) |
-| | Target shortfall W8 | breached, severity medium | 79.49% (124,000 / 156,000) |
-| | Missing data | not_breached | coverage 100% |
-| week8-with-errors (fresh reset) | Missing data | breached, medium | 17 of 18 branch-days (94.44%) |
-| | Decline and target | insufficient_data | W8 is partial |
-| week9-recovery | Weekly decline W9 vs W8 | not_breached | +20.97% (150,000 vs 124,000) |
-| | Target shortfall W9 | not_breached | 96.15% |
+| seed (clock 09-21) | Decline W7 vs W6 | not_breached | +0.65% (155,000 vs 154,000) |
+| | Target W7 | not_breached | 99.36% |
+| | Missing data | not_breached | all due branch-days present |
+| week8-decline (clock 09-28) | Decline W8 vs W7 | breached, **high** (`high_drop_pct=15` in demo seed) | −20.00% (124,000 vs 155,000, −31,000) |
+| | Target W8 | breached, medium | 79.49% (124,000 / 156,000) |
+| | Missing data | not_breached | 18 of 18 |
+| week8-with-errors (fresh reset, clock 09-28) | Missing data | breached, medium | 17 of 18 branch-days (94.44%) |
+| | Decline, target | insufficient_data (`incomplete_period`) | W8 closed but incomplete |
+| refresh at 09-28 before any W8 upload (optional) | Missing data | breached, medium | 0 of 18 (trailing missing days) |
+| | Decline, target | insufficient_data (`period_absent`) | |
+| week9-interim (clock 10-05) | Decline W9 vs W8 | not_breached | +11.29% (138,000 vs 124,000) |
+| | Target W9 | not_breached | 88.46% |
+| week10-recovery (clock 10-12) | Decline W10 vs W9 | not_breached | +8.70% (150,000 vs 138,000) |
+| | Target W10 | not_breached | 96.15% |
 
-The demo seed sets `high_drop_pct = 15` (see D25), so the decline issue is high and triggers the urgent in-app notification. The target shortfall issue is medium and does not.
+Urgent notification: the decline issue is high, so it triggers an in-app notification. The target issue is medium and does not.
 
 ## 4. Meeting (Mon 2026-09-28, "Sales recovery huddle")
 Linked issue: Weekly revenue decline. Speakers: Aisyah, Priya, Farid, Daniel, Wei Han. Fixtures: `meeting-transcript.txt` and `meeting-recording.mp3` (English, clear voices, mono, up to 3 minutes and 5 MB).
@@ -66,41 +80,48 @@ Content:
 
 Model wording varies. Acceptance checks the assignee and deadline resolution and that no task is assigned to the owner. They do not check exact titles.
 
-## 6. Expected outcome calculations (after week9-recovery)
-| Issue | Primary metric | Baseline | Follow-up | Change | Result | Resolution |
+## 6. Expected outcome calculations
+**Weekly revenue decline issue** (baseline: W8 124,000 vs pre-decline week W7 155,000, threshold 15%):
+| Week | Phase | Revenue | Absolute change vs baseline | Relative change | Share of pre-decline week | Effect |
 |---|---|---|---|---|---|---|
-| Weekly revenue decline | weekly change % | −20.00% | +20.97% | +40.97 pts | improved | condition met; resolved (system_verified) because the issue is in monitoring |
-| Sales target shortfall | achievement % | 79.49% | 96.15% | +16.66 pts | improved | evaluated only if the owner moved it to monitoring; otherwise stays open and shows no outcome |
+| W9 (09-28..10-03) | during_action | 138,000 | +14,000 | +11.29% | 89.03% | informational; issue stays in monitoring |
+| W10 (10-05..10-10) | post_action | 150,000 | +26,000 | +20.97% | 96.77% | result improved; condition met (150,000 ≥ 155,000 × 0.85 = 131,750); issue resolved, system_verified |
 
-UI wording is "Observed change after actions". It makes no causal claim.
+Week-over-week change is shown only as rule evidence (W10 vs W9 +8.70%); it is not the outcome metric.
 
-## 7. Demonstration sequence
-Setup: `php artisan demo:reset --force`, which seeds history through the real import action, then `php artisan demo:set-date 2026-09-28`.
+**Sales target shortfall issue**: achievement 79.49% at baseline. Evaluated for outcomes only once in action_in_progress or monitoring: the owner links a task (action_in_progress), then moves it to monitoring manually with a reason. W10: 96.15%, +16.66 percentage points, improved, condition met (≥ 80%).
 
+UI wording: "Observed change after actions". No causal claim.
+
+## 7. Demonstration sequence (22 steps)
+Setup: `php artisan demo:reset --force` (seeds history via the real import path at clock 2026-09-21, then sets clock 2026-09-28).
 1. Owner logs in.
-2. Dashboard shows healthy history.
+2. Dashboard shows W7 performance and the freshness banner (W8 overdue).
 3. Owner uploads `week8-decline.csv`.
 4. Preview, then confirm.
-5. Metrics calculate and rules evaluate.
-6. Decline and target issues are created, and the urgent notification appears.
+5. Metrics and rules evaluate.
+6. Decline and target issues are created; urgent notification for the decline issue.
 7. Owner opens the decline issue and reads the evidence.
-8. Owner generates a brief.
+8. Owner generates an executive brief.
 9. Owner plays the voice brief.
-10. Owner creates a meeting linked to the decline issue, confirms consent, and uploads the recording.
+10. Owner creates a meeting linked to the decline issue, confirms recording permission, uploads the recording.
 11. Transcript appears.
 12. Task drafts appear.
-13. Owner approves drafts 1 and 2, sets Daniel Tan and a deadline on draft 3 and approves it, and rejects draft 4.
+13. Owner approves drafts 1 and 2, sets Daniel Tan and a deadline on draft 3 and approves it, rejects draft 4. Issue becomes action_in_progress.
 14. Priya logs in and sees her task.
-15. Staff update tasks and complete them. The issue moves to monitoring.
-16. `demo:set-date 2026-10-05`.
-17. Owner uploads `week9-recovery.csv`.
-18. Application recalculates and evaluates the outcome (improved) and resolves the issue.
-19. Owner opens the full trace from data to outcome.
+15. Presenter runs `demo:set-date 2026-09-30`. Staff update and complete their tasks; the issue enters monitoring.
+16. Presenter runs `demo:set-date 2026-10-05`. Owner uploads `week9-interim.csv`.
+17. Outcome shows W9 as "during action, not used for verification"; the issue stays in monitoring.
+18. Presenter runs `demo:set-date 2026-10-12`. Owner uploads `week10-recovery.csv`.
+19. Application recalculates and evaluates the post-action outcome (improved).
+20. Issue is resolved (system verified); owner reviews actual values, absolute, relative changes.
+21. Owner records useful feedback.
+22. Owner opens the complete trace from data to outcome.
 
-Optional segments on a fresh reset: validation demo with `week8-with-errors.csv`; correction demo with `week8-correction.csv`.
+Optional segments on a fresh reset: validation demo (`week8-with-errors.csv`), correction demo (`week8-correction.csv`), trailing-missing demo (refresh at 09-28 before the upload; then reset).
 
 ## 8. Reset procedure
-`demo:reset` refuses to run unless `DEMO_MODE=true`, a company with `is_demo=true` exists, and `--force` is given (or the exact company name is typed). It deletes only rows and private files belonging to that company, then reseeds. It is never scheduled.
+`demo:reset` refuses unless `DEMO_MODE=true`, exactly one company exists and it has `is_demo=true`, `--force` or the typed company name is given, and the `jobs` table is empty. It runs under a cache lock, sets a reset flag so demo jobs no-op, deletes only that company's rows and private files, then reseeds. It is never scheduled. See `stage-1-refinements.md` R8.
 
 ## 9. Provider failure contingencies
 | Failure | Contingency |

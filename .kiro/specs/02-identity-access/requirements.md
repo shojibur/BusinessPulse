@@ -12,17 +12,25 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 
 | Kind | Items |
 |---|---|
-| Tables | `companies`, `departments`, `users` as defined in `docs/data-model.md`, plus Laravel `sessions` |
+| Tables | `companies` (including `reporting_cutoff_time` and `reporting_cutoff_lag_days`), `departments` (including `settings` JSONB holding `expected_branches`), `users` as defined in `docs/data-model.md`, plus Laravel `sessions` (S01) |
 | Enums | `App\Enums\Role` (`owner`, `manager`, `staff`) |
 | Models | `Company`, `Department`, `User` |
 | Policies | `CompanyPolicy`, `DepartmentPolicy`, `UserPolicy`, and the policy conventions later specs follow |
 | Query scope | `App\Models\Concerns\ScopedToDepartment` trait and `scopeVisibleTo(User $user)` for any model with a `department_id` |
-| Services and Actions | `App\Actions\Users\{CreateUser, UpdateUser, DeactivateUser, ReactivateUser, ResetUserPassword}`, `App\Actions\Company\UpdateCompanyProfile`, `App\Services\CurrentCompany` |
-| Commands | `identity:create-owner` (first company, Sales department and Owner), `DemoIdentitySeeder` |
-| Middleware | Active-user check, department-scoping route binding |
+| Services and Actions | [PoV Core] `App\Services\CurrentCompany`. [PoV Polish] `App\Actions\Users\{CreateUser, UpdateUser, DeactivateUser, ReactivateUser, ResetUserPassword}`, `App\Actions\Company\UpdateCompanyProfile` |
+| Commands | [PoV Core] `DemoIdentitySeeder`, `identity:create-owner` (first company, Sales department and Owner) |
+| Middleware | [PoV Core] Active-user check, department-scoping route binding |
 | Shared props | `auth.user`, `auth.role`, `company` (typed in `resources/js/types`) |
-| Pages | Login, Settings layout with tabs Company, Staff, Department |
-| Changes to S01 | Placeholder role mechanism removed. `BusinessClock` receives the company timezone. |
+| Pages | [PoV Core] Login, Settings layout with read-only Company, Staff and Department tabs. [PoV Polish] Staff create/edit/deactivate/password forms, Company edit form |
+| Tests | Focused feature tests on the S01 harness (Requirement 21) |
+| Changes to S01 | The S01 navigation list gains role-based filtering. `BusinessClock` reads the company timezone. |
+
+### Priority tiers (`docs/stage-1-refinements.md` R1)
+
+- **[PoV Core]**: needed for the 22-step demonstration: login/logout, roles, policies, department scope, tables, demo user seeder, role navigation, read-only Company, Department and Staff display.
+- **[PoV Polish]**: staff CRUD UI, Manager staff list refinements, password reset UI, company profile edit UI, and safeguards beyond database constraints (reporting-cycle detection, last-owner and Manager-with-reports checks).
+- The Manager staff list (Requirement 9.2) is PoV Polish; the Owner read-only Staff list is PoV Core.
+- Each requirement below carries its tier in the heading. A requirement with mixed tiers tags individual criteria.
 
 ### Dependencies
 
@@ -31,7 +39,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 
 ### Assumptions
 
-- A1: Stage 1 has exactly one company and one department (Sales). Departments are created only by `identity:create-owner` and the demonstration seeder. No UI creates, renames or deletes departments.
+- A1: Stage 1 has exactly one company and one department (Sales). Departments are created only by `identity:create-owner` and the demonstration seeder. No UI creates, renames or deletes departments. `departments.settings` (JSONB) is created in S02; `expected_branches` is seeded by the demonstration seeder and edited by S03 (Polish).
 - A2: Public registration, email verification and password reset by email are out of scope. The Owner resets another user's password manually. Starter-kit routes and screens for these are removed.
 - A3: Users cannot change their own password in Stage 1. The Owner is the only credential administrator. This is a Stage 1 simplification and is flagged for client confirmation.
 - A4: Manager has read-only access to the Staff list of the own department. Only Owner creates, edits, deactivates, reactivates and resets passwords. This is the narrowest reading of "restricted by role" and is flagged for client confirmation.
@@ -42,6 +50,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 - A9: Login throttle is 5 failed attempts per minute for each combination of email and IP address.
 - A10: Branch membership of staff (KL, PG, JB) is not modelled. The demonstration seeder records it in `job_title`.
 - A11: Recording consent, notifications and activity logging belong to later specs. S02 writes no `activity_logs` rows because that table is introduced later.
+- A15: The reporting calendar columns (`trading_days`, `reporting_cutoff_time`, `reporting_cutoff_lag_days`) and `departments.settings.expected_branches` follow `docs/stage-1-refinements.md` R2. S02 stores them; S03 and S04 interpret them.
 - A12: The `company.timezone` value is an IANA identifier. Changing it does not alter stored dates.
 - A13: Trading days are ISO weekday integers 1 to 7. Effects of changing trading days on existing sales data are handled by S05.
 - A14: Demo reset (`demo:reset`) is owned by S09. S02 provides only the idempotent identity seeder.
@@ -70,26 +79,30 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 - **BusinessClock**: The S01 helper that returns the business date and time.
 - **Active_User**: A User with `is_active` true.
 - **Sales_Department**: The Department with slug `sales`.
+- **Expected_Branches**: The string array `departments.settings.expected_branches` listing the branch codes a Department is expected to report.
+- **Test_Harness**: The S01 Laravel test framework configuration (Pest or PHPUnit) on the PostgreSQL database `businesspulse_testing`, run with `composer test`.
 
 ## Requirements
 
-### Requirement 1: Company, department and user data model
+### Requirement 1: Company, department and user data model [PoV Core]
 
 **User Story:** As a developer, I want the identity tables defined per the data model, so that later specs reference one consistent company structure.
 
 #### Acceptance Criteria
 
 1. THE Application SHALL provide migrations creating `companies`, `departments`, `users` and `sessions` with the columns, types and constraints in `docs/data-model.md` section 2.
-2. THE `companies` table SHALL contain `name`, `timezone` (default `Asia/Kuala_Lumpur`), `currency` (default `MYR`), `trading_days` (JSONB integer array, default `[1,2,3,4,5,6]`), `is_demo` (boolean, default false) and `recording_retention_days` (default 30).
-3. THE `departments` table SHALL contain `company_id`, `name` and `slug` with a unique constraint on (`company_id`, `slug`).
+2. THE `companies` table SHALL contain `name`, `timezone` (default `Asia/Kuala_Lumpur`), `currency` (default `MYR`), `trading_days` (JSONB integer array, default `[1,2,3,4,5,6]`), `is_demo` (boolean, default false) and `recording_retention_days` (default 30), `reporting_cutoff_time` (time, default `12:00`) and `reporting_cutoff_lag_days` (smallint, default 1).
+3. THE `departments` table SHALL contain `company_id`, `name`, `slug` and `settings` (JSONB, not null, default `{}`) with a unique constraint on (`company_id`, `slug`), and THE Application SHALL cast `settings` to an array.
 4. THE `users` table SHALL contain `company_id`, `department_id` (nullable), `manager_id` (nullable foreign key to `users`), `name`, `email` (unique), `password`, `role`, `job_title`, `is_active` (default true) and the Laravel `remember_token`.
 5. THE Application SHALL store `users.role` as a string backed by the `Role` enum and enforce the allowed values with a database check constraint.
 6. THE Application SHALL cast `users.password` with the Laravel `hashed` cast and exclude `password` and `remember_token` from model serialization.
 7. WHEN `php artisan migrate` is run on a database containing S01 tables, THE Application SHALL complete the S02 migrations without error.
 8. THE Application SHALL define Eloquent relationships `Company hasMany Department`, `Company hasMany User`, `Department hasMany User`, `User belongsTo Department`, `User belongsTo manager` and `User hasMany reports`.
 9. THE Application SHALL include no table, model or column for Super Admin, custom permissions, multiple companies or tenant switching.
+10. THE `Company` model SHALL cast `reporting_cutoff_time` to a `HH:MM` value and `reporting_cutoff_lag_days` to an integer.
+11. THE `Department` model SHALL expose `settings.expected_branches` as a string array, with an empty array when the key is absent.
 
-### Requirement 2: Role definition and capability matrix
+### Requirement 2: Role definition and capability matrix [PoV Core]
 
 **User Story:** As the product owner, I want three fixed roles with defined capabilities, so that access is predictable and auditable.
 
@@ -101,7 +114,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 4. THE Application SHALL provide no interface or code path to create a custom Role or to assign an individual permission.
 5. IF a User is created or updated with a Role value outside the three defined Roles, THEN THE Application SHALL reject the request with a validation error.
 
-### Requirement 3: Login
+### Requirement 3: Login [PoV Core]
 
 **User Story:** As a user, I want to sign in with my email and password, so that I can reach my work.
 
@@ -120,7 +133,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 11. THE Auth_System SHALL log failed and throttled login attempts with timestamp and IP address and without the submitted password.
 12. THE Application SHALL include no "remember me" option, no social login, no two-factor authentication and no API token authentication.
 
-### Requirement 4: Logout and session lifecycle
+### Requirement 4: Logout and session lifecycle [PoV Core]
 
 **User Story:** As a user, I want to sign out safely, so that nobody else can use my session.
 
@@ -133,7 +146,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 5. WHEN an Inertia request is made with an expired session, THE Auth_System SHALL cause a full-page redirect to the Login_Page.
 6. THE Application SHALL set the session cookie attributes `HttpOnly` and `SameSite=Lax`, and `Secure` when `SESSION_SECURE_COOKIE` is true.
 
-### Requirement 5: Removal of public registration and email-based recovery
+### Requirement 5: Removal of public registration and email-based recovery [PoV Core]
 
 **User Story:** As the product owner, I want accounts created only by the Owner, so that no outsider can register or recover access by email.
 
@@ -145,22 +158,22 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 4. THE Login_Page SHALL display the text "Forgot your password? Ask your Owner to reset it."
 5. THE README SHALL state that password recovery in Stage 1 is a manual Owner action and that this is an assumption pending client confirmation.
 
-### Requirement 6: Deactivated users
+### Requirement 6: Deactivated users [PoV Core for 2 and 3, PoV Polish for 1, 4 to 8]
 
 **User Story:** As an Owner, I want a deactivated user to lose access immediately, so that a departing employee cannot continue to use the system.
 
 #### Acceptance Criteria
 
-1. WHEN the Owner deactivates a User, THE Application SHALL set `is_active` to false and delete every row in `sessions` for that User in the same database transaction.
+1. [PoV Polish] WHEN the Owner deactivates a User, THE Application SHALL set `is_active` to false and delete every row in `sessions` for that User in the same database transaction.
 2. WHILE a request carries a session of a User whose `is_active` is false, THE Application SHALL end the session and redirect to the Login_Page with the message "Your account is inactive".
 3. THE active-user middleware SHALL run on every authenticated route, including Inertia and JSON requests.
-4. WHEN the Owner reactivates a User, THE Application SHALL set `is_active` to true and keep all data of the User unchanged.
-5. THE Application SHALL retain deactivated User records and their relationships, and SHALL provide no hard-delete action for Users.
-6. IF the Owner attempts to deactivate the own account, THEN THE Application SHALL reject the request with a validation error.
-7. IF the Owner attempts to deactivate or change the Role of the last Active_User with the `owner` Role, THEN THE Application SHALL reject the request with a validation error.
+4. [PoV Polish] WHEN the Owner reactivates a User, THE Application SHALL set `is_active` to true and keep all data of the User unchanged.
+5. THE Application SHALL retain deactivated User records and their relationships, and SHALL provide no hard-delete action for Users. [PoV Core]
+6. [PoV Polish] IF the Owner attempts to deactivate the own account, THEN THE Application SHALL reject the request with a validation error.
+7. [PoV Polish] IF the Owner attempts to deactivate or change the Role of the last Active_User with the `owner` Role, THEN THE Application SHALL reject the request with a validation error.
 8. WHEN a User is deactivated, THE Application SHALL continue to display the name of that User wherever later specs reference the User historically.
 
-### Requirement 7: Staff management (Owner)
+### Requirement 7: Staff management (Owner) [PoV Polish]
 
 **User Story:** As an Owner, I want to create and maintain user accounts, so that the right people have the right access.
 
@@ -175,14 +188,14 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 7. WHEN the Role is `owner`, THE Staff_Manager SHALL store `department_id` and `manager_id` as null.
 8. IF the Role is `staff` and the supplied manager is not an Active_User with the `manager` Role in the same Department, THEN THE Staff_Manager SHALL reject the request with a field error on `manager_id`.
 9. IF the Role is `manager` and the supplied manager is not the Owner, THEN THE Staff_Manager SHALL reject the request with a field error on `manager_id`.
-10. IF an edit would make a User the manager of the same User or would create a reporting cycle, THEN THE Staff_Manager SHALL reject the request with a field error on `manager_id`.
-11. IF an edit would change the Role or Department of a Manager who has Active_User reports, THEN THE Staff_Manager SHALL reject the request with an error that lists the number of reports to reassign first.
+10. [PoV Polish] IF an edit would make a User the manager of the same User or would create a reporting cycle, THEN THE Staff_Manager SHALL reject the request with a field error on `manager_id`.
+11. [PoV Polish] IF an edit would change the Role or Department of a Manager who has Active_User reports, THEN THE Staff_Manager SHALL reject the request with an error that lists the number of reports to reassign first.
 12. WHILE the signed-in User is the Owner, THE Staff_Manager SHALL allow deactivating and reactivating any User, subject to Requirement 6.
 13. WHEN a User is created, edited, deactivated or reactivated, THE Staff_Manager SHALL show a success toast through the S01 flash helper.
 14. THE Staff_Manager SHALL accept only the fields listed in criteria 1 and 2, and SHALL ignore `company_id`, `is_active` and `id` supplied in a create or edit request body (mass-assignment protection).
 15. THE Staff_Manager SHALL assign every created User to the Company of the Owner.
 
-### Requirement 8: Manual password reset by Owner
+### Requirement 8: Manual password reset by Owner [PoV Polish]
 
 **User Story:** As an Owner, I want to set a new password for a staff member, so that a locked-out colleague can sign in again without email.
 
@@ -194,7 +207,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 4. THE Application SHALL never display, log, flash or return a stored password or a submitted password.
 5. THE Staff_Manager SHALL display the password entry field as a masked input and SHALL NOT offer a generated password that is shown back to the Owner.
 
-### Requirement 9: Staff list visibility
+### Requirement 9: Staff list visibility [PoV Core for 1 and 3, PoV Polish for 2 and 4 to 8]
 
 **User Story:** As a manager, I want to see the staff of my department, so that I know who can be assigned work.
 
@@ -203,19 +216,19 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 1. WHILE the signed-in User is the Owner, THE Staff_Manager SHALL list all Users of the Company with name, email, job title, Role, Department, manager and status.
 2. WHILE the signed-in User is a Manager, THE Staff_Manager SHALL list only Users of the own Department in read-only form, without create, edit, deactivate or password actions.
 3. WHILE the signed-in User is Staff, THE Application SHALL return the 403 error page for the Staff tab.
-4. THE Staff_Manager SHALL allow filtering the list by status (active, inactive, all) with active as the default.
+4. [PoV Polish] THE Staff_Manager SHALL allow filtering the list by status (active, inactive, all) with active as the default.
 5. WHEN the filtered list is empty, THE Staff_Manager SHALL render an EmptyState.
-6. THE Staff_Manager SHALL paginate the list at 25 rows per page.
+6. [PoV Polish] THE Staff_Manager SHALL paginate the list at 25 rows per page.
 7. IF a Manager requests the detail or edit route of a User outside the own Department, THEN THE Application SHALL return the 404 error page.
 8. IF a Manager requests the edit, create, deactivate or reset-password route for a User inside the own Department, THEN THE Application SHALL return the 403 error page.
 
-### Requirement 10: Company profile
+### Requirement 10: Company profile [PoV Core for 2, 3, 9 to 11, PoV Polish for 1, 4 to 8, 12]
 
 **User Story:** As an Owner, I want to maintain the company profile, so that the timezone and trading calendar used across the application are correct.
 
 #### Acceptance Criteria
 
-1. WHILE the signed-in User is the Owner, THE Company_Settings SHALL display and allow editing of `name`, `timezone`, `trading_days` and `recording_retention_days`.
+1. WHILE the signed-in User is the Owner, THE Company_Settings SHALL display `name`, `timezone`, `trading_days`, `reporting_cutoff_time`, `reporting_cutoff_lag_days` and `recording_retention_days` [PoV Core], and SHALL allow editing them [PoV Polish].
 2. THE Company_Settings SHALL display `currency` as `MYR` in read-only form.
 3. THE Company_Settings SHALL display `is_demo` as a read-only indicator, and THE Application SHALL provide no UI to change `is_demo`.
 4. IF the submitted `name` is empty or longer than 150 characters, THEN THE Company_Settings SHALL reject the request with a field error on `name`.
@@ -223,26 +236,27 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 6. IF the submitted `trading_days` is empty, contains a value outside 1 to 7, or contains duplicates, THEN THE Company_Settings SHALL reject the request with a field error on `trading_days`.
 7. IF the submitted `recording_retention_days` is not an integer between 1 and 365, THEN THE Company_Settings SHALL reject the request with a field error on `recording_retention_days`.
 8. WHEN a valid update is saved, THE Company_Settings SHALL store the values, normalize `trading_days` to a sorted array and display a success toast.
-9. WHILE the signed-in User is a Manager, THE Company_Settings SHALL display the company name, timezone and trading days in read-only form.
+9. WHILE the signed-in User is a Manager, THE Company_Settings SHALL display the company name, timezone, trading days, reporting cutoff time and cutoff lag days in read-only form.
 10. WHILE the signed-in User is Staff, THE Application SHALL return the 403 error page for the Company tab.
 11. THE Company_Settings SHALL expose the Company to the frontend only through Auth_Props fields `name`, `timezone`, `currency` and `trading_days`.
 12. FOR ALL valid `trading_days` arrays, saving then reading the Company SHALL return the same set of weekdays in ascending order (round-trip property).
+13. IF the submitted `reporting_cutoff_time` is not a valid `HH:MM` time, or `reporting_cutoff_lag_days` is not an integer between 0 and 7, THEN THE Company_Settings SHALL reject the request with a field error on the offending field.
 
-### Requirement 11: Department structure and information
+### Requirement 11: Department structure and information [PoV Core]
 
 **User Story:** As an Owner or Manager, I want to see the Sales department details, so that I know its members and reporting lines.
 
 #### Acceptance Criteria
 
 1. THE `identity:create-owner` Owner_Command and the Identity_Seeder SHALL create the Sales_Department with `name` "Sales" and `slug` "sales" for the Company.
-2. WHILE the signed-in User is the Owner or a Manager, THE Department_Settings SHALL display the department name, the Manager name or names, the count of Active_User Staff, and the list of Staff with job title.
+2. WHILE the signed-in User is the Owner or a Manager, THE Department_Settings SHALL display the department name, the Expected_Branches, the Manager name or names, the count of Active_User Staff, and the list of Staff with job title.
 3. WHILE the signed-in User is a Manager, THE Department_Settings SHALL display only the own Department.
 4. WHILE the signed-in User is Staff, THE Application SHALL return the 403 error page for the Department tab.
 5. THE Department_Settings SHALL be read-only.
 6. THE Application SHALL provide no UI or route to create, rename, delete or merge Departments.
 7. IF the signed-in Manager or Staff has a null `department_id`, THEN THE Application SHALL treat the User as having no accessible Department and SHALL return no department-scoped records.
 
-### Requirement 12: Policy framework
+### Requirement 12: Policy framework [PoV Core]
 
 **User Story:** As a developer, I want one policy convention, so that later specs authorize every model action the same way.
 
@@ -256,10 +270,10 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 6. THE Application SHALL deny access by default WHEN a Policy method does not explicitly permit the action.
 7. THE Application SHALL deny every Policy action to an inactive User.
 8. THE Application SHALL document in `docs/architecture.md` the policy conventions for later specs: one Policy per model, `before()` hook not granting blanket Owner access outside department-scoped checks, Form Request validation and department scoping by `ScopedToDepartment`.
-9. THE Application SHALL include a policy base class or trait that exposes `sameDepartment(User $user, int $departmentId)` for reuse by later Policies.
+9. THE Application SHALL provide a single `sameDepartment(User $user, int $departmentId)` helper (a trait used by the Policies) for reuse by later Policies.
 10. IF an authenticated User fails a Policy check on a record that is within the User's Department scope, THEN THE Application SHALL return the 403 error page.
 
-### Requirement 13: Department scoping
+### Requirement 13: Department scoping [PoV Core]
 
 **User Story:** As a developer, I want a shared way to restrict queries by department, so that no later spec leaks records across departments.
 
@@ -278,7 +292,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 11. FOR ALL Users U and department-scoped records R, `R` SHALL be returned by `visibleTo(U)` if and only if U is an Active_User and U is the Owner of the Company of R or the `department_id` of U equals the `department_id` of R (invariant).
 12. THE Application SHALL document the scope and binding usage in `docs/architecture.md` with one example for later specs.
 
-### Requirement 14: Authenticated shared props and typing
+### Requirement 14: Authenticated shared props and typing [PoV Core]
 
 **User Story:** As a frontend developer, I want typed auth props from the server, so that components can show role-aware UI safely.
 
@@ -292,24 +306,24 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 6. THE Application SHALL exclude `password`, `remember_token`, `manager_id`, `is_active` of other users and any session data from shared props.
 7. THE Application SHALL share only the data of the signed-in User and the Company, and SHALL share no list of other Users in shared props.
 
-### Requirement 15: Role-aware navigation replaces the placeholder
+### Requirement 15: Role-aware navigation [PoV Core]
 
 **User Story:** As a user, I want navigation that reflects my real role, so that I only see sections I may use.
 
 #### Acceptance Criteria
 
-1. THE Navigation_Provider SHALL derive navigation visibility from `auth.user.role` of the authenticated User.
+1. THE Navigation_Provider SHALL filter the S01 navigation list by `auth.user.role` of the authenticated User.
 2. WHILE the User is the Owner, THE App_Shell SHALL show all eight navigation items.
 3. WHILE the User is a Manager, THE App_Shell SHALL show all eight navigation items.
 4. WHILE the User is Staff, THE App_Shell SHALL show only Today and Tasks.
-5. THE Application SHALL remove the `FOUNDATION_PLACEHOLDER_ROLE` variable, its reads and its documentation from `config`, `.env.example` and the README.
+5. THE Application SHALL add the role filter to the existing S01 navigation list and SHALL change no navigation item definition, route or label.
 6. WHEN a User opens the route of a navigation section that the Role does not see, THE Application SHALL return the 403 error page.
 7. THE App_Shell user menu SHALL display the name, Role and, for Manager and Staff, the Department name of the signed-in User, and an enabled Sign out action.
 8. THE App_Shell SHALL render the Settings navigation item for Owner and Manager and link to the first Settings tab permitted for the Role.
 9. THE Application SHALL document in code comments that navigation visibility is display only and that Policies enforce access.
 10. THE Settings page SHALL show the tabs Company, Staff and Department, and SHALL reserve no tab for S03 or S04 content other than a documented extension point where those specs add the Import template and Rules tabs.
 
-### Requirement 16: Business clock timezone integration
+### Requirement 16: Business clock timezone integration [PoV Core]
 
 **User Story:** As a developer, I want the business date to follow the company timezone, so that "today" is correct for the business.
 
@@ -319,9 +333,10 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 2. WHEN `BusinessClock` is called and no Company exists, THE BusinessClock SHALL use `config('business.timezone')`.
 3. WHERE a timezone argument is passed, THE BusinessClock SHALL use the argument in place of the Company timezone.
 4. WHEN the Owner changes the Company timezone, THE BusinessClock SHALL use the new timezone on the next call, without requiring an application restart.
-5. THE Application SHALL provide `App\Services\CurrentCompany` returning the single Company, resolved through the container and cached for the duration of one request.
+5. THE BusinessClock SHALL continue to obtain demonstration date and time only from the S01 demo clock file written by `demo:set-date`, and S02 SHALL add no other date override.
+6. THE Application SHALL provide `App\Services\CurrentCompany` returning the single Company, resolved through the container and cached for the duration of one request.
 
-### Requirement 17: Initial company and owner setup
+### Requirement 17: Initial company and owner setup [PoV Core]
 
 **User Story:** As an operator, I want a command that creates the first company and Owner, so that a new installation can be used without a registration page or seeder.
 
@@ -334,26 +349,26 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 5. THE Owner_Command SHALL never print or log the password.
 6. THE README SHALL document the Owner_Command as the production setup step.
 
-### Requirement 18: Demonstration account seeding
+### Requirement 18: Demonstration account seeding [PoV Core]
 
 **User Story:** As a presenter, I want the fictional demonstration company and accounts created repeatably, so that the demonstration environment can be rebuilt.
 
 #### Acceptance Criteria
 
-1. WHEN the Identity_Seeder runs and `DEMO_MODE` is true, THE Identity_Seeder SHALL create or update the Company "Meridian Home Supplies Sdn Bhd" with timezone `Asia/Kuala_Lumpur`, currency `MYR`, trading days 1 to 6 and `is_demo` true.
-2. THE Identity_Seeder SHALL create or update the Sales_Department and the six Users in `docs/demo-scenario.md` section 1: owner Lim Wei Han, manager Nurul Aisyah, and staff Daniel Tan, Daniel Lee, Priya Nair and Farid Ismail, with the listed emails.
+1. WHEN the Identity_Seeder runs and `DEMO_MODE` is true, THE Identity_Seeder SHALL create or update the Company "Meridian Home Supplies Sdn Bhd" with timezone `Asia/Kuala_Lumpur`, currency `MYR`, trading days 1 to 6 (Monday to Saturday), `reporting_cutoff_time` `12:00`, `reporting_cutoff_lag_days` 1 and `is_demo` true.
+2. THE Identity_Seeder SHALL create or update the Sales_Department with `settings.expected_branches` explicitly set to `["KL","PG","JB"]`, and the six Users in `docs/demo-scenario.md` section 1: owner Lim Wei Han, manager Nurul Aisyah, and staff Daniel Tan, Daniel Lee, Priya Nair and Farid Ismail, with the listed emails.
 3. THE Identity_Seeder SHALL set the manager of Nurul Aisyah to Lim Wei Han, and the manager of every demonstration Staff user to Nurul Aisyah.
 4. THE Identity_Seeder SHALL set `job_title` for each Staff user to a title containing the branch code (KL, PG or JB) from `docs/demo-scenario.md`.
 5. THE Identity_Seeder SHALL identify existing rows by email and Company name so that running the seeder twice produces the same rows and no duplicates (idempotence property).
 6. THE Identity_Seeder SHALL hash the password from `DEMO_PASSWORD` for every demonstration User.
-7. IF `DEMO_MODE` is false, THEN THE Identity_Seeder SHALL abort without writing any record and print a message naming `DEMO_MODE`.
+7. IF `DEMO_MODE` is not `true`, THEN THE Identity_Seeder SHALL refuse to run, abort without writing any record and print a message naming `DEMO_MODE`.
 8. IF `DEMO_PASSWORD` is empty or shorter than 12 characters, THEN THE Identity_Seeder SHALL abort without writing any record and print a message naming `DEMO_PASSWORD`.
 9. IF a Company that is not `is_demo` already exists, THEN THE Identity_Seeder SHALL abort without writing any record.
 10. THE Identity_Seeder SHALL print no password and SHALL write no password to any file or log.
 11. THE Application SHALL commit no demonstration password, and the `.env.example` entry for `DEMO_PASSWORD` SHALL remain empty.
 12. THE Identity_Seeder SHALL use only fictional names and the `meridian.demo` email domain.
 
-### Requirement 19: Error behavior and response codes
+### Requirement 19: Error behavior and response codes [PoV Core]
 
 **User Story:** As a user, I want clear and consistent responses to unauthorized requests, so that I understand whether I lack permission or the page does not exist for me.
 
@@ -367,7 +382,7 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 6. THE Application SHALL never redisplay the submitted password after a validation error.
 7. THE Application SHALL redact passwords, session identifiers and tokens from logs and error messages.
 
-### Requirement 20: Security and scope baseline
+### Requirement 20: Security and scope baseline [PoV Core]
 
 **User Story:** As the product owner, I want the access layer secure by default and limited to Stage 1, so that later work can trust it.
 
@@ -381,4 +396,19 @@ S02 does not own sales data, imports, rules, issues, briefs, meetings, tasks or 
 6. THE Application SHALL include no import, sales record, rule, issue, brief, meeting, task or outcome code in S02.
 7. THE Application SHALL include no Stage 2 feature in S02.
 8. THE Application SHALL contain no S02-authored use of the `any` type in TypeScript, except where a third-party declaration requires it and a comment states the reason.
-9. WHEN S02 verification runs, THE Verification_Commands defined in S01 SHALL exit with status 0.
+9. WHEN S02 verification runs, THE Verification_Commands defined in S01 and `composer test` SHALL exit with status 0.
+
+### Requirement 21: Focused automated verification [PoV Core]
+
+**User Story:** As a developer, I want a small set of deterministic feature tests for access control, so that department scoping and deactivation cannot regress silently.
+
+#### Acceptance Criteria
+
+1. THE Application SHALL provide S02 feature tests on the Test_Harness using `RefreshDatabase` on the PostgreSQL test database, with no SQLite, browser automation, property-based tool or external provider call.
+2. THE tests SHALL verify that `visibleTo` returns for an Owner the records of every Department of the Company, for a Manager and for Staff only records of the own Department, and returns no records for a non-Owner with null `department_id` or an inactive User.
+3. THE tests SHALL verify that a Manager requesting a department-scoped record of another Department receives 404 and that a Staff user restricted to the own Department cannot read records of another Department.
+4. THE tests SHALL verify that a User whose Role is not permitted for an S02 route receives 403, including Staff on the Staff, Company and Department tabs and a Manager on the Staff create action.
+5. THE tests SHALL verify that a deactivated User cannot log in and receives the same generic message as a wrong password, and that an authenticated session of a deactivated User is rejected on the next request.
+6. THE tests SHALL verify that the Identity_Seeder, run twice with `DEMO_MODE=true`, produces one Company, one Sales_Department with Expected_Branches `["KL","PG","JB"]` and six Users, and that it aborts with no writes when `DEMO_MODE` is not `true`.
+7. THE tests SHALL verify the `trading_days` round trip for the fixed examples `[5,1,3]`, `[7]` and `[1,2,3,4,5,6,7]`. [PoV Polish]
+8. THE tests SHALL use fictional fixture data only.
