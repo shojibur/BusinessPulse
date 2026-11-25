@@ -130,7 +130,10 @@ watch(
                     <nav aria-label="Breadcrumb" class="min-w-0 flex-1">
                         <ol class="flex items-center gap-2 text-sm">
                             <li class="hidden text-muted-foreground sm:block">
-                                <Link href="/today" class="hover:underline">
+                                <Link
+                                    href="/today"
+                                    class="touch-target hover:underline"
+                                >
                                     {{ appName }}
                                 </Link>
                             </li>

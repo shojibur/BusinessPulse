@@ -134,9 +134,16 @@
         @apply bg-background text-foreground text-sm leading-5 antialiased;
     }
 
-    /* Interactive controls are at least 40px tall below 768px (touch targets). */
+    .touch-target {
+        display: inline-flex;
+        align-items: center;
+    }
+
+    /* Interactive controls are at least 40px tall at 768px and below (touch targets). */
     @media (max-width: 768px) {
         button,
+        [data-slot='button'],
+        .touch-target,
         [role='combobox'],
         select,
         input:not([type='checkbox']):not([type='radio']) {

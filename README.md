@@ -2,7 +2,7 @@
 
 BusinessPulse (Inventa Studio) is a Business Intelligence and Decision Execution Platform: Detect → Understand → Decide → Execute → Verify. This repository is **Stage 1, a functional proof of value**, built as a Laravel 13 + Inertia + Vue 3 modular monolith on PostgreSQL.
 
-Current state: **S01 Application Foundation and S02 Identity and Access**. Sign-in, the three fixed roles (Owner, Manager, Staff), department scoping, read-only Company, Staff and Department settings, the shell, design system, queue, BusinessClock and test harness exist. The eight navigation pages other than Settings are **placeholders** that show no business data; the features behind them arrive in later specifications (`.kiro/specs/`).
+Current state: **S01 Application Foundation, S02 Identity and Access and S03 Sales Data Import**. Sign-in, the three fixed roles (Owner, Manager, Staff), department scoping, read-only Company, Staff and Department settings, the shell, design system, queue, BusinessClock and test harness exist. Owners and Managers can upload, preview, confirm and trace daily branch sales CSV files under Data Imports. The navigation pages Today, Issues, Briefs, Meetings, Tasks and Outcomes are **placeholders** that show no business data; the features behind them arrive in later specifications (`.kiro/specs/`).
 
 - Docker is not used anywhere. Local development is native.
 - Use fictional data only. Do not load real client data until the client has authorized it.
@@ -74,7 +74,26 @@ php artisan db:seed --class=DemoIdentitySeeder
 
 This creates Meridian Home Supplies Sdn Bhd (fictional), its Sales department (branches KL, PG, JB) and six users, all on the `meridian.demo` domain and sharing `DEMO_PASSWORD`: `owner@meridian.demo` (Owner), `aisyah@meridian.demo` (Manager), `daniel.tan@`, `daniel.lee@`, `priya@` and `farid@meridian.demo` (Staff). It is safe to run again. It refuses to run unless `DEMO_MODE=true`, if the password is empty or short, or if a real (non-demo) company exists.
 
-## 5c. Passwords and access
+## 5c. Sales imports and the demonstration data
+
+Data Imports takes a CSV with the header `sales_date,branch_code,revenue,target_revenue,order_count` (download the template from the upload page). Files are checked first (type, size up to 5 MB, header, up to 10,000 rows), then every row; you see a preview and confirm before anything is saved. Confirmation queues the import, so **a queue worker must be running** (`composer dev` starts one; otherwise `php artisan queue:work --queue=default,ai`). Only branches listed in the department's expected branches are accepted (the demo seeds `KL`, `PG`, `JB`; nothing is derived from an upload).
+
+PHP must allow the upload size: set `upload_max_filesize = 6M` and `post_max_size = 8M` in `php.ini` (the PHP default of 2 MB rejects larger files), and `client_max_body_size 6m;` in Nginx.
+
+Load the fictional demonstration data through the real import workflow (requires `DEMO_MODE=true` and the demo identity from 5b). Dates after the business today are rejected, so set the demo clock before each step:
+
+```bash
+php artisan demo:check-fixtures                 # verify the CSV fixtures (no database needed)
+php artisan demo:set-date 2026-09-21 && php artisan demo:import history
+php artisan demo:set-date 2026-09-28            # then upload database/demo/week8-decline.csv in the UI,
+                                                # or: php artisan demo:import week8-decline
+php artisan demo:set-date 2026-10-05 && php artisan demo:import week9-interim
+php artisan demo:set-date 2026-10-12 && php artisan demo:import week10-recovery
+```
+
+Other fixtures: `week8-with-errors` (3 invalid rows, JB Saturday missing) and `week8-correction` (two corrected rows). Delete `storage/app/private/demo/fixed-datetime` to return to real time.
+
+## 5d. Passwords and access
 
 - **Password recovery is a manual Owner action.** There is no email reset and no self-service password change in Stage 1. This is an assumption pending client confirmation (S02 A2, A3).
 - A Manager can see the staff of their own department read-only; only the Owner administers accounts (S02 A4, also pending client confirmation).

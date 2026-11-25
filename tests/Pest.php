@@ -1,9 +1,15 @@
 <?php
 
+use App\Actions\Imports\ConfirmImport;
+use App\Actions\Imports\CreateImportFromUpload;
 use App\Models\Company;
 use App\Models\Department;
+use App\Models\Import;
+use App\Models\SalesRecord;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /*
@@ -41,4 +47,61 @@ function identity(): stdClass
     $f->noDepartment = User::factory()->create(['company_id' => $f->company->id, 'role' => 'manager', 'department_id' => null, 'email' => 'nodept@fixture.test']);
 
     return $f;
+}
+
+/**
+ * An uploaded CSV with the given content (fictional test data only).
+ */
+function csvUpload(string $content, string $name = 'sales.csv'): UploadedFile
+{
+    return UploadedFile::fake()->createWithContent($name, $content);
+}
+
+/**
+ * One of the committed demo fixtures as an upload.
+ */
+function fixtureUpload(string $fixture): UploadedFile
+{
+    return new UploadedFile(base_path("database/demo/{$fixture}.csv"), "{$fixture}.csv", 'text/csv', null, true);
+}
+
+/**
+ * Fake the private disk and set the demo clock ("YYYY-MM-DD HH:MM", company timezone).
+ */
+function setClock(string $dateTime): void
+{
+    Storage::fake('local');
+    config(['demo.mode' => true]);
+    Storage::disk('local')->put(config('demo.clock_file'), $dateTime);
+}
+
+/**
+ * Upload, confirm and process a demo fixture through the real actions (the queue is `sync` in tests).
+ */
+function importFixture(User $user, string $fixture, ?string $clock = null): Import
+{
+    if ($clock !== null) {
+        setClock($clock);
+    }
+
+    $import = app(CreateImportFromUpload::class)->handle($user, fixtureUpload($fixture));
+    app(ConfirmImport::class)->handle($import);
+
+    return $import->refresh();
+}
+
+/**
+ * The sum of active revenue as a decimal string (bcmath, no floats).
+ */
+function activeRevenue(?int $departmentId = null): string
+{
+    $query = SalesRecord::query()->where('is_active', true);
+    $departmentId && $query->where('department_id', $departmentId);
+
+    $sum = '0';
+    foreach ($query->pluck('revenue') as $revenue) {
+        $sum = bcadd($sum, (string) $revenue, 2);
+    }
+
+    return $sum;
 }

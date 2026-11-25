@@ -1,0 +1,218 @@
+{
+  "calendar": {
+    "timezone": "Asia/Kuala_Lumpur",
+    "tradingDays": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "cutoffTime": "12:00",
+    "cutoffLagDays": 1
+  },
+  "expectedBranches": [
+    "JB",
+    "KL",
+    "PG"
+  ],
+  "fixtures": {
+    "history": {
+      "file": "history.csv",
+      "clock": "2026-09-21 09:00",
+      "after": [],
+      "totalRows": 126,
+      "validRows": 126,
+      "invalidRows": 0,
+      "errors": [],
+      "weeklyTotals": {
+        "2026-08-03": "150000.00",
+        "2026-08-10": "152000.00",
+        "2026-08-17": "149000.00",
+        "2026-08-24": "153000.00",
+        "2026-08-31": "151000.00",
+        "2026-09-07": "154000.00",
+        "2026-09-14": "155000.00"
+      },
+      "branchDays": {
+        "2026-08-03": 18,
+        "2026-08-10": 18,
+        "2026-08-17": 18,
+        "2026-08-24": 18,
+        "2026-08-31": 18,
+        "2026-09-07": 18,
+        "2026-09-14": 18
+      },
+      "weekStates": {
+        "2026-08-03": {
+          "status": "closed",
+          "completeness": "complete"
+        },
+        "2026-08-10": {
+          "status": "closed",
+          "completeness": "complete"
+        },
+        "2026-08-17": {
+          "status": "closed",
+          "completeness": "complete"
+        },
+        "2026-08-24": {
+          "status": "closed",
+          "completeness": "complete"
+        },
+        "2026-08-31": {
+          "status": "closed",
+          "completeness": "complete"
+        },
+        "2026-09-07": {
+          "status": "closed",
+          "completeness": "complete"
+        },
+        "2026-09-14": {
+          "status": "closed",
+          "completeness": "complete"
+        },
+        "2026-09-21": {
+          "status": "open",
+          "completeness": null
+        }
+      }
+    },
+    "week8-decline": {
+      "file": "week8-decline.csv",
+      "clock": "2026-09-28 09:00",
+      "after": [
+        "history"
+      ],
+      "totalRows": 18,
+      "validRows": 18,
+      "invalidRows": 0,
+      "errors": [],
+      "weeklyTotals": {
+        "2026-09-21": "124000.00"
+      },
+      "branchDays": {
+        "2026-09-21": 18
+      },
+      "weekStates": {
+        "2026-09-21": {
+          "status": "closed",
+          "completeness": "complete"
+        }
+      }
+    },
+    "week8-with-errors": {
+      "file": "week8-with-errors.csv",
+      "clock": "2026-09-28 09:00",
+      "after": [
+        "history"
+      ],
+      "totalRows": 20,
+      "validRows": 17,
+      "invalidRows": 3,
+      "errors": [
+        {
+          "row": 19,
+          "column": "target_revenue",
+          "code": "invalid_number"
+        },
+        {
+          "row": 20,
+          "column": "sales_date",
+          "code": "invalid_date"
+        },
+        {
+          "row": 21,
+          "column": "revenue",
+          "code": "negative_value"
+        }
+      ],
+      "weeklyTotals": {
+        "2026-09-21": "119231.00"
+      },
+      "branchDays": {
+        "2026-09-21": 17
+      },
+      "weekStates": {
+        "2026-09-21": {
+          "status": "closed",
+          "completeness": "incomplete"
+        }
+      }
+    },
+    "week8-correction": {
+      "file": "week8-correction.csv",
+      "clock": "2026-09-28 09:00",
+      "after": [
+        "history",
+        "week8-decline"
+      ],
+      "totalRows": 18,
+      "validRows": 18,
+      "invalidRows": 0,
+      "errors": [],
+      "weeklyTotals": {
+        "2026-09-21": "126000.00"
+      },
+      "branchDays": {
+        "2026-09-21": 18
+      },
+      "weekStates": {
+        "2026-09-21": {
+          "status": "closed",
+          "completeness": "complete"
+        }
+      }
+    },
+    "week9-interim": {
+      "file": "week9-interim.csv",
+      "clock": "2026-10-05 09:00",
+      "after": [
+        "history",
+        "week8-decline"
+      ],
+      "totalRows": 18,
+      "validRows": 18,
+      "invalidRows": 0,
+      "errors": [],
+      "weeklyTotals": {
+        "2026-09-28": "138000.00"
+      },
+      "branchDays": {
+        "2026-09-28": 18
+      },
+      "weekStates": {
+        "2026-09-28": {
+          "status": "closed",
+          "completeness": "complete"
+        }
+      }
+    },
+    "week10-recovery": {
+      "file": "week10-recovery.csv",
+      "clock": "2026-10-12 09:00",
+      "after": [
+        "history",
+        "week8-decline",
+        "week9-interim"
+      ],
+      "totalRows": 18,
+      "validRows": 18,
+      "invalidRows": 0,
+      "errors": [],
+      "weeklyTotals": {
+        "2026-10-05": "150000.00"
+      },
+      "branchDays": {
+        "2026-10-05": 18
+      },
+      "weekStates": {
+        "2026-10-05": {
+          "status": "closed",
+          "completeness": "complete"
+        }
+      }
+    }
+  }
+}

@@ -53,7 +53,8 @@ class HandleInertiaRequests extends Middleware
      */
     private function authUser(User $user): array
     {
-        $user->loadMissing('department:id,name');
+        // Load the full relation: a partial select would leave a half-built Department on the user instance.
+        $user->loadMissing('department');
 
         return [
             'id' => $user->id,

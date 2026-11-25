@@ -3,6 +3,8 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\ImportController;
+use App\Http\Controllers\ImportTemplateController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,7 +23,15 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
     // S01 placeholder pages: later specs replace each with a controller.
     Route::inertia('today', 'dashboard/Index')->name('today');
     Route::inertia('issues', 'issues/Index')->name('issues.index');
-    Route::inertia('imports', 'imports/Index')->name('imports.index');
+    // Data Imports (S03). Owner and Manager only: section.access plus ImportPolicy on every action.
+    Route::get('imports', [ImportController::class, 'index'])->name('imports.index');
+    Route::get('imports/create', [ImportController::class, 'create'])->name('imports.create');
+    Route::get('imports/template', ImportTemplateController::class)->name('imports.template');
+    Route::post('imports', [ImportController::class, 'store'])->middleware('throttle:imports-upload')->name('imports.store');
+    Route::get('imports/{import}', [ImportController::class, 'show'])->name('imports.show');
+    Route::post('imports/{import}/confirm', [ImportController::class, 'confirm'])->name('imports.confirm');
+    Route::post('imports/{import}/cancel', [ImportController::class, 'cancel'])->name('imports.cancel');
+    Route::post('imports/{import}/retry', [ImportController::class, 'retry'])->name('imports.retry');
     Route::inertia('briefs', 'briefs/Index')->name('briefs.index');
     Route::inertia('meetings', 'meetings/Index')->name('meetings.index');
     Route::inertia('tasks', 'tasks/Index')->name('tasks.index');
