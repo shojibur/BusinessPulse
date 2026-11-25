@@ -45,6 +45,22 @@ DoD-13 to DoD-16 and DoD-23 are manual because they need a real provider. They a
 ## Responsive section (demonstration path)
 Check Today, Data Imports (upload, preview, result), Issues, Issue detail, Briefs, Meeting detail (drafts), Tasks, My Tasks, Outcomes and the Outcome comparison at 360, 768 and 1280 px: no horizontal scroll at 360, every control reachable and at least 40 px, keyboard-only run of the path (Tab, Enter, Escape), status never conveyed by colour alone, import page states (empty, error, in progress, done). Record the browser and version.
 
+## Responsive appendix (Polish: remaining screens)
+Same checks as the demonstration-path section: 360, 768 and 1280 px; no horizontal scroll at 360; controls at least 40 px; no overlapping text; tables stack as cards where specified; charts have a text-table alternative; status and severity by icon or text, never colour alone; visible focus and logical tab order; loading, empty and error states.
+
+| Screen | 360 | 768 | 1280 | Keyboard | Colour-independent status | Loading / empty / error | Browser, OS, viewport | Evidence if failed |
+|---|---|---|---|---|---|---|---|---|
+| Meetings list | | | | | | | | |
+| Meeting create / edit | | | | | | | | |
+| Activity feed (notifications and activity) | | | | | | | | |
+| Settings: company tab | | | | | | | | |
+| Settings: department tab | | | | | | | | |
+| Settings: staff tab | | | | | | | | |
+| Brief history | | | | | | | | |
+| Outcomes list | | | | | | | | |
+
+Mark each cell PASS or FAIL. A failed cell needs the screen, the width and a screenshot recorded in `docs/readiness-fixes.md`. All cells are empty until someone runs the check.
+
 ## Build verification
 Run and record each: `composer validate --strict`; `./vendor/bin/pint --test`; `composer test`; `npm run type-check`; `npm run lint`; `npm run format:check` (or `npm run verify`, which chains type-check, lint, format check, build and `composer test`); `npm run build`; `php artisan demo:check-fixtures`; `migrate:fresh --seed` on a SCRATCH database (check `current_database()` first) and `migrate:rollback` then `migrate`; a cache smoke check (`php artisan cache:clear` and a page load); `npm audit --omit=dev`; `composer audit`; record the verified versions (`docs/architecture.md` section 11).
 

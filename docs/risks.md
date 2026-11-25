@@ -1,0 +1,30 @@
+# Known risks register
+
+## Stage 1 limits
+Stage 1 uses **fictional data only**. It is **not production certified**. The project makes **no compliance claim** (PDPA or any other law). It does **not** support Stage 2 features. Live AI verification has not been done (no credentials were available).
+
+Likelihood and impact: low, medium, high. Status is set to `open`, `mitigated` or `accepted` after the last rehearsal. Until rehearsals happen, every status below is `open`.
+
+| ID | Risk | Likelihood | Impact | Mitigation or contingency | Owner | Status | Readiness_Fix |
+|---|---|---|---|---|---|---|---|
+| R-01 | AI provider outage or latency during the demonstration | medium | medium | Deterministic brief fallback; manual transcript fallback with `meeting-transcript.txt`; rehearsed drills in `docs/provider-failure-drills.md`; prepared audio from a rehearsal | Presenter | open | RF-04 |
+| R-02 | Transcription accuracy with accents and background noise | medium | medium | Transcript is editable before extraction; use a clear fictional recording; manual transcript fallback | Presenter | open | RF-04 |
+| R-03 | Extraction variability of task titles | medium | low | Every draft needs human review and approval; drafts must cite transcript evidence; re-extract available | Presenter | open | RF-04 |
+| R-04 | Prompt-injection attempts through transcripts | low | high | Transcript passed as delimited untrusted data; schema-constrained output; assignee ids validated against the allowed staff list; AI never assigns, resolves or notifies | Engineering | open | none |
+| R-05 | Third-party processing of personal data | medium | high | Fictional data only until the client decides; consent checkbox; see `docs/pdpa-considerations.md` (actions before real data) | Owner | open | none |
+| R-06 | Demonstration defaults differ from the client's real data (file layout, branches, holidays, thresholds) | high | medium | Items listed for client confirmation in `docs/stage-1-scope.md` section 8; rules editable in Settings | Owner | open | none |
+| R-07 | Database queue throughput | low | medium | Two queues and two workers; single demonstration tenant; revisit before scale | Engineering | open | none |
+| R-08 | Single-server deployment without high availability | high | medium | Documented in `docs/deployment.md`; Supervisor restarts workers; acceptable for a demonstration | Engineering | open | none |
+| R-09 | Backups not yet restored in production | medium | high | Backup steps in `docs/deployment.md`; run and record a test restore on a scratch server before real data | Operator | open | none |
+| R-10 | Demo clock file differs from the real date | medium | medium | `demo:seed` and `demo:reset` set 2026-09-28 09:00; walkthrough starts with a clock check; clock honored only in demo mode | Presenter | open | none |
+| R-11 | ISO-week reporting is ambiguous around public holidays | medium | low | Trading calendar and cutoff decide what is expected; client to confirm calendar | Owner | open | none |
+| R-12 | The recording retention command and Owner deletion are not built (S06 task 8.4) | high | high | Use fictional recordings only; build and verify before any real recording | Engineering | open | RF-02 |
+| R-13 | A presenter clicks "Refresh intelligence" before the week 8 upload | medium | medium | Warning at the top of `docs/demo-walkthrough.md`; if it happens, `demo:reset --force` and restart (refuses while jobs are pending) | Presenter | open | none |
+| R-14 | AI provider cost and rate limits | medium | medium | Rehearsal budgeting (`docs/rehearsal-protocol.md`); app limits (`ai-requests`) and one attempt per call | Operator | open | none |
+| R-15 | Background jobs and listeners do not check the reset flag | low | medium | `demo:reset` refuses while the `jobs` table is non-empty; take no action during a reset | Engineering | open | RF-01 |
+| R-16 | Manual rehearsals, drills, recording and the signed checklist are not yet done | high | medium | Run `docs/rehearsal-protocol.md`; sign `docs/acceptance-checklist.md` | Operator | open | none |
+| R-17 | Authorization matrix manual run not yet executed | medium | high | Execute `docs/security-verification.md` on a scratch database; fix any FAIL | Engineering | open | none |
+| R-18 | Staff "Today" navigation item only redirects (cosmetic) | high | low | Known; explain or fix in a later spec | Engineering | open | RF-03 |
+
+## Review
+After the last rehearsal, set each status to `open`, `mitigated` or `accepted` and add a Readiness_Fix id to any risk that came from a failed verification step.

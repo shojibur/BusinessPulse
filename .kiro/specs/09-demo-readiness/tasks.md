@@ -123,21 +123,21 @@ Priority legend (`docs/stage-1-refinements.md` R1): `[PoV Core]` tasks are neede
     - Record a Readiness_Fix instead of a direct edit if S06 cannot support the verification
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8_
 
-- [ ] 5. [PoV Polish] Polish documentation
-  - [ ] 5.1 [PoV Polish] Create `docs/security-verification.md`
+- [x] 5. [PoV Polish] Polish documentation
+  - [x] 5.1 [PoV Polish] Create `docs/security-verification.md`
     - Route-by-actor matrix generated from `php artisan route:list` for the seven actors, with the covering automated test per cell where one exists, expected status with spec rule reference, guessed ids, file access, Inertia partial reloads
     - CSRF 419 checks, throttling checks, prop-leak checks, second-department scratch setup (scratch database only), per-cell PASS/FAIL with observed status; failed cells require a Readiness_Fix
     - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6, 18.7, 18.8, 18.9, 18.10_
 
-  - [ ] 5.2 [PoV Polish] Add the full responsive appendix to `docs/acceptance-checklist.md`
+  - [x] 5.2 [PoV Polish] Add the full responsive appendix to `docs/acceptance-checklist.md`
     - Add the remaining screens (meetings list, activity feed, Settings tabs, brief history) with the same width, keyboard, color and state checks and the failure evidence rule
     - _Requirements: 8.8, 8.9_
 
-  - [ ] 5.3 [PoV Polish] Create `docs/pdpa-considerations.md`
+  - [x] 5.3 [PoV Polish] Create `docs/pdpa-considerations.md`
     - Introduction (fictional data, checklist not legal advice, no compliance claim, required before real data), personal data inventory, provider data flows per feature, principle checklist table with status, open client decisions, existing in-app controls with spec references, actions needed before real data, provider terms to be confirmed (no unverified claims)
     - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8_
 
-  - [ ] 5.4 [PoV Polish] Create `docs/risks.md`
+  - [x] 5.4 [PoV Polish] Create `docs/risks.md`
     - Register with id, description, likelihood, impact, mitigation, owner, status covering the risks of Requirement 20.2 and 20.3, cross-references to Readiness_Fix ids, and the Stage 1 limits statement; move any risk already recorded in `docs/readiness-fixes.md` into it
     - _Requirements: 1.6, 20.1, 20.2, 20.3, 20.4, 20.5, 20.6_
 
