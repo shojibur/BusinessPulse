@@ -12,6 +12,7 @@ use App\Models\Company;
 use App\Models\Department;
 use App\Models\Import;
 use App\Models\Issue;
+use App\Models\Meeting;
 use App\Models\RuleEvaluation;
 use App\Models\SalesRecord;
 use App\Models\User;
@@ -262,4 +263,91 @@ function declineTimeline(): User
 function declineIssue(): Issue
 {
     return Issue::query()->whereHas('rule', fn ($q) => $q->where('key', 'weekly_revenue_decline'))->firstOrFail();
+}
+
+/**
+ * The demo roster of the Sales department with the two Daniels (ambiguous first name) and the Owner outside the list.
+ *
+ * @return object{company: Company, sales: Department, owner: User, manager: User, priya: User, farid: User, danielTan: User, danielLee: User}
+ */
+function meetingRoster(): stdClass
+{
+    $f = new stdClass;
+    $f->company = Company::factory()->create(['name' => 'Meridian Test Sdn Bhd', 'timezone' => 'Asia/Kuala_Lumpur', 'trading_days' => [1, 2, 3, 4, 5, 6]]);
+    $f->sales = Department::factory()->create(['company_id' => $f->company->id, 'name' => 'Sales', 'slug' => 'sales', 'settings' => ['expected_branches' => ['KL', 'PG', 'JB']]]);
+    $f->owner = User::factory()->owner()->create(['company_id' => $f->company->id, 'name' => 'Lim Wei Han', 'email' => 'weihan@m.test']);
+    $f->manager = User::factory()->manager($f->sales)->create(['name' => 'Nurul Aisyah', 'email' => 'aisyah@m.test', 'manager_id' => $f->owner->id]);
+    $f->priya = User::factory()->staff($f->sales)->create(['name' => 'Priya Nair', 'email' => 'priya@m.test', 'manager_id' => $f->manager->id]);
+    $f->farid = User::factory()->staff($f->sales)->create(['name' => 'Farid Ismail', 'email' => 'farid@m.test', 'manager_id' => $f->manager->id]);
+    $f->danielTan = User::factory()->staff($f->sales)->create(['name' => 'Daniel Tan', 'email' => 'dtan@m.test', 'manager_id' => $f->manager->id]);
+    $f->danielLee = User::factory()->staff($f->sales)->create(['name' => 'Daniel Lee', 'email' => 'dlee@m.test', 'manager_id' => $f->manager->id]);
+
+    return $f;
+}
+
+/**
+ * A meeting of the roster's Sales department in a given state (no files, no jobs).
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function makeMeeting(stdClass $f, array $attributes = []): Meeting
+{
+    return Meeting::create($attributes + [
+        'department_id' => $f->sales->id,
+        'created_by' => $f->manager->id,
+        'title' => 'Sales recovery huddle',
+        'meeting_date' => '2026-09-28',
+    ]);
+}
+
+/** The fictional demo meeting transcript (docs/demo-scenario.md section 4). */
+function demoTranscript(): string
+{
+    return trim((string) file_get_contents(base_path('database/demo/meeting-transcript.txt')));
+}
+
+/** Provider configuration for meeting tests (fake values; every call goes through Http::fake). */
+function configureMeetingAi(): void
+{
+    config([
+        'ai.base_url' => 'https://ai.example.test/v1', 'ai.api_key' => 'test-key-not-real',
+        'ai.text_model' => 'text-model-x', 'ai.transcription_model' => 'transcribe-model-x',
+    ]);
+}
+
+/**
+ * An OpenAI-style chat answer carrying the given extraction JSON.
+ *
+ * @param  array<string, mixed>  $extraction
+ */
+function extractionReply(array $extraction): array
+{
+    return ['choices' => [['message' => ['content' => json_encode($extraction)]]]];
+}
+
+/**
+ * What a faithful model returns for the demo transcript, with deliberately messy extras the server must handle.
+ *
+ * @return array<string, mixed>
+ */
+function demoExtraction(): array
+{
+    return [
+        'decisions' => [
+            ['summary' => 'Prioritise reactivating the top lapsed Penang accounts.', 'excerpt' => 'Decision one: we will prioritise reactivating the top lapsed Penang accounts.'],
+            ['summary' => 'Run a limited pricing promotion trial in Johor Bahru.', 'excerpt' => 'Decision two: we will run a limited pricing promotion trial in Johor Bahru.'],
+        ],
+        'task_drafts' => [
+            ['title' => 'Call the ten biggest lapsed Penang accounts', 'description' => '', 'assignee_name' => 'Priya', 'assignee_id' => null, 'deadline_phrase' => 'by Friday', 'excerpt' => 'Priya, please call the ten biggest lapsed Penang accounts by Friday.'],
+            ['title' => 'Prepare the JB promo proposal', 'description' => '', 'assignee_name' => 'Farid', 'assignee_id' => null, 'deadline_phrase' => 'by next Wednesday', 'excerpt' => 'Farid, put together the JB promo proposal by next Wednesday.'],
+            ['title' => 'Sort out the KL weekend display', 'description' => '', 'assignee_name' => 'Daniel', 'assignee_id' => null, 'deadline_phrase' => null, 'excerpt' => 'Daniel will sort out the KL weekend display.'],
+            ['title' => 'Check why the Saturday stock was short', 'description' => '', 'assignee_name' => null, 'assignee_id' => null, 'deadline_phrase' => null, 'excerpt' => 'Someone should check why the Saturday stock was short.'],
+        ],
+    ];
+}
+
+/** A meeting that already holds the demo transcript and is ready for extraction. */
+function transcribedMeeting(stdClass $f, ?string $transcript = null): Meeting
+{
+    return makeMeeting($f, ['status' => 'transcribed', 'transcript' => $transcript ?? demoTranscript(), 'transcript_source' => 'manual']);
 }

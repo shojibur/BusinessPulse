@@ -7,8 +7,9 @@ use App\Models\User;
 use App\Policies\Concerns\AuthorizesByDepartment;
 
 /**
- * Briefs belong to a company. Active Owners and Managers of that company may view, generate and request audio;
- * Staff never. A Manager's brief is scoped when it is generated (BriefGenerator), not by this policy.
+ * Briefs belong to a company and optionally to a department (a Manager's brief). An active Owner may act on every
+ * brief of the company; an active Manager only on briefs of the own department; Staff never. Company-wide Owner
+ * briefs (no department) are not visible to Managers because they may cite other departments' issues.
  */
 class BriefPolicy
 {
@@ -26,7 +27,7 @@ class BriefPolicy
 
     public function create(User $user): bool
     {
-        return $this->isActiveOwnerOrManager($user);
+        return $this->isActiveOwner($user) || ($user->is_active && $user->isManager() && $user->department_id !== null);
     }
 
     public function retry(User $user, Brief $brief): bool
@@ -46,6 +47,15 @@ class BriefPolicy
 
     private function sameCompany(User $user, Brief $brief): bool
     {
-        return $this->isActiveOwnerOrManager($user) && $user->company_id === $brief->company_id;
+        if ($user->company_id !== $brief->company_id) {
+            return false;
+        }
+
+        if ($this->isActiveOwner($user)) {
+            return true;
+        }
+
+        return $user->is_active && $user->isManager()
+            && $brief->department_id !== null && $this->sameDepartment($user, $brief->department_id);
     }
 }

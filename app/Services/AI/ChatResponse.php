@@ -12,7 +12,7 @@ final readonly class ChatResponse
     /**
      * @param  mixed  $json  the decoded provider body
      */
-    public static function fromJson(mixed $json): self
+    public static function fromJson(mixed $json, bool $lenient = false): self
     {
         $content = is_array($json) ? ($json['choices'][0]['message']['content'] ?? null) : null;
 
@@ -23,6 +23,10 @@ final readonly class ChatResponse
         $data = json_decode($content, true);
 
         if (! is_array($data)) {
+            if ($lenient) {
+                return new self([], $content);
+            }
+
             throw new ProviderException('invalid_response');
         }
 

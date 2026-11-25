@@ -5,3 +5,4 @@ export * from './issues';
 export * from './navigation';
 export * from './settings';
 export * from './executive';
+export * from './meetings';

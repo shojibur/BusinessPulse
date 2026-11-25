@@ -17,6 +17,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -34,7 +35,7 @@ class BriefController extends Controller
         $user = $request->user();
         $timezone = $user->company->timezone;
 
-        $briefs = Brief::query()->where('company_id', $user->company_id)->latest('created_at')->latest('id')->paginate(15)->withQueryString();
+        $briefs = Brief::visibleTo($user)->latest('created_at')->latest('id')->paginate(15)->withQueryString();
 
         return Inertia::render('briefs/Index', [
             'briefs' => $briefs->getCollection()->map(fn (Brief $brief) => [
@@ -62,6 +63,11 @@ class BriefController extends Controller
         $user = $request->user();
         $timezone = $user->company->timezone;
         $brief->load('items');
+
+        // A "ready" brief whose file has disappeared is a visible failure, never a player that cannot play.
+        if ($brief->audio_status === AudioStatus::Ready && ($brief->audio_path === null || ! Storage::disk('local')->exists($brief->audio_path))) {
+            $brief->forceFill(['audio_status' => AudioStatus::Failed, 'audio_path' => null])->save();
+        }
 
         $blocks = $this->presenter->blocks($brief);
         $visibleIssueIds = Issue::visibleTo($user)->whereIn('id', $brief->items->pluck('issue_id')->filter())->pluck('id')->all();
@@ -110,7 +116,13 @@ class BriefController extends Controller
                 throw ValidationException::withMessages(['brief' => 'A brief is already being generated. Please wait for it to finish.']);
             }
 
-            return Brief::query()->create(['company_id' => $user->company_id, 'requested_by' => $user->id, 'status' => BriefStatus::Queued]);
+            return Brief::query()->create([
+                'company_id' => $user->company_id,
+                // A Manager's brief is scoped to the Manager's department; an Owner's is company-wide.
+                'department_id' => $user->isManager() ? $user->department_id : null,
+                'requested_by' => $user->id,
+                'status' => BriefStatus::Queued,
+            ]);
         });
 
         GenerateBriefJob::dispatch($brief->id, $brief->company_id);

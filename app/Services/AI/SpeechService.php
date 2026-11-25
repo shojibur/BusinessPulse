@@ -20,7 +20,14 @@ final class SpeechService
         $audio = $this->client->speech(new SpeechRequest($brief->id, $this->presenter->spokenText($brief)));
 
         $path = 'briefs/audio/'.Str::random(40).'.mp3';
-        Storage::disk('local')->put($path, $audio->bytes);
+        $disk = Storage::disk('local');
+
+        // The file must really exist with the exact size before anything is marked ready.
+        if ($disk->put($path, $audio->bytes) !== true || ! $disk->exists($path) || $disk->size($path) !== strlen($audio->bytes)) {
+            $disk->delete($path);
+
+            throw new \RuntimeException('audio_write_failed');
+        }
 
         $previous = $brief->audio_path;
 

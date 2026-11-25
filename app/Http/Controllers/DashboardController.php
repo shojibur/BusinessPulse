@@ -32,7 +32,7 @@ class DashboardController extends Controller
 
         return Inertia::render('dashboard/Index', [
             'audience' => 'owner_manager',
-            'data' => $this->metrics->forOwnerOrManager($user->company, $department)->toArray(),
+            'data' => $this->metrics->forOwnerOrManager($user, $department)->toArray(),
             'canGenerateBrief' => true,
         ]);
     }

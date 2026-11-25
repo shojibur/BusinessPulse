@@ -227,7 +227,7 @@ const chartTable = computed(() => ({
 
         <Alert v-if="data.coverageNotice" role="status">
             <CircleAlert aria-hidden="true" />
-            <AlertTitle>Incomplete data</AlertTitle>
+            <AlertTitle>The latest closed week is not complete</AlertTitle>
             <AlertDescription>{{ data.coverageNotice }}</AlertDescription>
         </Alert>
 

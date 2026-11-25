@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  *
  * @property int $id
  * @property int $company_id
+ * @property int|null $department_id
  * @property int|null $requested_by
  * @property BriefStatus $status
  * @property BriefSource|null $source
@@ -53,6 +54,25 @@ class Brief extends Model
             'input_snapshot' => 'array',
             'generated_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Owner: every brief of the company. Manager: only briefs scoped to the Manager's department. Everyone else:
+     * nothing. Authorization never depends on what the page chooses to show.
+     *
+     * @param  Builder<Brief>  $query
+     */
+    public function scopeVisibleTo(Builder $query, User $user): void
+    {
+        if (! $user->is_active) {
+            $query->whereRaw('1 = 0');
+        } elseif ($user->isOwner()) {
+            $query->where('company_id', $user->company_id);
+        } elseif ($user->isManager() && $user->department_id !== null) {
+            $query->where('company_id', $user->company_id)->where('department_id', $user->department_id);
+        } else {
+            $query->whereRaw('1 = 0');
+        }
     }
 
     /** @param  Builder<Brief>  $query */

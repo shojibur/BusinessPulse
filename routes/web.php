@@ -11,6 +11,11 @@ use App\Http\Controllers\ImportController;
 use App\Http\Controllers\ImportTemplateController;
 use App\Http\Controllers\IssueController;
 use App\Http\Controllers\IssueTransitionController;
+use App\Http\Controllers\MeetingController;
+use App\Http\Controllers\MeetingMediaController;
+use App\Http\Controllers\MeetingProcessingController;
+use App\Http\Controllers\MeetingRecordingController;
+use App\Http\Controllers\MeetingTranscriptController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\RefreshIntelligenceController;
 use App\Http\Controllers\UserController;
@@ -58,7 +63,20 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
     Route::post('briefs/{brief}/audio', [BriefAudioController::class, 'store'])->middleware('throttle:ai-requests')->name('briefs.audio.store');
     Route::get('briefs/{brief}/audio', [AudioStreamController::class, 'show'])->middleware('throttle:audio-stream')->name('briefs.audio.stream');
     // S01 placeholder pages: later specs replace each with a controller.
-    Route::inertia('meetings', 'meetings/Index')->name('meetings.index');
+    // Meetings (S06). Owner and Manager only: section.access, department-scoped route binding (Staff 403, out of scope 404)
+    // and MeetingPolicy on every action.
+    Route::get('meetings', [MeetingController::class, 'index'])->name('meetings.index');
+    Route::get('meetings/create', [MeetingController::class, 'create'])->name('meetings.create');
+    Route::post('meetings', [MeetingController::class, 'store'])->middleware('throttle:meetings-actions')->name('meetings.store');
+    Route::get('meetings/{meeting}', [MeetingController::class, 'show'])->name('meetings.show');
+    Route::get('meetings/{meeting}/edit', [MeetingController::class, 'edit'])->name('meetings.edit');
+    Route::put('meetings/{meeting}', [MeetingController::class, 'update'])->middleware('throttle:meetings-actions')->name('meetings.update');
+    Route::post('meetings/{meeting}/recording', [MeetingRecordingController::class, 'store'])->middleware('throttle:meetings-upload')->name('meetings.recording.store');
+    Route::get('meetings/{meeting}/recording/stream', [MeetingMediaController::class, 'stream'])->middleware('throttle:meetings-media')->name('meetings.recording.stream');
+    Route::get('meetings/{meeting}/recording/download', [MeetingMediaController::class, 'download'])->middleware('throttle:meetings-media')->name('meetings.recording.download');
+    Route::post('meetings/{meeting}/transcript', [MeetingTranscriptController::class, 'store'])->middleware('throttle:meetings-actions')->name('meetings.transcript.store');
+    Route::put('meetings/{meeting}/transcript', [MeetingTranscriptController::class, 'update'])->middleware('throttle:meetings-actions')->name('meetings.transcript.update');
+    Route::post('meetings/{meeting}/retry', [MeetingProcessingController::class, 'retry'])->middleware('throttle:meetings-actions')->name('meetings.retry');
     Route::inertia('tasks', 'tasks/Index')->name('tasks.index');
     Route::inertia('outcomes', 'outcomes/Index')->name('outcomes.index');
 

@@ -43,3 +43,6 @@ yarn-error.log
 /opencode.jsonc
 
 /storage/app/private/demo
+
+# Demo recording (produce locally, see database/demo/README.md)
+/database/demo/meeting-recording.*

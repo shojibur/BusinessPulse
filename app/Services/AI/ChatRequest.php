@@ -13,5 +13,8 @@ final readonly class ChatRequest
         public array $schema,
         public int $briefId,
         public string $schemaName = 'brief_items',
+        public ?int $timeoutSeconds = null,
+        /** When true, model content that is not JSON yields empty data (the caller sends a corrective request) instead of an exception. */
+        public bool $lenientContent = false,
     ) {}
 }

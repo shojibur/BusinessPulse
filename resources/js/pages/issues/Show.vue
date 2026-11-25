@@ -9,18 +9,25 @@ import SeverityBadge from '@/components/SeverityBadge.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import RelatedMeetingsPanel from '@/components/issues/RelatedMeetingsPanel.vue';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { formatDateTime } from '@/lib/format';
 import { index, show } from '@/routes/issues';
 import { acknowledge, monitoring, refresh, resolve } from '@/routes/issues';
-import type { EvaluationView, IssueDetail, StatusHistoryEntry } from '@/types';
+import type {
+    EvaluationView,
+    IssueDetail,
+    IssueMeetings,
+    StatusHistoryEntry,
+} from '@/types';
 
 const props = defineProps<{
     issue: IssueDetail;
     baseline: EvaluationView;
     latest: EvaluationView;
     latestOfRule: EvaluationView | null;
+    meetings: IssueMeetings | null;
     statusHistory: StatusHistoryEntry[];
     actions: { acknowledge: boolean; monitoring: boolean; resolve: boolean };
     lastEvaluatedAt: string | null;
@@ -230,6 +237,8 @@ const triggerLabel = (trigger: string | null): string =>
                 />
             </div>
         </section>
+
+        <RelatedMeetingsPanel v-if="meetings" :meetings="meetings" />
 
         <section v-if="anyAction" class="space-y-3">
             <h2 class="text-lg/7 font-semibold">Actions</h2>

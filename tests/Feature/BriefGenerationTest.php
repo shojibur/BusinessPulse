@@ -36,8 +36,8 @@ function chatBody(array $items): array
 function validWording(): array
 {
     return chatBody([
-        ['position' => 1, 'title' => 'Revenue fell sharply', 'explanation' => 'Revenue was RM 124,000.00 against RM 155,000.00, a change of -20.00%.'],
-        ['position' => 2, 'title' => 'Target missed', 'explanation' => 'Revenue reached 79.49% of the target for the week.'],
+        ['position' => 1, 'title' => 'Revenue fell sharply', 'explanation' => 'Weekly revenue declined compared with the week before.'],
+        ['position' => 2, 'title' => 'Target missed', 'explanation' => 'Revenue finished below the weekly target.'],
     ]);
 }
 
@@ -67,7 +67,7 @@ test('an invented number triggers one corrective request, then the deterministic
     $owner = declineTimeline();
     Http::fake(['*' => Http::response(chatBody([
         ['position' => 1, 'title' => 'Revenue fell', 'explanation' => 'Revenue dropped to RM 99,999.00.'],
-        ['position' => 2, 'title' => 'Target missed', 'explanation' => 'Revenue reached 79.49% of the target.'],
+        ['position' => 2, 'title' => 'Target missed', 'explanation' => 'Revenue finished below the weekly target.'],
     ]))]);
 
     $this->actingAs($owner)->post('/briefs')->assertRedirect();
@@ -82,7 +82,7 @@ test('an invented number triggers one corrective request, then the deterministic
 test('a corrective request can repair the answer within the same attempt', function () {
     $owner = declineTimeline();
     Http::fake(['*' => Http::sequence()
-        ->push(chatBody([['position' => 1, 'title' => 'x', 'explanation' => 'Down 99.00%']]))
+        ->push(chatBody([['position' => 1, 'title' => 'x', 'explanation' => 'Down 99.00%'], ['position' => 2, 'title' => 'y', 'explanation' => 'Short of target']]))
         ->push(validWording())]);
 
     $this->actingAs($owner)->post('/briefs')->assertRedirect();
@@ -133,7 +133,7 @@ test('the job queue settings follow the retry layering', function () {
     $job = new GenerateBriefJob(1, 1);
     $audio = new GenerateBriefAudioJob(1);
 
-    expect($job->queue)->toBe('ai')->and($job->tries)->toBe(3)->and($job->timeout)->toBe(60)->and($job->backoff())->toBe([10, 30, 60])
+    expect($job->queue)->toBe('ai')->and($job->tries)->toBe(3)->and($job->timeout)->toBe(90)->and($job->backoff())->toBe([10, 30, 60])
         ->and($audio->queue)->toBe('ai')->and($audio->timeout)->toBe(90)->and($audio->tries)->toBe(3)->and($audio->backoff())->toBe([10, 30, 60])
         ->and(config('queue.connections.database.retry_after'))->toBeGreaterThan(90);
 });
@@ -256,4 +256,63 @@ test('the brief page exposes explicit props and hides other companies', function
         ->component('briefs/Show')->where('brief.source', 'ai')->where('brief.notice', 'AI generated')->has('brief.items', 2)
         ->missing('brief.input_snapshot')->where('audio.configured', true));
     $this->actingAs($owner)->get('/briefs')->assertInertia(fn ($page) => $page->component('briefs/Index')->has('briefs', 1));
+});
+
+test('a manager only sees, generates, retries and streams briefs of the own department', function () {
+    $f = identity();
+    $salesBrief = Brief::create(['company_id' => $f->company->id, 'department_id' => $f->sales->id, 'status' => 'completed', 'audio_status' => 'ready', 'audio_path' => 'briefs/audio/s.mp3']);
+    $ownerBrief = Brief::create(['company_id' => $f->company->id, 'department_id' => null, 'status' => 'failed']);
+    $supportBrief = Brief::create(['company_id' => $f->company->id, 'department_id' => $f->support->id, 'status' => 'failed']);
+    Storage::disk('local')->put('briefs/audio/s.mp3', 'ID3xx');
+
+    // The Sales Manager: own department only (an Owner's company-wide brief and another department's brief are 404).
+    $this->actingAs($f->manager)->get("/briefs/{$salesBrief->id}")->assertOk();
+    $this->actingAs($f->manager)->get("/briefs/{$salesBrief->id}/audio")->assertOk();
+    foreach ([$ownerBrief, $supportBrief] as $other) {
+        $this->actingAs($f->manager)->get("/briefs/{$other->id}")->assertNotFound();
+        $this->actingAs($f->manager)->get("/briefs/{$other->id}/audio")->assertNotFound();
+        $this->actingAs($f->manager)->post("/briefs/{$other->id}/retry")->assertNotFound();
+        $this->actingAs($f->manager)->post("/briefs/{$other->id}/audio")->assertNotFound();
+    }
+    $this->actingAs($f->manager)->get('/briefs')->assertInertia(fn ($page) => $page->has('briefs', 1)->where('briefs.0.id', $salesBrief->id));
+
+    // The other department's Manager cannot see the Sales brief; the Owner sees everything of the company.
+    $this->actingAs($f->otherManager)->get("/briefs/{$salesBrief->id}")->assertNotFound();
+    $this->actingAs($f->otherManager)->get("/briefs/{$salesBrief->id}/audio")->assertNotFound();
+    $this->actingAs($f->owner)->get('/briefs')->assertInertia(fn ($page) => $page->has('briefs', 3));
+    $this->actingAs($f->owner)->get("/briefs/{$supportBrief->id}")->assertOk();
+});
+
+test('a manager brief is stored with the manager department and only cites its issues', function () {
+    config(['ai.api_key' => null]);
+    $f = identity();
+    $salesIssue = fakeIssue($f->sales);
+    $supportIssue = fakeIssue($f->support);
+
+    $this->actingAs($f->manager)->post('/briefs')->assertRedirect();
+    $managerBrief = Brief::firstOrFail();
+    expect($managerBrief->department_id)->toBe($f->sales->id)
+        ->and($managerBrief->items()->pluck('issue_id')->all())->toBe([$salesIssue->id]);
+
+    $managerBrief->update(['status' => 'completed']);
+    $this->actingAs($f->owner)->post('/briefs')->assertRedirect();
+    $ownerBrief = Brief::latest('id')->firstOrFail();
+    expect($ownerBrief->department_id)->toBeNull()->and($ownerBrief->items()->pluck('issue_id')->sort()->values()->all())->toBe([$salesIssue->id, $supportIssue->id]);
+});
+
+test('audio is only marked ready after a valid file is written, and a vanished file becomes a visible failure', function () {
+    $owner = declineTimeline();
+    Http::fake(['*/chat/completions' => Http::response(validWording()), '*/audio/speech' => Http::response('{"error":"nope"}', 200)]);
+    $this->actingAs($owner)->post('/briefs');
+    $brief = Brief::firstOrFail();
+
+    // A 200 answer that is not audio never becomes "ready" and leaves no file behind.
+    $this->actingAs($owner)->post("/briefs/{$brief->id}/audio");
+    expect($brief->fresh()->audio_status)->toBe(AudioStatus::Failed);
+    expect(Storage::disk('local')->allFiles('briefs/audio'))->toBe([]);
+
+    // A ready brief whose file has vanished is shown as failed, with a retry.
+    $brief->forceFill(['audio_status' => 'ready', 'audio_path' => 'briefs/audio/gone.mp3'])->save();
+    $this->actingAs($owner)->get("/briefs/{$brief->id}")->assertInertia(fn ($page) => $page->where('audio.status', 'failed')->where('audio.url', null)->where('audio.can_request', true));
+    expect($brief->fresh()->audio_status)->toBe(AudioStatus::Failed);
 });

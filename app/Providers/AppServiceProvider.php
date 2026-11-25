@@ -92,13 +92,17 @@ class AppServiceProvider extends ServiceProvider
             return Issue::visibleTo($user)->findOrFail($value);
         });
 
-        // A brief of another company answers 404 before any policy runs.
+        // A brief outside the user's company or department answers 404 before any policy runs.
         Route::bind('brief', function (string $value): Brief {
             $user = request()->user();
             abort_if($user === null, 404);
 
-            return Brief::query()->where('company_id', $user->company_id)->findOrFail($value);
+            return Brief::visibleTo($user)->findOrFail($value);
         });
+
+        RateLimiter::for('meetings-upload', fn (Request $request) => Limit::perMinute(10)->by('mu:'.$request->user()?->id));
+        RateLimiter::for('meetings-actions', fn (Request $request) => Limit::perMinute(20)->by('ma:'.$request->user()?->id));
+        RateLimiter::for('meetings-media', fn (Request $request) => Limit::perMinute(120)->by('mm:'.$request->user()?->id));
 
         RateLimiter::for('ai-requests', fn (Request $request) => Limit::perMinute(6)->by('ai:'.$request->user()?->id));
         RateLimiter::for('audio-stream', fn (Request $request) => Limit::perMinute(60)->by('audio:'.$request->user()?->id));

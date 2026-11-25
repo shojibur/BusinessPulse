@@ -9,6 +9,7 @@ use App\Models\Brief;
 use App\Models\Company;
 use App\Models\Department;
 use App\Models\Issue;
+use App\Models\User;
 use App\Services\AI\BriefSummaryComposer;
 use App\Services\Imports\Freshness;
 use App\Services\Imports\ReportingCoverage;
@@ -34,18 +35,22 @@ final class DashboardMetrics
         private readonly EvaluationHealth $health,
     ) {}
 
-    public function forOwnerOrManager(Company $company, Department $department): DashboardData
+    public function forOwnerOrManager(User $user, Department $department): DashboardData
     {
+        $company = $user->company;
         $latest = $this->coverage->latestClosedWeek($department);
-        $previous = $this->coverage->weekState($department, $latest->weekStart->subWeek());
         $freshness = $this->coverage->freshness($department);
         $health = $this->health->forDepartment($department);
         $timezone = $company->timezone;
         $hasData = $freshness->latestSalesDate !== null;
 
-        [$revenue, $change, $target] = $hasData
-            ? $this->figures($company, $department, $latest, $previous)
-            : [$this->insufficient('period_absent', $latest), $this->insufficient('period_absent', $latest), $this->insufficient('period_absent', $latest)];
+        // R2: when the latest closed week is incomplete or absent, show the latest closed COMPLETE week with its explicit
+        // dates and a prominent warning. (The rule engine still evaluates the latest closed week without fallback.)
+        $shown = $hasData ? $this->shownWeek($department, $latest) : null;
+
+        [$revenue, $change, $target] = $shown === null
+            ? array_fill(0, 3, $this->insufficient($hasData ? 'incomplete_period' : 'period_absent', $latest))
+            : $this->figures($company, $department, $shown);
 
         return new DashboardData(
             departmentName: $department->name,
@@ -54,42 +59,64 @@ final class DashboardMetrics
             targetAchievement: $target,
             freshness: $this->freshnessData($freshness, $health, $timezone),
             evaluation: $health,
-            coverageNotice: $hasData && $latest->completeness === WeekCompleteness::Incomplete
-                ? count($latest->gaps).' branch-days are missing from the latest closed week ('.BriefSummaryComposer::range($latest->weekStart, $latest->weekEnd).').'
-                : null,
-            openIssueCount: $this->issueCount($company, $department, null),
-            highPriorityIssueCount: $this->issueCount($company, $department, [IssueSeverity::High->value, IssueSeverity::Critical->value]),
+            coverageNotice: $hasData ? $this->coverageNotice($latest, $shown) : null,
+            openIssueCount: $this->issueCount($department, null),
+            highPriorityIssueCount: $this->issueCount($department, [IssueSeverity::High->value, IssueSeverity::Critical->value]),
             revenueVsTarget: $hasData ? $this->series($company, $department, $latest) : [],
-            latestBrief: $this->latestBrief($company, $timezone),
+            latestBrief: $this->latestBrief($user, $timezone),
         );
+    }
+
+    /** The latest closed week when complete, otherwise the latest closed complete week within the chart window. */
+    private function shownWeek(Department $department, WeekState $latest): ?WeekState
+    {
+        if ($latest->completeness === WeekCompleteness::Complete) {
+            return $latest;
+        }
+
+        $states = $this->coverage->weekStates($department, $latest->weekStart->subWeeks(self::SERIES_WEEKS - 1), $latest->weekStart->subWeek());
+
+        foreach (array_reverse($states) as $week) {
+            if ($week->completeness === WeekCompleteness::Complete) {
+                return $week;
+            }
+        }
+
+        return null;
+    }
+
+    private function coverageNotice(WeekState $latest, ?WeekState $shown): ?string
+    {
+        if ($latest->completeness === WeekCompleteness::Complete) {
+            return null;
+        }
+
+        $latestRange = BriefSummaryComposer::range($latest->weekStart, $latest->weekEnd);
+        $problem = $latest->completeness === WeekCompleteness::Absent
+            ? 'has no sales data yet'
+            : 'is missing '.count($latest->gaps).' branch-days';
+        $showing = $shown === null
+            ? 'No earlier complete week is available, so no figures are shown.'
+            : 'The figures below are for the latest complete week ('.BriefSummaryComposer::range($shown->weekStart, $shown->weekEnd).').';
+
+        return "The latest closed week ({$latestRange}) {$problem}. {$showing}";
     }
 
     /**
      * @return array{0: array<string, mixed>, 1: array<string, mixed>, 2: array<string, mixed>}
      */
-    private function figures(Company $company, Department $department, WeekState $latest, WeekState $previous): array
+    private function figures(Company $company, Department $department, WeekState $week): array
     {
-        if ($latest->completeness === null || $latest->completeness === WeekCompleteness::Absent) {
-            $insufficient = $this->insufficient('period_absent', $latest);
-
-            return [$insufficient, $insufficient, $insufficient];
-        }
-
-        if ($latest->completeness === WeekCompleteness::Incomplete) {
-            $insufficient = $this->insufficient('incomplete_period', $latest);
-
-            return [$insufficient, $insufficient, $insufficient];
-        }
-
+        $previous = $this->coverage->weekState($department, $week->weekStart->subWeek());
         $branches = $this->coverage->expectedBranches($department);
-        $totals = $this->metrics->weekTotals($department->id, $latest->weekStart, $company->trading_days, $branches);
-        $period = $this->period($latest);
+        $totals = $this->metrics->weekTotals($department->id, $week->weekStart, $company->trading_days, $branches);
+        $period = $this->period($week);
 
         $revenue = ['available' => true, 'value' => $totals->revenue, 'display' => $this->metrics->formatMoney($totals->revenue)] + $period;
 
         $targetPct = $this->metrics->targetAchievementPct($totals->revenue, $totals->target);
         $target = $targetPct === Indeterminate::ZeroDenominator
-            ? $this->insufficient('zero_denominator', $latest)
+            ? $this->insufficient('zero_denominator', $week)
             : ['available' => true, 'value' => $this->metrics->display2($targetPct), 'display' => $this->metrics->display2($targetPct).'%',
                 'target' => $this->metrics->formatMoney($totals->target)] + $period;
 
@@ -99,7 +126,7 @@ final class DashboardMetrics
             $before = $this->metrics->weekTotals($department->id, $previous->weekStart, $company->trading_days, $branches);
             $pct = $this->metrics->weeklyChangePct($totals->revenue, $before->revenue);
             $change = $pct === Indeterminate::ZeroDenominator
-                ? $this->insufficient('zero_denominator', $latest)
+                ? $this->insufficient('zero_denominator', $week)
                 : ['available' => true, 'value' => $this->metrics->display2($pct), 'display' => $this->metrics->display2($pct).'%',
                     'comparison' => $this->metrics->formatMoney($before->revenue),
                     'comparison_period_start' => $previous->weekStart->format('Y-m-d'), 'comparison_period_end' => $previous->weekEnd->format('Y-m-d')] + $period;
@@ -162,7 +189,7 @@ final class DashboardMetrics
     /**
      * @param  list<string>|null  $severities
      */
-    private function issueCount(Company $company, Department $department, ?array $severities): int
+    private function issueCount(Department $department, ?array $severities): int
     {
         return Issue::query()
             ->where('department_id', $department->id)
@@ -206,9 +233,10 @@ final class DashboardMetrics
     /**
      * @return array<string, mixed>|null
      */
-    private function latestBrief(Company $company, string $timezone): ?array
+    private function latestBrief(User $user, string $timezone): ?array
     {
-        $brief = Brief::query()->where('company_id', $company->id)->completed()->latest('generated_at')->latest('id')->first();
+        // Same visibility as the Briefs pages: a Manager sees only briefs of the own department.
+        $brief = Brief::visibleTo($user)->completed()->latest('generated_at')->latest('id')->first();
 
         return $brief === null ? null : [
             'id' => $brief->id,

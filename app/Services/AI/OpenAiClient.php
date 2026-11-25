@@ -8,6 +8,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * The one thin HTTP client for the AI provider (S05 brief and speech; S06 transcription and extraction reuse it).
@@ -36,9 +37,9 @@ class OpenAiClient
                 'type' => 'json_schema',
                 'json_schema' => ['name' => $request->schemaName, 'strict' => true, 'schema' => $request->schema],
             ],
-        ], (int) config('ai.timeouts.text', 30), 'chat', $request->briefId);
+        ], $request->timeoutSeconds ?? (int) config('ai.timeouts.text', 30), 'chat', $request->briefId);
 
-        return ChatResponse::fromJson($response->json());
+        return ChatResponse::fromJson($response->json(), $request->lenientContent);
     }
 
     public function speech(SpeechRequest $request): SpeechResponse
@@ -51,6 +52,47 @@ class OpenAiClient
         ], (int) config('ai.timeouts.speech', 60), 'speech', $request->briefId);
 
         return SpeechResponse::fromBinary($response->body());
+    }
+
+    /**
+     * One multipart attempt, same status mapping as chat(). The file stream is opened inside the call, so every queue
+     * attempt sends a fresh stream. Only the model, the response format and the file are sent (no language, no prompt).
+     */
+    public function transcribe(TranscriptionRequest $request): TranscriptionResponse
+    {
+        $stream = Storage::disk($request->disk)->readStream($request->path);
+
+        if (! is_resource($stream)) {
+            throw new ProviderException('invalid_response');
+        }
+
+        $started = microtime(true);
+
+        try {
+            $response = Http::baseUrl((string) config('ai.base_url'))
+                ->withToken((string) config('ai.api_key'))
+                ->acceptJson()
+                ->timeout($request->timeoutSeconds)
+                ->asMultipart()
+                ->attach('file', $stream, $request->uploadName, ['Content-Type' => $request->mime])
+                ->post('/audio/transcriptions', [
+                    ['name' => 'model', 'contents' => $request->model],
+                    ['name' => 'response_format', 'contents' => 'json'],
+                ]);
+        } catch (ConnectionException) {
+            $this->log('transcription', $request->meetingId, null, $started);
+
+            throw new RecoverableProviderException('timeout');
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+
+        $this->log('transcription', $request->meetingId, $response->status(), $started);
+        $this->assertSuccessful($response->status(), $response->successful());
+
+        return TranscriptionResponse::fromJson($response->json());
     }
 
     /**
@@ -74,7 +116,14 @@ class OpenAiClient
 
         $status = $response->status();
         $this->log($requestType, $briefId, $status, $started);
+        $this->assertSuccessful($status, $response->successful());
 
+        return $response;
+    }
+
+    /** 429 and 5xx are recoverable (the queue retries); every other failure is final. */
+    private function assertSuccessful(int $status, bool $successful): void
+    {
         if ($status === 429) {
             throw new RecoverableProviderException('rate_limited');
         }
@@ -83,11 +132,9 @@ class OpenAiClient
             throw new RecoverableProviderException('server_error');
         }
 
-        if (! $response->successful()) {
+        if (! $successful) {
             throw new ProviderException('client_error');
         }
-
-        return $response;
     }
 
     /** Request type, brief id, status and duration only. */

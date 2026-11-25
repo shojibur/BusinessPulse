@@ -25,8 +25,9 @@ class GenerateBriefJob implements ShouldBeUnique, ShouldQueue
 {
     use InteractsWithQueue, Queueable;
 
-    // One chat call (30 s) plus one corrective call fits the budget.
-    public int $timeout = 60;
+    // Budget: up to two chat calls (30 s each, the second only inside the 75 s BriefGenerator budget) plus persistence.
+    // Worker --timeout is 180 s and queue retry_after 300 s, both above this.
+    public int $timeout = 90;
 
     public int $tries = 3;
 
