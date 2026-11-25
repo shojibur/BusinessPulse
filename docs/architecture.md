@@ -78,8 +78,34 @@ Single Ubuntu VPS: Nginx → PHP-FPM, PostgreSQL local, two Supervisor programs 
 | Actions only for multi-step operations | Avoid abstraction bloat | Mixed styles; rule: use Action when more than one write |
 | Users have one role and one department | Fits fixed roles | Not extensible to multi-department |
 
-## 11. Verified versions (to be filled by S01)
-PHP: TBD · Laravel: TBD · Node: TBD · PostgreSQL: TBD · Inertia: TBD · Vue: TBD · Tailwind: TBD · shadcn-vue: TBD · ECharts: TBD
+## 11. Verified versions
+Recorded by S01 on 2026-11-25 from the installed environment. Source column: command output or lock-file entry.
+
+| Component | Version | Source |
+|---|---|---|
+| PHP | 8.5.2 | `php -v` |
+| PHP required by Laravel 13 | `^8.3` (minimum 8.3) | `vendor/laravel/framework/composer.json` (`require.php`) |
+| Composer | 2.9.5 | `composer --version` |
+| Laravel | 13.44.1 | `composer.lock` (`laravel/framework` v13.44.1), `php artisan about` |
+| Node.js | 24.13.0 | `node -v` |
+| npm | 11.8.0 | `npm -v` |
+| PostgreSQL | 17.12 | `psql --version` (server `select version()`) |
+| Inertia (server) | inertia-laravel 3.8.0 | `composer.lock` |
+| Inertia (client) | @inertiajs/vue3 3.11.0 | `package-lock.json` |
+| Vue | 3.5.46 | `package-lock.json` |
+| TypeScript / vue-tsc | 5.9.3 / 3.3.14 | `package-lock.json` |
+| Tailwind CSS | 4.3.5 | `package-lock.json` |
+| shadcn-vue | CLI 2.9.0 (style `new-york`; components copied into `resources/js/components/ui`, built on reka-ui 2.11.0) | `npx shadcn-vue --version`, `components.json`, `package-lock.json` |
+| Lucide icons | @lucide/vue 1.80.0 | `package-lock.json` |
+| Apache ECharts | 6.1.0 | `package-lock.json` |
+| Vite toolchain | vite-plus 1.4.0 (Vite-compatible; shipped by the Laravel Vue starter kit) with laravel-vite-plugin 3.2.1 | `package-lock.json` |
+| Laravel starter kit extras | laravel/fortify 1.44.0, laravel/wayfinder 0.1.23 | `composer.lock` |
+| Test framework | Pest 5.3.7 on PHPUnit 13.4.7 | `composer.lock` |
+| Code style | Laravel Pint 1.32.3; ESLint 10.15.0; Prettier 3.10.1 | `composer.lock`, `package-lock.json` |
+
+Notes:
+- The official Laravel Vue starter kit (`laravel/vue-starter-kit` 1.0.2, installed with `laravel new --vue --pest --database=pgsql`) ships Inertia 3, Wayfinder, Fortify and the Vite+ toolchain. Its Vite+ lint/format tools are not used; ESLint and Prettier are added as the specified checks.
+- The framework merges its default connection list into `config/database.php`; only `pgsql` is configured and used.
 
 ## 12. Automated verification
 Focused Laravel feature tests (Pest or PHPUnit as shipped by the starter kit) on a PostgreSQL test database for business-critical behavior; list and limits in `docs/stage-1-refinements.md` R5. No browser automation or property-based frameworks.

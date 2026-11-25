@@ -1,0 +1,156 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@import 'tw-animate-css';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+/*
+ * Stage 1 has no dark mode. The `dark` variant is bound to a `.dark` ancestor that
+ * is never set, so the `dark:` classes inside shadcn-vue components never apply.
+ */
+@custom-variant dark (&:is(.dark *));
+
+/* Tokens: docs/ui-ux-design-system.md section 2. Components use tokens, never hex values. */
+@theme inline {
+    --font-sans:
+        'Inter Variable', ui-sans-serif, system-ui, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+        'Noto Color Emoji';
+
+    /* Radius: 8px cards and inputs (lg), 6px badges (md). */
+    --radius-lg: var(--radius);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-sm: calc(var(--radius) - 4px);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-surface: var(--surface);
+
+    --color-card: var(--surface);
+    --color-card-foreground: var(--foreground);
+    --color-popover: var(--surface);
+    --color-popover-foreground: var(--foreground);
+
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary-strong: var(--primary-strong);
+    --color-primary-text: var(--primary-text);
+
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+
+    --color-severity-high: var(--severity-high);
+    --color-severity-high-bg: var(--severity-high-bg);
+    --color-severity-medium: var(--severity-medium);
+    --color-severity-medium-bg: var(--severity-medium-bg);
+    --color-severity-low: var(--severity-low);
+    --color-severity-low-bg: var(--severity-low-bg);
+    --color-success: var(--success);
+    --color-success-bg: var(--success-bg);
+    --color-info: var(--info);
+    --color-info-bg: var(--info-bg);
+
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+    --radius: 0.5rem;
+
+    --background: #f6f8fa;
+    --surface: #ffffff;
+    --border: #e3e8ee;
+    --foreground: #0f172a;
+    /* Spec value #64748B is 4.47:1 on --background; darkened to #5B6B80 (5.11:1) for WCAG AA. */
+    --muted-foreground: #5b6b80;
+
+    --primary: #0f9488;
+    --primary-foreground: #ffffff;
+    /* Solid action fill (buttons) and hover tone from the design system: white text is 5.07:1. */
+    --primary-strong: #0d7c72;
+    /* --primary on --surface is only 3.74:1, so teal text uses this darker token (5.47:1). */
+    --primary-text: #0f766e;
+
+    --secondary: #eef2f6;
+    --secondary-foreground: #0f172a;
+    --muted: #eef2f6;
+    --accent: #e6f4f2;
+    --accent-foreground: #0f172a;
+    --destructive: #b91c1c;
+    --destructive-foreground: #ffffff;
+    --input: #cfd7e1;
+    --ring: #0f9488;
+
+    /* Spec value #DC2626 on #FEE2E2 is 3.95:1; text darkened to #B91C1C (5.30:1). */
+    --severity-high: #b91c1c;
+    --severity-high-bg: #fee2e2;
+    --severity-medium: #b45309;
+    --severity-medium-bg: #fef3c7;
+    --severity-low: #475569;
+    --severity-low-bg: #e2e8f0;
+    --success: #15803d;
+    --success-bg: #dcfce7;
+    --info: #0369a1;
+    --info-bg: #e0f2fe;
+
+    --sidebar: #0b1b2e;
+    --sidebar-foreground: #cbd5e1;
+    --sidebar-primary: #0f9488;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #152a42;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: #1c3350;
+    --sidebar-ring: #5eead4;
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    html {
+        scroll-padding-top: 1rem;
+    }
+
+    body {
+        @apply bg-background text-foreground text-sm leading-5 antialiased;
+    }
+
+    /* Interactive controls are at least 40px tall below 768px (touch targets). */
+    @media (max-width: 768px) {
+        button,
+        [role='combobox'],
+        select,
+        input:not([type='checkbox']):not([type='radio']) {
+            min-height: 40px;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+        }
+    }
+}
