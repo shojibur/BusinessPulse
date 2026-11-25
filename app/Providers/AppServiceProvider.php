@@ -104,6 +104,11 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('meetings-actions', fn (Request $request) => Limit::perMinute(20)->by('ma:'.$request->user()?->id));
         RateLimiter::for('meetings-media', fn (Request $request) => Limit::perMinute(120)->by('mm:'.$request->user()?->id));
 
+        // One shared counter per user for edit, approve and reject (and, later, reassign).
+        RateLimiter::for('task-review', fn (Request $request) => Limit::perMinute(20)->by('tr:'.$request->user()?->id));
+        RateLimiter::for('task-status', fn (Request $request) => Limit::perMinute(60)->by('ts:'.$request->user()?->id));
+        RateLimiter::for('task-comment', fn (Request $request) => Limit::perMinute(30)->by('tc:'.$request->user()?->id));
+
         RateLimiter::for('ai-requests', fn (Request $request) => Limit::perMinute(6)->by('ai:'.$request->user()?->id));
         RateLimiter::for('audio-stream', fn (Request $request) => Limit::perMinute(60)->by('audio:'.$request->user()?->id));
 

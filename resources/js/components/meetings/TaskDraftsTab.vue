@@ -1,15 +1,25 @@
 <script setup lang="ts">
+import { Link } from '@inertiajs/vue3';
+import { Info } from '@lucide/vue';
 import { computed } from 'vue';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import EmptyState from '@/components/EmptyState.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Card } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
-import type { MeetingDetail, StatusTone, TaskDraftSummary } from '@/types';
+import DraftCard from '@/components/meetings/DraftCard.vue';
+import type {
+    DraftReview,
+    MeetingDetail,
+    StatusTone,
+    TaskDraftSummary,
+} from '@/types';
 
-// Read-only in S06: no approve, reject or edit control. S07 extends this component with the review controls.
+// S07: with `review` (Owner and Manager) each pending draft is reviewed in a DraftCard; without it the S06 read-only rows remain.
 const props = defineProps<{
     drafts: TaskDraftSummary[];
     counts: MeetingDetail['draftCounts'];
+    review: DraftReview | null;
 }>();
 
 const assigneeBadge: Record<string, { label: string; tone: StatusTone }> = {
@@ -42,109 +52,208 @@ const summary = computed(
             nothing is assigned until a person approves a draft. {{ summary }}.
         </p>
 
-        <Card v-if="drafts.length === 0">
-            <EmptyState
-                message="No task drafts yet. They appear here after the transcript has been analysed."
-            />
-        </Card>
+        <template v-if="review">
+            <Alert v-if="review.transcriptChangedSinceExtraction" role="status">
+                <Info aria-hidden="true" />
+                <AlertDescription>
+                    The transcript was edited after these tasks were extracted.
+                    Drafts whose quote is no longer in the transcript cannot be
+                    approved.
+                </AlertDescription>
+            </Alert>
 
-        <ul v-else class="space-y-3">
-            <li v-for="draft in drafts" :key="draft.id">
-                <Card class="gap-3 p-4">
-                    <div
-                        class="flex flex-wrap items-start justify-between gap-2"
-                    >
-                        <h3 class="font-medium">{{ draft.title }}</h3>
-                        <StatusBadge
-                            :label="draft.status"
-                            :tone="
-                                draft.status === 'pending'
-                                    ? 'info'
-                                    : draft.status === 'approved'
-                                      ? 'success'
-                                      : 'neutral'
-                            "
-                        />
-                    </div>
-                    <p v-if="draft.description" class="text-sm">
-                        {{ draft.description }}
-                    </p>
-                    <dl class="grid gap-2 text-sm sm:grid-cols-2">
-                        <div>
-                            <dt class="text-muted-foreground">
-                                Suggested person
-                            </dt>
-                            <dd class="flex flex-wrap items-center gap-2">
-                                <span
-                                    v-if="
-                                        draft.assignee.resolution === 'resolved'
-                                    "
-                                    class="font-medium"
-                                    >{{ draft.assignee.name }}</span
-                                >
+            <Card v-if="review.pending.length === 0">
+                <EmptyState
+                    :message="
+                        review.emptyReason === 'approved'
+                            ? 'All proposed tasks have been reviewed. Approved tasks are listed below.'
+                            : review.emptyReason === 'rejected'
+                              ? 'All proposed tasks were rejected.'
+                              : 'No tasks were proposed yet. They appear after the transcript has been analysed.'
+                    "
+                />
+            </Card>
+            <ul v-else class="space-y-4">
+                <li v-for="draft in review.pending" :key="draft.id">
+                    <DraftCard :draft="draft" :review="review" />
+                </li>
+            </ul>
+
+            <section
+                v-if="review.history.length"
+                class="space-y-3"
+                aria-labelledby="history-heading"
+            >
+                <h3 id="history-heading" class="text-base font-semibold">
+                    Reviewed
+                </h3>
+                <ul class="space-y-2">
+                    <li v-for="draft in review.history" :key="draft.id">
+                        <Card class="gap-1 p-3 text-sm">
+                            <div class="flex flex-wrap items-center gap-2">
                                 <StatusBadge
-                                    v-else
                                     :label="
-                                        assigneeBadge[draft.assignee.resolution]
-                                            .label
+                                        draft.status === 'approved'
+                                            ? 'Approved'
+                                            : 'Rejected'
                                     "
                                     :tone="
-                                        assigneeBadge[draft.assignee.resolution]
-                                            .tone
+                                        draft.status === 'approved'
+                                            ? 'success'
+                                            : 'neutral'
                                     "
                                 />
-                                <span
-                                    v-if="
-                                        draft.assignee.resolution !==
-                                            'resolved' &&
-                                        draft.assignee.suggestedName
-                                    "
-                                    class="text-muted-foreground"
+                                <span class="font-medium">{{
+                                    draft.title
+                                }}</span>
+                            </div>
+                            <p
+                                v-if="draft.status === 'approved'"
+                                class="text-muted-foreground"
+                            >
+                                Assigned to {{ draft.assigneeName }} · due
+                                {{ formatDate(draft.dueDate) }}
+                                <Link
+                                    v-if="draft.taskUrl"
+                                    :href="draft.taskUrl"
+                                    class="ml-1 text-primary-text underline"
+                                    >Open task</Link
                                 >
-                                    heard as “{{
-                                        draft.assignee.suggestedName
-                                    }}”
-                                </span>
-                            </dd>
+                            </p>
+                            <p
+                                v-else-if="draft.rejectionReason"
+                                class="text-muted-foreground"
+                            >
+                                Reason: {{ draft.rejectionReason }}
+                            </p>
+                        </Card>
+                    </li>
+                </ul>
+            </section>
+            <p
+                v-if="review.supersededCount"
+                class="text-xs text-muted-foreground"
+            >
+                {{ review.supersededCount }} earlier draft(s) were replaced by a
+                newer extraction.
+            </p>
+        </template>
+
+        <template v-else>
+            <Card v-if="drafts.length === 0">
+                <EmptyState
+                    message="No task drafts yet. They appear here after the transcript has been analysed."
+                />
+            </Card>
+
+            <ul v-else class="space-y-3">
+                <li v-for="draft in drafts" :key="draft.id">
+                    <Card class="gap-3 p-4">
+                        <div
+                            class="flex flex-wrap items-start justify-between gap-2"
+                        >
+                            <h3 class="font-medium">{{ draft.title }}</h3>
+                            <StatusBadge
+                                :label="draft.status"
+                                :tone="
+                                    draft.status === 'pending'
+                                        ? 'info'
+                                        : draft.status === 'approved'
+                                          ? 'success'
+                                          : 'neutral'
+                                "
+                            />
                         </div>
-                        <div>
-                            <dt class="text-muted-foreground">
-                                Suggested deadline
-                            </dt>
-                            <dd class="flex flex-wrap items-center gap-2">
-                                <span
-                                    v-if="
-                                        draft.deadline.resolution === 'resolved'
-                                    "
-                                    class="font-medium"
-                                    >{{ formatDate(draft.deadline.date) }}</span
-                                >
-                                <StatusBadge
-                                    v-else
-                                    :label="
-                                        deadlineBadge[draft.deadline.resolution]
-                                            .label
-                                    "
-                                    :tone="
-                                        deadlineBadge[draft.deadline.resolution]
-                                            .tone
-                                    "
-                                />
-                                <span
-                                    v-if="draft.deadline.suggestedText"
-                                    class="text-muted-foreground"
-                                    >“{{ draft.deadline.suggestedText }}”</span
-                                >
-                            </dd>
-                        </div>
-                    </dl>
-                    <blockquote
-                        class="border-l-2 pl-3 text-sm text-muted-foreground"
-                    >
-                        {{ draft.excerpt }}
-                    </blockquote>
-                </Card>
-            </li>
-        </ul>
+                        <p v-if="draft.description" class="text-sm">
+                            {{ draft.description }}
+                        </p>
+                        <dl class="grid gap-2 text-sm sm:grid-cols-2">
+                            <div>
+                                <dt class="text-muted-foreground">
+                                    Suggested person
+                                </dt>
+                                <dd class="flex flex-wrap items-center gap-2">
+                                    <span
+                                        v-if="
+                                            draft.assignee.resolution ===
+                                            'resolved'
+                                        "
+                                        class="font-medium"
+                                        >{{ draft.assignee.name }}</span
+                                    >
+                                    <StatusBadge
+                                        v-else
+                                        :label="
+                                            assigneeBadge[
+                                                draft.assignee.resolution
+                                            ].label
+                                        "
+                                        :tone="
+                                            assigneeBadge[
+                                                draft.assignee.resolution
+                                            ].tone
+                                        "
+                                    />
+                                    <span
+                                        v-if="
+                                            draft.assignee.resolution !==
+                                                'resolved' &&
+                                            draft.assignee.suggestedName
+                                        "
+                                        class="text-muted-foreground"
+                                    >
+                                        heard as “{{
+                                            draft.assignee.suggestedName
+                                        }}”
+                                    </span>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-muted-foreground">
+                                    Suggested deadline
+                                </dt>
+                                <dd class="flex flex-wrap items-center gap-2">
+                                    <span
+                                        v-if="
+                                            draft.deadline.resolution ===
+                                            'resolved'
+                                        "
+                                        class="font-medium"
+                                        >{{
+                                            formatDate(draft.deadline.date)
+                                        }}</span
+                                    >
+                                    <StatusBadge
+                                        v-else
+                                        :label="
+                                            deadlineBadge[
+                                                draft.deadline.resolution
+                                            ].label
+                                        "
+                                        :tone="
+                                            deadlineBadge[
+                                                draft.deadline.resolution
+                                            ].tone
+                                        "
+                                    />
+                                    <span
+                                        v-if="draft.deadline.suggestedText"
+                                        class="text-muted-foreground"
+                                        >“{{
+                                            draft.deadline.suggestedText
+                                        }}”</span
+                                    >
+                                </dd>
+                            </div>
+                        </dl>
+                        <blockquote
+                            class="border-l-2 pl-3 text-sm text-muted-foreground"
+                        >
+                            {{ draft.excerpt }}
+                        </blockquote>
+                    </Card>
+                </li>
+            </ul>
+        </template>
     </section>
 </template>

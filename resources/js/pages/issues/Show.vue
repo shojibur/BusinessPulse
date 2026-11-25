@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import RelatedMeetingsPanel from '@/components/issues/RelatedMeetingsPanel.vue';
+import RelatedTasksPanel from '@/components/issues/RelatedTasksPanel.vue';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { formatDateTime } from '@/lib/format';
@@ -19,6 +20,7 @@ import type {
     EvaluationView,
     IssueDetail,
     IssueMeetings,
+    IssueTasks,
     StatusHistoryEntry,
 } from '@/types';
 
@@ -28,6 +30,7 @@ const props = defineProps<{
     latest: EvaluationView;
     latestOfRule: EvaluationView | null;
     meetings: IssueMeetings | null;
+    tasks: IssueTasks | null;
     statusHistory: StatusHistoryEntry[];
     actions: { acknowledge: boolean; monitoring: boolean; resolve: boolean };
     lastEvaluatedAt: string | null;
@@ -239,6 +242,7 @@ const triggerLabel = (trigger: string | null): string =>
         </section>
 
         <RelatedMeetingsPanel v-if="meetings" :meetings="meetings" />
+        <RelatedTasksPanel v-if="tasks" :tasks="tasks" />
 
         <section v-if="anyAction" class="space-y-3">
             <h2 class="text-lg/7 font-semibold">Actions</h2>

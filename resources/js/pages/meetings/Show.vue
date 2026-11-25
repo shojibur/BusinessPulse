@@ -17,12 +17,18 @@ import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatBytes, formatDate, formatDateTime } from '@/lib/format';
 import { edit, index, retry } from '@/routes/meetings';
-import type { MeetingDetail, MeetingLimits, TaskDraftSummary } from '@/types';
+import type {
+    DraftReview,
+    MeetingDetail,
+    MeetingLimits,
+    TaskDraftSummary,
+} from '@/types';
 
 const props = defineProps<{
     meeting: MeetingDetail;
     transcript: string | null;
     taskDrafts: TaskDraftSummary[];
+    draftReview: DraftReview | null;
     limits: MeetingLimits;
 }>();
 
@@ -53,6 +59,15 @@ watch(
 );
 
 onBeforeUnmount(() => timer !== null && clearInterval(timer));
+
+function reExtract(): void {
+    retrying.value = true;
+    router.post(
+        `/meetings/${props.meeting.id}/re-extract`,
+        {},
+        { preserveScroll: true, onFinish: () => (retrying.value = false) },
+    );
+}
 
 function retryStage(): void {
     retrying.value = true;
@@ -313,9 +328,21 @@ const processingText: Record<string, string> = {
             </TabsContent>
 
             <TabsContent value="drafts" class="mt-4">
+                <div v-if="meeting.can.reExtract" class="mb-4">
+                    <Button
+                        variant="outline"
+                        :disabled="retrying"
+                        @click="reExtract"
+                    >
+                        <Spinner v-if="retrying" />
+                        <RefreshCw v-else aria-hidden="true" />
+                        Re-extract tasks from the current transcript
+                    </Button>
+                </div>
                 <TaskDraftsTab
                     :drafts="taskDrafts"
                     :counts="meeting.draftCounts"
+                    :review="draftReview"
                 />
             </TabsContent>
         </Tabs>

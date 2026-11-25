@@ -32,6 +32,8 @@ final readonly class DashboardData implements Arrayable
         public int $highPriorityIssueCount,
         public array $revenueVsTarget,
         public ?array $latestBrief,
+        /** @var array{open: int, overdue: int} persisted task counts (Owner: company, Manager: department) */
+        public array $taskCounts = ['open' => 0, 'overdue' => 0],
     ) {}
 
     public function toArray(): array

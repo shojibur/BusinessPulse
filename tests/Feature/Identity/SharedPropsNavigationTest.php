@@ -2,22 +2,22 @@
 
 use Inertia\Testing\AssertableInertia as Assert;
 
-test('Owner and Manager receive all eight navigation items, Staff only Today and Tasks', function (string $user, array $labels) {
+test('Owner and Manager receive all nine navigation items, Staff only Today and My Tasks', function (string $user, array $labels) {
     $f = identity();
 
-    $this->actingAs($f->{$user})->get('/today')->assertOk()
+    $this->actingAs($f->{$user})->get($user === 'staff' ? '/my-tasks' : '/today')->assertOk()
         ->assertInertia(fn (Assert $page) => $page->where('navigation', fn ($navigation) => collect($navigation)->pluck('label')->all() === $labels));
 })->with([
-    'owner' => ['owner', ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'Outcomes', 'Settings']],
-    'manager' => ['manager', ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'Outcomes', 'Settings']],
-    'staff' => ['staff', ['Today', 'Tasks']],
+    'owner' => ['owner', ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Settings']],
+    'manager' => ['manager', ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Settings']],
+    'staff' => ['staff', ['Today', 'My Tasks']],
 ]);
 
 test('the Settings navigation item links to the first permitted tab', function () {
     $f = identity();
 
     $this->actingAs($f->manager)->get('/today')
-        ->assertInertia(fn (Assert $page) => $page->where('navigation.7.href', '/settings'));
+        ->assertInertia(fn (Assert $page) => $page->where('navigation.8.href', '/settings'));
 
     $this->actingAs($f->manager)->get('/settings')->assertRedirect('/settings/company');
 });

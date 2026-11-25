@@ -18,6 +18,10 @@ use App\Http\Controllers\MeetingRecordingController;
 use App\Http\Controllers\MeetingTranscriptController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\RefreshIntelligenceController;
+use App\Http\Controllers\TaskCommentController;
+use App\Http\Controllers\TaskController;
+use App\Http\Controllers\TaskDraftController;
+use App\Http\Controllers\TaskStatusController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -77,7 +81,17 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
     Route::post('meetings/{meeting}/transcript', [MeetingTranscriptController::class, 'store'])->middleware('throttle:meetings-actions')->name('meetings.transcript.store');
     Route::put('meetings/{meeting}/transcript', [MeetingTranscriptController::class, 'update'])->middleware('throttle:meetings-actions')->name('meetings.transcript.update');
     Route::post('meetings/{meeting}/retry', [MeetingProcessingController::class, 'retry'])->middleware('throttle:meetings-actions')->name('meetings.retry');
-    Route::inertia('tasks', 'tasks/Index')->name('tasks.index');
+    Route::post('meetings/{meeting}/re-extract', [MeetingProcessingController::class, 'reExtract'])->middleware('throttle:meetings-actions')->name('meetings.re-extract');
+    // Tasks (S07). Management list (Owner, Manager) and every user's own tasks; route binding scopes records (foreign or
+    // missing ids are the same 404; Staff get 403 on drafts), policies authorize every action.
+    Route::get('tasks', [TaskController::class, 'index'])->name('tasks.index');
+    Route::get('my-tasks', [TaskController::class, 'mine'])->name('tasks.mine');
+    Route::get('tasks/{task}', [TaskController::class, 'show'])->name('tasks.show');
+    Route::post('tasks/{task}/status', TaskStatusController::class)->middleware('throttle:task-status')->name('tasks.status');
+    Route::post('tasks/{task}/comments', [TaskCommentController::class, 'store'])->middleware('throttle:task-comment')->name('tasks.comments.store');
+    Route::patch('task-drafts/{taskDraft}', [TaskDraftController::class, 'update'])->middleware('throttle:task-review')->name('task-drafts.update');
+    Route::post('task-drafts/{taskDraft}/approve', [TaskDraftController::class, 'approve'])->middleware('throttle:task-review')->name('task-drafts.approve');
+    Route::post('task-drafts/{taskDraft}/reject', [TaskDraftController::class, 'reject'])->middleware('throttle:task-review')->name('task-drafts.reject');
     Route::inertia('outcomes', 'outcomes/Index')->name('outcomes.index');
 
     Route::redirect('settings', '/settings/company')->name('settings.index');

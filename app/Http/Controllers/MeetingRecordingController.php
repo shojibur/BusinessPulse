@@ -24,7 +24,7 @@ class MeetingRecordingController extends Controller
 
         $meeting->refresh();
         RecordingUploaded::dispatch($meeting, (int) $meeting->recording_size, (string) $meeting->recording_mime, $request->user()->id);
-        TranscribeMeetingJob::dispatch($meeting->id);
+        TranscribeMeetingJob::dispatch($meeting->id, $request->user()->id);
 
         return to_route('meetings.show', $meeting);
     }

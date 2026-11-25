@@ -70,6 +70,7 @@ export type DashboardData = {
     highPriorityIssueCount: number;
     revenueVsTarget: SeriesPoint[];
     latestBrief: LatestBrief | null;
+    taskCounts: { open: number; overdue: number };
 };
 
 export type BriefRow = {

@@ -19,7 +19,7 @@ use Illuminate\Validation\ValidationException;
  * no-op. S04 never decides when linked tasks are complete: S07 calls startMonitoring / returnToAction, and S08
  * calls resolveVerified / reopen. Task completion alone never changes an issue.
  */
-final class IssueLifecycle
+class IssueLifecycle
 {
     public const MAX_REASON = 2000;
 

@@ -40,7 +40,7 @@ final class MeetingTranscriptService
             }
 
             TranscriptReady::dispatch($meeting->fresh(), 'manual', $actor->id);
-            ExtractMeetingTasksJob::dispatch($meeting->id);
+            ExtractMeetingTasksJob::dispatch($meeting->id, $actor->id);
 
             return true;
         });

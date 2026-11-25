@@ -21,7 +21,8 @@ return [
     ['label' => 'Data Imports', 'route' => 'imports.index', 'icon' => 'Upload', 'active' => 'imports.*', 'roles' => ['owner', 'manager']],
     ['label' => 'Briefs', 'route' => 'briefs.index', 'icon' => 'FileText', 'active' => 'briefs.*', 'roles' => ['owner', 'manager']],
     ['label' => 'Meetings', 'route' => 'meetings.index', 'icon' => 'Mic', 'active' => 'meetings.*', 'roles' => ['owner', 'manager']],
-    ['label' => 'Tasks', 'route' => 'tasks.index', 'icon' => 'ListChecks', 'active' => 'tasks.*', 'roles' => ['owner', 'manager', 'staff']],
+    ['label' => 'Tasks', 'route' => 'tasks.index', 'icon' => 'ListChecks', 'active' => 'tasks.index', 'roles' => ['owner', 'manager']],
+    ['label' => 'My Tasks', 'route' => 'tasks.mine', 'icon' => 'CircleCheck', 'active' => 'tasks.mine', 'roles' => ['owner', 'manager', 'staff']],
     ['label' => 'Outcomes', 'route' => 'outcomes.index', 'icon' => 'TrendingUp', 'active' => 'outcomes.*', 'roles' => ['owner', 'manager']],
     ['label' => 'Settings', 'route' => 'settings.index', 'icon' => 'Settings', 'active' => 'settings.*', 'roles' => ['owner', 'manager']],
 ];

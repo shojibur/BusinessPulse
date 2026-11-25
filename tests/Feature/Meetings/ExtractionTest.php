@@ -5,6 +5,7 @@ use App\Enums\MeetingStatus;
 use App\Jobs\ExtractMeetingTasksJob;
 use App\Models\Department;
 use App\Models\Meeting;
+use App\Models\Task;
 use App\Models\TaskDraft;
 use App\Models\User;
 use App\Services\AI\MeetingTaskExtractor;
@@ -15,7 +16,6 @@ use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Schema;
 
 beforeEach(function () {
     Http::preventStrayRequests();
@@ -164,7 +164,7 @@ test('extraction creates drafts only: no tasks, no notifications, no issue chang
     expect(TaskDraft::pluck('task_id')->filter()->all())->toBe([])
         ->and(TaskDraft::pluck('reviewed_by')->filter()->all())->toBe([])
         ->and(TaskDraft::pluck('issue_id')->filter()->all())->toBe([])
-        ->and(Schema::hasTable('tasks'))->toBeFalse()
+        ->and(Task::count())->toBe(0)
         ->and(DatabaseNotification::count())->toBe(0)
         ->and($issue->fresh()->only(['status', 'severity', 'resolved_at']))->toEqual($before);
 });

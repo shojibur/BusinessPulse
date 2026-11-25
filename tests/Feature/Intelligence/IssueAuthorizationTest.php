@@ -261,7 +261,7 @@ test('every role can reach its own notifications and the bell data is shared', f
     ]));
 
     // Staff cannot open the issue, so the item is shown without a link.
-    $this->actingAs($this->f->staff)->get('/today')->assertInertia(fn (Assert $page) => $page
+    $this->actingAs($this->f->staff)->get('/my-tasks')->assertInertia(fn (Assert $page) => $page
         ->where('notifications.unread_count', 1)->where('notifications.items.0.url', null)->where('notifications.items.0.title', 'Weekly revenue decline'));
     $this->get('/notifications')->assertOk();
 

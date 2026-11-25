@@ -20,7 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Signed-in users who open the login page go to Today.
-        $middleware->redirectUsersTo(fn () => route('today'));
+        $middleware->redirectUsersTo(fn ($request) => route($request->user()?->isStaff() ? 'tasks.mine' : 'today'));
 
         $middleware->alias([
             'active' => EnsureUserIsActive::class,

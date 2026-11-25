@@ -15,11 +15,12 @@ test('Staff get 403 on the Company, Staff and Department tabs and on every manag
         ->assertInertia(fn (Assert $page) => $page->component('Error')->where('status', 403));
 })->with(['/settings', '/settings/company', '/settings/staff', '/settings/department', '/issues', '/imports', '/briefs', '/meetings', '/outcomes']);
 
-test('Staff can open Today and Tasks only', function () {
+test('Staff land on My Tasks (Today redirects there) and cannot open the management task list', function () {
     $this->actingAs(identity()->staff);
 
-    $this->get('/today')->assertOk();
-    $this->get('/tasks')->assertOk();
+    $this->get('/today')->assertRedirect(route('tasks.mine'));
+    $this->get('/my-tasks')->assertOk();
+    $this->get('/tasks')->assertForbidden();
 });
 
 test('a Staff user cannot reach another departments record by URL either', function () {

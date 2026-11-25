@@ -2,6 +2,8 @@
 
 namespace App\Services\AI;
 
+use App\Enums\AssigneeResolution;
+use App\Enums\DeadlineResolution;
 use App\Enums\MeetingErrorCode;
 use App\Models\Meeting;
 use App\Models\TaskDraft;
@@ -9,7 +11,9 @@ use App\Models\User;
 use App\Services\AI\Exceptions\ProviderException;
 use App\Services\AI\Exceptions\RecoverableProviderException;
 use App\Services\Meetings\AssigneeResolver;
+use App\Services\Meetings\AssigneeResult;
 use App\Services\Meetings\DeadlineResolver;
+use App\Services\Meetings\DeadlineResult;
 use App\Services\Meetings\ExcerptVerifier;
 use App\Services\Meetings\MeetingStageException;
 use App\Services\Meetings\TextNormalizer;
@@ -85,8 +89,21 @@ final class MeetingTaskExtractor
             }
 
             // The model's assignee_id is never an input: identity comes from name matching in the meeting's department.
-            $assignee = $this->assignees->resolve($task['assignee_name'] ?? null, $allowedStaff);
-            $deadline = $this->deadlines->resolve($task['deadline_phrase'] ?? null, $meeting->meeting_date, $company);
+            // A suggestion counts only when its own words appear in the supporting quote. A name or deadline the quote does
+            // not contain is unsupported (possibly fabricated or injected) and needs a person, even if it matches a staff
+            // member or looks like a date phrase.
+            $name = $task['assignee_name'] ?? null;
+            $phrase = $task['deadline_phrase'] ?? null;
+            $assignee = $this->assignees->resolve($this->supported($name, $excerpt) ? $name : null, $allowedStaff);
+            $deadline = $this->deadlines->resolve($this->supported($phrase, $excerpt) ? $phrase : null, $meeting->meeting_date, $company);
+
+            if (! $this->isBlank($name) && ! $this->supported($name, $excerpt)) {
+                $assignee = new AssigneeResult(AssigneeResolution::Unmatched, null);
+            }
+
+            if (! $this->isBlank($phrase) && ! $this->supported($phrase, $excerpt)) {
+                $deadline = new DeadlineResult(DeadlineResolution::Ambiguous, null);
+            }
 
             $duplicatesApproved = $assignee->userId !== null && $approvedDrafts->contains(
                 fn ($approved) => $approved->assignee_id === $assignee->userId
@@ -111,6 +128,23 @@ final class MeetingTaskExtractor
         }
 
         return new ExtractionResult($decisions, $drafts, $discarded);
+    }
+
+    private function isBlank(?string $value): bool
+    {
+        return $value === null || trim($value) === '';
+    }
+
+    /** Whether the suggested words occur in the quote as whole words (normalized text). Blank is trivially supported. */
+    private function supported(?string $words, string $excerpt): bool
+    {
+        if ($this->isBlank($words)) {
+            return true;
+        }
+
+        $needle = $this->text->normalize((string) $words);
+
+        return preg_match('/(?<![\p{L}\p{N}])'.preg_quote($needle, '/').'(?![\p{L}\p{N}])/u', $this->text->normalize($excerpt)) === 1;
     }
 
     /**

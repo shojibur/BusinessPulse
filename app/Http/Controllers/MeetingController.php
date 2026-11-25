@@ -11,6 +11,7 @@ use App\Models\Department;
 use App\Models\Issue;
 use App\Models\Meeting;
 use App\Services\Meetings\MeetingPresenter;
+use App\Services\Tasks\TaskDraftReviewProps;
 use App\Support\BusinessClock;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -101,6 +102,7 @@ class MeetingController extends Controller
             'meeting' => $this->presenter->detail($meeting, $request->user()),
             'transcript' => $meeting->transcript,
             'taskDrafts' => $this->presenter->drafts($meeting),
+            'draftReview' => app(TaskDraftReviewProps::class)->for($meeting, $request->user()),
             'limits' => [
                 'maxUploadMb' => 20,
                 'extensions' => ['mp3', 'm4a', 'wav', 'webm', 'mp4'],

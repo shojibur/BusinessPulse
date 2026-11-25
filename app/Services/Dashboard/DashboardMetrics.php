@@ -17,6 +17,7 @@ use App\Services\Imports\WeekState;
 use App\Services\Intelligence\EvaluationHealth;
 use App\Services\Intelligence\Indeterminate;
 use App\Services\Intelligence\MetricCalculator;
+use App\Services\Tasks\TaskCounts;
 use Carbon\CarbonImmutable;
 
 /**
@@ -33,6 +34,7 @@ final class DashboardMetrics
         private readonly MetricCalculator $metrics,
         private readonly ReportingCoverage $coverage,
         private readonly EvaluationHealth $health,
+        private readonly TaskCounts $tasks,
     ) {}
 
     public function forOwnerOrManager(User $user, Department $department): DashboardData
@@ -64,6 +66,7 @@ final class DashboardMetrics
             highPriorityIssueCount: $this->issueCount($department, [IssueSeverity::High->value, IssueSeverity::Critical->value]),
             revenueVsTarget: $hasData ? $this->series($company, $department, $latest) : [],
             latestBrief: $this->latestBrief($user, $timezone),
+            taskCounts: $user->isOwner() ? $this->tasks->forCompany($user->company_id) : $this->tasks->forDepartment($department->id),
         );
     }
 

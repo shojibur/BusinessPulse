@@ -18,6 +18,7 @@ final class MeetingErrorPresenter
             MeetingErrorCode::RecordingDeleted => 'The recording was deleted, so it cannot be transcribed. Paste the transcript instead.',
             MeetingErrorCode::ConsentMissing => 'Recording consent is not recorded for this meeting, so the audio was not processed.',
             MeetingErrorCode::DepartmentUnavailable => 'The meeting department is no longer available. Contact an Owner.',
+            MeetingErrorCode::ActorUnauthorized => 'The person who requested this processing no longer has access to this meeting, so nothing was sent to the AI provider. Ask an authorized user to try again.',
             MeetingErrorCode::EmptyTranscript => 'The transcript is empty or too short. Paste or edit the transcript, then try again.',
             MeetingErrorCode::TranscriptTooLong => 'The transcript is longer than 60,000 characters. Paste a shorter transcript instead.',
             MeetingErrorCode::Timeout => 'The AI service did not answer in time. Try again.',

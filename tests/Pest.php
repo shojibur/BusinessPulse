@@ -15,6 +15,8 @@ use App\Models\Issue;
 use App\Models\Meeting;
 use App\Models\RuleEvaluation;
 use App\Models\SalesRecord;
+use App\Models\Task;
+use App\Models\TaskDraft;
 use App\Models\User;
 use App\Services\Intelligence\MetricCalculator;
 use Carbon\CarbonImmutable;
@@ -350,4 +352,47 @@ function demoExtraction(): array
 function transcribedMeeting(stdClass $f, ?string $transcript = null): Meeting
 {
     return makeMeeting($f, ['status' => 'transcribed', 'transcript' => $transcript ?? demoTranscript(), 'transcript_source' => 'manual']);
+}
+
+/**
+ * A reviewed-ready meeting of the roster with the demo transcript, one linked issue and the four demo drafts (as S06
+ * would have stored them). Returns the pieces tests need.
+ *
+ * @return object{meeting: Meeting, issue: Issue, drafts: list<TaskDraft>}
+ */
+function reviewFixture(stdClass $f): stdClass
+{
+    setClock('2026-09-28 09:00');
+    $x = new stdClass;
+    $x->meeting = makeMeeting($f, ['status' => 'ready_for_review', 'transcript' => demoTranscript(), 'transcript_source' => 'manual', 'extracted_at' => now()]);
+    $x->issue = fakeIssue($f->sales);
+    $x->meeting->issues()->attach($x->issue->id);
+
+    $make = fn (array $a) => TaskDraft::create($a + ['meeting_id' => $x->meeting->id, 'suggested_description' => '', 'extraction_run' => 1, 'status' => 'pending']);
+    $x->drafts = [
+        $make(['suggested_title' => 'Call the ten biggest lapsed Penang accounts', 'suggested_assignee_name' => 'Priya', 'assignee_id' => $f->priya->id, 'assignee_resolution' => 'resolved',
+            'suggested_due_date_text' => 'by Friday', 'due_date' => '2026-10-02', 'suggested_due_date' => '2026-10-02', 'deadline_resolution' => 'resolved',
+            'transcript_excerpt' => 'Priya, please call the ten biggest lapsed Penang accounts by Friday.']),
+        $make(['suggested_title' => 'Prepare the JB promo proposal', 'suggested_assignee_name' => 'Farid', 'assignee_id' => $f->farid->id, 'assignee_resolution' => 'resolved',
+            'suggested_due_date_text' => 'by next Wednesday', 'due_date' => '2026-10-07', 'suggested_due_date' => '2026-10-07', 'deadline_resolution' => 'resolved',
+            'transcript_excerpt' => 'Farid, put together the JB promo proposal by next Wednesday.']),
+        $make(['suggested_title' => 'Sort out the KL weekend display', 'suggested_assignee_name' => 'Daniel', 'assignee_id' => null, 'assignee_resolution' => 'ambiguous',
+            'deadline_resolution' => 'none', 'transcript_excerpt' => 'Daniel will sort out the KL weekend display.']),
+        $make(['suggested_title' => 'Check why the Saturday stock was short', 'assignee_resolution' => 'none', 'deadline_resolution' => 'none',
+            'transcript_excerpt' => 'Someone should check why the Saturday stock was short.']),
+    ];
+
+    return $x;
+}
+
+/** A task row for a department without going through approval (for status, access and counts tests). */
+function makeTask(stdClass $f, User $assignee, array $attributes = []): Task
+{
+    $task = new Task($attributes + [
+        'department_id' => $f->sales->id, 'title' => 'Follow up with Penang', 'description' => '', 'assignee_id' => $assignee->id,
+        'assigned_by' => $f->manager->id, 'due_date' => '2026-10-02',
+    ]);
+    $task->forceFill(['status' => $attributes['status'] ?? 'pending', 'completed_at' => ($attributes['status'] ?? null) === 'completed' ? now() : null])->save();
+
+    return $task->refresh();
 }

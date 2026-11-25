@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Issue;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
@@ -28,7 +29,10 @@ class NotificationPresenter
                 ->filter(fn (Issue $issue) => Gate::forUser($user)->allows('view', $issue))
                 ->pluck('id')->flip();
 
-        return $notifications->map(function (DatabaseNotification $notification) use ($accessible): array {
+        $taskIds = $notifications->map(fn ($n) => $n->data['task_id'] ?? null)->filter()->unique()->values();
+        $accessibleTasks = $taskIds->isEmpty() ? collect() : Task::query()->visibleTo($user)->whereIn('id', $taskIds)->pluck('id')->flip();
+
+        return $notifications->map(function (DatabaseNotification $notification) use ($accessible, $accessibleTasks): array {
             $data = $notification->data;
             $issueId = $data['issue_id'] ?? null;
 
@@ -38,7 +42,11 @@ class NotificationPresenter
                 'severity' => $data['severity'] ?? null,
                 'summary' => $data['summary_line'] ?? null,
                 'department' => $data['department_name'] ?? null,
-                'url' => $issueId !== null && $accessible->has($issueId) ? ($data['url'] ?? null) : null,
+                'url' => match (true) {
+                    $issueId !== null => $accessible->has($issueId) ? ($data['url'] ?? null) : null,
+                    isset($data['task_id']) => $accessibleTasks->has($data['task_id']) ? ($data['url'] ?? null) : null,
+                    default => null,
+                },
                 'read' => $notification->read_at !== null,
                 'created_at' => $notification->created_at?->toIso8601String(),
             ];

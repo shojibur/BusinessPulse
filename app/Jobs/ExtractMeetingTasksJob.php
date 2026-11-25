@@ -40,7 +40,7 @@ class ExtractMeetingTasksJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 900;
 
-    public function __construct(public readonly int $meetingId)
+    public function __construct(public readonly int $meetingId, public readonly ?int $actorUserId = null)
     {
         $this->onQueue('ai');
         $this->afterCommit();
@@ -75,7 +75,7 @@ class ExtractMeetingTasksJob implements ShouldBeUnique, ShouldQueue
         }
 
         try {
-            $meeting = $guard->forExtraction($this->meetingId);
+            $meeting = $guard->forExtraction($this->meetingId, $this->actorUserId);
 
             if ($meeting === null) {
                 return;

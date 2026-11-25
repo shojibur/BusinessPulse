@@ -37,7 +37,7 @@ class TranscribeMeetingJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 900;
 
-    public function __construct(public readonly int $meetingId)
+    public function __construct(public readonly int $meetingId, public readonly ?int $actorUserId = null)
     {
         $this->onQueue('ai');
         $this->afterCommit();
@@ -70,7 +70,7 @@ class TranscribeMeetingJob implements ShouldBeUnique, ShouldQueue
         }
 
         try {
-            $meeting = $guard->forTranscription($this->meetingId);
+            $meeting = $guard->forTranscription($this->meetingId, $this->actorUserId);
 
             if ($meeting === null) {
                 return;
@@ -104,7 +104,7 @@ class TranscribeMeetingJob implements ShouldBeUnique, ShouldQueue
         });
 
         if ($stored) {
-            ExtractMeetingTasksJob::dispatch($this->meetingId);
+            ExtractMeetingTasksJob::dispatch($this->meetingId, $this->actorUserId);
         }
     }
 

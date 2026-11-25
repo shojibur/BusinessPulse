@@ -57,7 +57,8 @@ class AuthenticatedSessionController extends Controller
         RateLimiter::clear($key);
         $request->session()->regenerate();
 
-        return redirect()->route('today');
+        // Staff land on their own tasks (S07); Owner and Manager on Today.
+        return redirect()->route($request->user()->isStaff() ? 'tasks.mine' : 'today');
     }
 
     public function destroy(Request $request): RedirectResponse

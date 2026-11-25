@@ -29,6 +29,7 @@ use Illuminate\Support\Carbon;
  * @property string $transcript_excerpt
  * @property TaskDraftStatus $status
  * @property int|null $task_id
+ * @property string|null $rejection_reason
  * @property int $extraction_run
  */
 class TaskDraft extends Model
@@ -50,6 +51,29 @@ class TaskDraft extends Model
     public function scopeReviewable(Builder $query): void
     {
         $query->where('status', TaskDraftStatus::Pending->value);
+    }
+
+    /**
+     * Staff get 403 before any scoping (as for meetings); Owner (company) and Manager (department) scope through the
+     * meeting; anything else is 404.
+     */
+    public function resolveRouteBinding($value, $field = null): ?Model
+    {
+        $user = request()->user();
+
+        abort_if($user === null, 404);
+        abort_if($user->isStaff() || ! $user->is_active, 403);
+
+        return static::query()
+            ->whereHas('meeting', fn ($query) => $query->visibleTo($user))
+            ->whereKey($value)
+            ->firstOrFail();
+    }
+
+    /** @return BelongsTo<Task, $this> */
+    public function task(): BelongsTo
+    {
+        return $this->belongsTo(Task::class);
     }
 
     /** @return BelongsTo<Meeting, $this> */

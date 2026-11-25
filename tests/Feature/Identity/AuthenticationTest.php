@@ -13,11 +13,11 @@ function login(string $email, string $password = UserFactory::PASSWORD)
     return test()->post(route('login.store'), ['email' => $email, 'password' => $password]);
 }
 
-test('an active user can sign in, the session id is regenerated and they land on Today', function () {
+test('an active user can sign in, the session id is regenerated and Staff land on My Tasks', function () {
     $f = identity();
     $before = session()->getId();
 
-    login($f->staff->email)->assertRedirect(route('today'));
+    login($f->staff->email)->assertRedirect(route('tasks.mine'));
 
     $this->assertAuthenticatedAs($f->staff);
     expect(session()->getId())->not->toBe($before);
@@ -26,7 +26,7 @@ test('an active user can sign in, the session id is regenerated and they land on
 test('email matching is case insensitive', function () {
     $f = identity();
 
-    login('  STAFF@Fixture.Test ')->assertRedirect(route('today'));
+    login('  STAFF@Fixture.Test ')->assertRedirect(route('tasks.mine'));
 
     $this->assertAuthenticatedAs($f->staff);
 });
@@ -67,7 +67,7 @@ test('a successful sign in clears the failed attempt counter', function () {
     login($f->staff->email, 'wrong-password');
     expect(RateLimiter::attempts($key))->toBe(2);
 
-    login($f->staff->email)->assertRedirect(route('today'));
+    login($f->staff->email)->assertRedirect(route('tasks.mine'));
 
     expect(RateLimiter::attempts($key))->toBe(0);
 });
@@ -85,7 +85,7 @@ test('failed and throttled attempts are logged without the password', function (
 });
 
 test('signed-in users are redirected away from the login page', function () {
-    $this->actingAs(identity()->staff)->get(route('login'))->assertRedirect(route('today'));
+    $this->actingAs(identity()->staff)->get(route('login'))->assertRedirect(route('tasks.mine'));
 });
 
 test('the login page renders for guests with the owner reset hint and no remember-me', function () {
@@ -142,7 +142,7 @@ test('public registration and email based recovery routes do not exist', functio
 test('a deactivated user with an open session is signed out on the next request', function () {
     $f = identity();
     login($f->staff->email);
-    $this->get('/today')->assertOk();
+    $this->get('/my-tasks')->assertOk();
 
     User::whereKey($f->staff->id)->update(['is_active' => false]);
     app('auth')->forgetGuards(); // a new request loads the user from the database again

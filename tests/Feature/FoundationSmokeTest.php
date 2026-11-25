@@ -18,15 +18,15 @@ test('the login page renders', function () {
         ->assertInertia(fn (Assert $page) => $page->component('auth/Login'));
 });
 
-test('every navigation item has a placeholder page and the shell shares all eight items', function () {
-    $expected = ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'Outcomes', 'Settings'];
+test('every navigation item has a placeholder page and the shell shares all nine items', function () {
+    $expected = ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Settings'];
     $this->actingAs(identity()->owner);
 
     foreach (config('navigation') as $item) {
         $this->followingRedirects()->get(route($item['route']))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->has('navigation', 8)
+                ->has('navigation', 9)
                 ->where('navigation.0.label', 'Today')
                 ->where('navigation', fn ($navigation) => collect($navigation)->pluck('label')->all() === $expected)
                 ->where('navigation', fn ($navigation) => collect($navigation)->where('active', true)->pluck('label')->all() === [$item['label']])
@@ -37,7 +37,7 @@ test('every navigation item has a placeholder page and the shell shares all eigh
 test('unknown routes and the storage path render the 404 Inertia error page', function (string $path) {
     $this->actingAs(identity()->owner)->get($path)
         ->assertNotFound()
-        ->assertInertia(fn (Assert $page) => $page->component('Error')->where('status', 404)->has('navigation', 8));
+        ->assertInertia(fn (Assert $page) => $page->component('Error')->where('status', 404)->has('navigation', 9));
 })->with(['/no-such-page', '/storage/anything.csv']);
 
 test('a 403, 419, 500 and 503 render the Inertia error page without leaking details', function (int $status) {

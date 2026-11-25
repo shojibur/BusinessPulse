@@ -41,11 +41,11 @@ test('an incomplete latest week keeps the last complete week visible with a cove
         ->where('data.coverageNotice', fn ($n) => str_contains($n, 'is missing') && str_contains($n, 'latest complete week (14–20 Sep 2026)')));
 });
 
-test('staff receive no executive data', function () {
+test('staff are redirected to My Tasks and never receive executive data', function () {
     $f = identity();
 
-    $this->actingAs($f->staff)->get('/today')->assertInertia(fn ($page) => $page
-        ->component('dashboard/Index')->where('audience', 'staff')->missing('data'));
+    $this->actingAs($f->staff)->get('/today')->assertRedirect(route('tasks.mine'));
+    $this->actingAs($f->staff)->get('/my-tasks')->assertOk()->assertInertia(fn ($page) => $page->component('tasks/Mine')->missing('data')->missing('revenue'));
 });
 
 test('a manager sees only their own department', function () {

@@ -12,6 +12,7 @@ enum MeetingErrorCode: string
     case RecordingDeleted = 'recording_deleted';
     case ConsentMissing = 'consent_missing';
     case DepartmentUnavailable = 'department_unavailable';
+    case ActorUnauthorized = 'actor_unauthorized';
     case EmptyTranscript = 'empty_transcript';
     case TranscriptTooLong = 'transcript_too_long';
     case Timeout = 'timeout';

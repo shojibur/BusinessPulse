@@ -30,6 +30,7 @@ import {
     store as briefStore,
 } from '@/routes/briefs';
 import { index as importsIndex } from '@/routes/imports';
+import { index as tasksIndex } from '@/routes/tasks';
 import { index as issuesIndex } from '@/routes/issues';
 import type { DashboardData, DashboardFigure, KpiChange } from '@/types';
 import BriefSourceBadge from '@/components/BriefSourceBadge.vue';
@@ -277,6 +278,26 @@ const chartTable = computed(() => ({
                     label="High priority"
                     :value="String(data.highPriorityIssueCount)"
                     caption="View high-priority issues"
+                />
+            </Link>
+            <Link
+                :href="tasksIndex({ query: { status: 'open' } }).url"
+                class="block rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            >
+                <KpiCard
+                    label="Open tasks"
+                    :value="String(data.taskCounts.open)"
+                    caption="View open tasks"
+                />
+            </Link>
+            <Link
+                :href="tasksIndex({ query: { overdue: 1 } }).url"
+                class="block rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            >
+                <KpiCard
+                    label="Overdue tasks"
+                    :value="String(data.taskCounts.overdue)"
+                    caption="View overdue tasks"
                 />
             </Link>
         </section>
