@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Builder;
+use App\Models\Concerns\ScopedThroughDepartment;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -24,6 +24,8 @@ use Illuminate\Support\Carbon;
  */
 class SalesRecord extends Model
 {
+    use ScopedThroughDepartment;
+
     protected $guarded = [];
 
     protected function casts(): array
@@ -35,34 +37,6 @@ class SalesRecord extends Model
             'is_active' => 'boolean',
             'superseded_at' => 'datetime',
         ];
-    }
-
-    /**
-     * The table has no company_id column, so the ScopedToDepartment trait does not apply. The Owner sees
-     * the records of departments of the own company; others only their own department; inactive users and
-     * users without a department see nothing.
-     *
-     * @param  Builder<SalesRecord>  $query
-     * @return Builder<SalesRecord>
-     */
-    public function scopeVisibleTo(Builder $query, User $user): Builder
-    {
-        if (! $user->is_active) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        if ($user->isOwner()) {
-            return $query->whereIn(
-                $query->qualifyColumn('department_id'),
-                Department::query()->where('company_id', $user->company_id)->select('id'),
-            );
-        }
-
-        if ($user->department_id === null) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->where($query->qualifyColumn('department_id'), $user->department_id);
     }
 
     /** @return BelongsTo<Department, $this> */

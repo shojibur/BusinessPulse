@@ -2,11 +2,22 @@
 
 use App\Actions\Imports\ConfirmImport;
 use App\Actions\Imports\CreateImportFromUpload;
+use App\Actions\Intelligence\SeedDefaultRules;
+use App\Enums\IssueSeverity;
+use App\Enums\IssueStatus;
+use App\Enums\ResolutionType;
+use App\Enums\RuleKey;
+use App\Models\BusinessRule;
 use App\Models\Company;
 use App\Models\Department;
 use App\Models\Import;
+use App\Models\Issue;
+use App\Models\RuleEvaluation;
 use App\Models\SalesRecord;
 use App\Models\User;
+use App\Services\Intelligence\MetricCalculator;
+use Carbon\CarbonImmutable;
+use Database\Seeders\DemoIdentitySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -104,4 +115,135 @@ function activeRevenue(?int $departmentId = null): string
     }
 
     return $sum;
+}
+
+/**
+ * Seed the fictional Meridian demo identity (company, Sales department, users, rules with high_drop_pct 15)
+ * and return its Owner. Requires nothing else: imports run through the real workflow.
+ */
+function demoOwner(): User
+{
+    config(['demo.mode' => true, 'demo.password' => 'demo-test-password-123']);
+    test()->artisan('db:seed', ['--class' => DemoIdentitySeeder::class])->assertSuccessful();
+
+    return User::where('email', 'owner@meridian.demo')->firstOrFail();
+}
+
+function demoDepartment(): Department
+{
+    return Department::where('slug', 'sales')->firstOrFail();
+}
+
+/**
+ * The newest stored evaluation of a rule (by id) at or after the given id.
+ */
+function latestEvaluation(string $ruleKey, int $afterId = 0): ?RuleEvaluation
+{
+    return RuleEvaluation::query()
+        ->whereHas('rule', fn ($query) => $query->where('key', $ruleKey))
+        ->where('id', '>', $afterId)
+        ->orderByDesc('id')
+        ->first();
+}
+
+function lastEvaluationId(): int
+{
+    return (int) RuleEvaluation::max('id');
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function expectedFixtures(): array
+{
+    return json_decode((string) file_get_contents(base_path('database/demo/expected.json')), true, 512, JSON_THROW_ON_ERROR)['fixtures'];
+}
+
+/**
+ * Assert one stored evaluation against a hand-written expectation of database/demo/expected.json.
+ *
+ * @param  array<string, mixed>  $expected
+ */
+function assertMatchesExpected(?RuleEvaluation $evaluation, array $expected): void
+{
+    expect($evaluation)->not->toBeNull("no evaluation stored for {$expected['rule']}");
+    $metrics = app(MetricCalculator::class);
+
+    expect($evaluation->result->value)->toBe($expected['result'], "{$expected['rule']} result")
+        ->and($evaluation->severity?->value)->toBe($expected['severity'], "{$expected['rule']} severity")
+        ->and($evaluation->insufficient_reason?->value)->toBe($expected['reason'], "{$expected['rule']} reason");
+
+    if (isset($expected['presentDueBranchDays'])) {
+        expect((int) $evaluation->current_value)->toBe($expected['presentDueBranchDays'], "{$expected['rule']} present")
+            ->and((int) $evaluation->comparison_value)->toBe($expected['expectedDueBranchDays'], "{$expected['rule']} expected");
+    } elseif (isset($expected['current'])) {
+        expect($evaluation->current_value)->toBe($expected['current'])
+            ->and($evaluation->comparison_value)->toBe($expected['comparison'])
+            ->and($evaluation->difference_value)->toBe($expected['difference']);
+    }
+
+    if (isset($expected['differencePct'])) {
+        expect($metrics->display2((string) $evaluation->difference_pct))->toBe($expected['differencePct'], "{$expected['rule']} percentage");
+    }
+}
+
+/**
+ * A 6-day, 3-branch week (18 rows) with the given revenue and target per row, as CSV text.
+ */
+function weekCsv(string $monday, string $revenue, string $target = '5000.00'): string
+{
+    $rows = '';
+    for ($day = 0; $day < 6; $day++) {
+        $date = CarbonImmutable::parse($monday, 'UTC')->addDays($day)->format('Y-m-d');
+        foreach (['KL', 'PG', 'JB'] as $branch) {
+            $rows .= "{$date},{$branch},{$revenue},{$target},\n";
+        }
+    }
+
+    return $rows;
+}
+
+/**
+ * Import CSV text through the real workflow as the given user (the queue is `sync`, so evaluation runs too).
+ */
+function importCsv(User $user, string $body): Import
+{
+    $import = app(CreateImportFromUpload::class)->handle($user, csvUpload("sales_date,branch_code,revenue,target_revenue,order_count\n".$body));
+    app(ConfirmImport::class)->handle($import);
+
+    return $import->refresh();
+}
+
+/**
+ * An issue row for lifecycle and authorization tests, with the evaluation it points at, without importing data.
+ */
+function fakeIssue(
+    Department $department,
+    IssueStatus $status = IssueStatus::Open,
+    IssueSeverity $severity = IssueSeverity::High,
+    RuleKey $key = RuleKey::WeeklyRevenueDecline,
+): Issue {
+    app(SeedDefaultRules::class)->handle($department);
+    $rule = BusinessRule::where('department_id', $department->id)->where('key', $key->value)->firstOrFail();
+    $now = now()->format('Y-m-d H:i:s');
+
+    $evaluationId = DB::table('rule_evaluations')->insertGetId([
+        'business_rule_id' => $rule->id, 'department_id' => $department->id, 'period_start' => '2026-09-21', 'period_end' => '2026-09-27',
+        'metric_name' => $key->metricName(), 'current_value' => '124000.00', 'comparison_value' => '155000.00', 'difference_value' => '-31000.00',
+        'difference_pct' => '-20.0000', 'result' => 'breached', 'severity' => $severity->value, 'as_of_date' => '2026-09-26', 'last_due_date' => '2026-09-26',
+        'evidence' => json_encode(['calendar' => ['timezone' => 'Asia/Kuala_Lumpur'], 'thresholdUsed' => '15.00', 'periods' => [], 'coverage' => [], 'contributingImportIds' => []]),
+        'evaluated_at' => $now, 'run_key' => hash('sha256', uniqid('', true)), 'created_at' => $now, 'updated_at' => $now,
+    ]);
+
+    $resolved = $status === IssueStatus::Resolved;
+
+    return Issue::create([
+        'department_id' => $department->id, 'business_rule_id' => $rule->id, 'scope_key' => 'department', 'title' => $key->issueTitle(),
+        'severity' => $severity, 'status' => $status, 'first_detected_at' => $now, 'last_detected_at' => $now, 'detection_count' => 1,
+        'period_start' => '2026-09-21', 'period_end' => '2026-09-27', 'baseline_evaluation_id' => $evaluationId, 'latest_evaluation_id' => $evaluationId,
+        'status_history' => [['from' => null, 'to' => 'open', 'at' => $now, 'by_user_id' => null, 'reason' => null, 'trigger' => 'created']],
+        'resolved_at' => $resolved ? $now : null,
+        'resolution_type' => $resolved ? ResolutionType::Manual : null,
+        'resolution_note' => $resolved ? 'Resolved in a test.' : null,
+    ])->refresh();
 }

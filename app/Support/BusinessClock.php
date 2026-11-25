@@ -31,6 +31,15 @@ class BusinessClock
     }
 
     /**
+     * The business instant expressed in UTC, for storing business timestamps in `timestamp` columns
+     * (the application timezone is UTC).
+     */
+    public function nowUtc(): CarbonImmutable
+    {
+        return $this->now()->utc();
+    }
+
+    /**
      * The current date (time truncated) in the business timezone (or the given timezone).
      */
     public function today(?string $timezone = null): CarbonImmutable

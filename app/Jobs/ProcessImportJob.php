@@ -44,7 +44,10 @@ final class ProcessImportJob implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 120;
 
-    public int $tries = 3;
+    // Waiting for the department lock (release) must not use up the retries: only 3 real exceptions fail the job.
+    public int $tries = 20;
+
+    public int $maxExceptions = 3;
 
     // Longer than the whole retry window (3 x 120 s plus backoff) so a duplicate dispatch cannot overlap.
     public int $uniqueFor = 900;
@@ -84,11 +87,16 @@ final class ProcessImportJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        $completed = null;
+
         try {
-            $this->process($import->refresh()->load(['department', 'company']), $previews);
+            $completed = $this->process($import->refresh()->load(['department', 'company']), $previews);
         } finally {
             $lock->release();
         }
+
+        // Announced only after the department lock is free: a listener (the evaluation of S04) may need it.
+        $completed?->__invoke();
     }
 
     public function failed(Throwable $exception): void
@@ -105,22 +113,25 @@ final class ProcessImportJob implements ShouldBeUnique, ShouldQueue
         $this->markFailed($import, self::MESSAGE_GENERIC);
     }
 
-    private function process(Import $import, ImportPreviewBuilder $previews): void
+    /**
+     * @return (callable(): void)|null announces ImportCompleted once the lock is released
+     */
+    private function process(Import $import, ImportPreviewBuilder $previews): ?callable
     {
         if ($import->status !== ImportStatus::Processing) {
-            return;
+            return null;
         }
 
         if ($this->expectedBranchesMissing($import)) {
             $this->markFailed($import, self::MESSAGE_NO_BRANCHES);
 
-            return;
+            return null;
         }
 
         if ($import->stored_path === '' || ! Storage::disk('local')->exists($import->stored_path)) {
             $this->markFailed($import, self::MESSAGE_FILE_MISSING);
 
-            return;
+            return null;
         }
 
         // Re-validate and re-classify against the Active_Records as they are now, not as at preview time.
@@ -129,7 +140,7 @@ final class ProcessImportJob implements ShouldBeUnique, ShouldQueue
         if ($analysis->validRows() === 0) {
             $this->markFailed($import, self::MESSAGE_NO_VALID_ROWS);
 
-            return;
+            return null;
         }
 
         try {
@@ -138,22 +149,30 @@ final class ProcessImportJob implements ShouldBeUnique, ShouldQueue
             // The partial unique index (or a stale record) stops a concurrent change; the transaction rolled back.
             $this->markFailed($import, self::MESSAGE_CONFLICT);
 
-            return;
+            return null;
         }
 
         $import->refresh();
 
-        ImportCompleted::dispatch(
-            $import->id,
-            $import->department_id,
-            $import->status,
-            $import->inserted_rows,
-            $import->corrected_rows,
-            $import->unchanged_rows,
-            $import->invalid_rows,
-            $import->min_date === null ? null : CarbonImmutable::parse($import->min_date->format('Y-m-d'), 'UTC'),
-            $import->max_date === null ? null : CarbonImmutable::parse($import->max_date->format('Y-m-d'), 'UTC'),
-        );
+        return function () use ($import): void {
+            try {
+                ImportCompleted::dispatch(
+                    $import->id,
+                    $import->department_id,
+                    $import->status,
+                    $import->inserted_rows,
+                    $import->corrected_rows,
+                    $import->unchanged_rows,
+                    $import->invalid_rows,
+                    $import->min_date === null ? null : CarbonImmutable::parse($import->min_date->format('Y-m-d'), 'UTC'),
+                    $import->max_date === null ? null : CarbonImmutable::parse($import->max_date->format('Y-m-d'), 'UTC'),
+                );
+            } catch (Throwable $e) {
+                // The data is committed and the import is completed: a failing listener must not fail or retry it.
+                // Evaluation is recovered with "Refresh intelligence". Ids and the exception class only.
+                Log::error('import_completed_dispatch_failed', ['import_id' => $import->id, 'exception' => $e::class]);
+            }
+        };
     }
 
     private function commit(Import $import, ImportAnalysis $analysis): void

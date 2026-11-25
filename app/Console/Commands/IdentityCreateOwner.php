@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Actions\Intelligence\SeedDefaultRules;
 use App\Enums\Role;
 use App\Models\Company;
 use App\Models\Department;
@@ -55,12 +56,14 @@ class IdentityCreateOwner extends Command
         DB::transaction(function () use ($company, $name, $email, $password): void {
             $companyModel = Company::create(['name' => $company]);
 
-            Department::create([
+            $department = Department::create([
                 'company_id' => $companyModel->id,
                 'name' => 'Sales',
                 'slug' => 'sales',
                 'settings' => [],
             ]);
+
+            app(SeedDefaultRules::class)->handle($department);
 
             $owner = new User(['name' => $name, 'email' => $email, 'password' => $password, 'role' => Role::Owner]);
             $owner->company_id = $companyModel->id;

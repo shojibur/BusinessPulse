@@ -60,3 +60,19 @@ export function formatBytes(bytes: number | null): string {
 export function formatNumber(value: number): string {
     return new Intl.NumberFormat('en-MY').format(value);
 }
+
+/** "124000.00" -> "RM 124,000.00" (string work only: money is never turned into a float). */
+export function formatMoney(amount: string | null): string {
+    if (amount === null) {
+        return '—';
+    }
+
+    const negative = amount.startsWith('-');
+    const [whole, fraction = '00'] = amount.replace('-', '').split('.');
+    const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+    return `${negative ? '-' : ''}RM ${grouped}.${fraction.padEnd(2, '0')}`;
+}
+
+/** An ISO 8601 timestamp already in the company timezone -> "28 Sep 2026, 09:00". */
+export const formatTimestamp = formatDateTime;

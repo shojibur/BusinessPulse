@@ -1,6 +1,7 @@
 import type { Directive } from 'vue';
 import type { Auth, CompanyProfile } from '@/types/auth';
 import type { FlashMessage } from '@/types/components';
+import type { NotificationsShared } from '@/types/issues';
 import type { NavItem } from '@/types/navigation';
 
 // Extend ImportMeta interface for Vite...
@@ -24,6 +25,7 @@ declare module '@inertiajs/core' {
             company: CompanyProfile | null;
             navigation: NavItem[];
             flash: FlashMessage | null;
+            notifications: NotificationsShared | null;
             [key: string]: unknown;
         };
     }

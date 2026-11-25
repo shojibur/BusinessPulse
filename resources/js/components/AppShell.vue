@@ -23,6 +23,12 @@ import {
 } from '@/components/ui/sheet';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { logout } from '@/routes';
+import {
+    index as notificationsIndex,
+    read,
+    readAll,
+} from '@/routes/notifications';
+import type { NotificationItem } from '@/types';
 
 const page = usePage();
 
@@ -32,6 +38,19 @@ const navigation = computed(() => page.props.navigation ?? []);
 const appName = computed(() => page.props.name);
 
 const user = computed(() => page.props.auth.user);
+
+const unreadCount = computed(() => page.props.notifications?.unread_count ?? 0);
+const notificationItems = computed(() => page.props.notifications?.items ?? []);
+
+function openNotification(item: NotificationItem): void {
+    if (!item.read) {
+        router.post(read(item.id).url, {}, { preserveScroll: true });
+    }
+
+    if (item.url) {
+        router.visit(item.url);
+    }
+}
 
 const roleLabel = computed(() => {
     const role = user.value?.role;
@@ -152,15 +171,85 @@ watch(
                         </ol>
                     </nav>
 
-                    <!-- The notification bell is a placeholder until notifications exist (later spec). -->
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled
-                        aria-label="Notifications (not yet available)"
-                    >
-                        <Bell aria-hidden="true" />
-                    </Button>
+                    <!-- Notification bell: unread count and the latest notifications of the signed-in user. -->
+                    <DropdownMenu v-if="user">
+                        <DropdownMenuTrigger as-child>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                class="relative"
+                                :aria-label="`Notifications, ${unreadCount} unread`"
+                            >
+                                <Bell aria-hidden="true" />
+                                <span
+                                    v-if="unreadCount > 0"
+                                    class="absolute -top-0.5 -right-0.5 flex min-w-4 items-center justify-center rounded-full bg-severity-high px-1 text-[10px] leading-4 font-semibold text-white tabular-nums"
+                                    aria-hidden="true"
+                                >
+                                    {{ unreadCount }}
+                                </span>
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            align="end"
+                            class="w-80 max-w-[90vw]"
+                        >
+                            <DropdownMenuLabel
+                                class="flex items-center justify-between font-normal"
+                            >
+                                <span class="text-sm font-semibold"
+                                    >Notifications</span
+                                >
+                                <button
+                                    v-if="unreadCount > 0"
+                                    type="button"
+                                    class="touch-target text-xs text-primary-text hover:underline"
+                                    @click="
+                                        router.post(
+                                            readAll().url,
+                                            {},
+                                            { preserveScroll: true },
+                                        )
+                                    "
+                                >
+                                    Mark all read
+                                </button>
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <p
+                                v-if="notificationItems.length === 0"
+                                class="px-2 py-4 text-center text-sm text-muted-foreground"
+                            >
+                                No notifications.
+                            </p>
+                            <DropdownMenuItem
+                                v-for="item in notificationItems"
+                                :key="item.id"
+                                class="flex-col items-start gap-0.5"
+                                @select="openNotification(item)"
+                            >
+                                <span
+                                    class="text-sm"
+                                    :class="item.read ? '' : 'font-semibold'"
+                                >
+                                    {{ item.title }}
+                                </span>
+                                <span
+                                    v-if="item.summary"
+                                    class="text-xs text-muted-foreground"
+                                >
+                                    {{ item.summary }}
+                                </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                @select="router.visit(notificationsIndex().url)"
+                            >
+                                View all notifications
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
                     <DropdownMenu v-if="user">
                         <DropdownMenuTrigger as-child>
                             <Button

@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Models\Department;
 use App\Models\Import;
+use App\Models\Issue;
+use App\Policies\IssuePolicy;
 use App\Services\CurrentCompany;
 use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
@@ -11,6 +13,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -76,6 +79,16 @@ class AppServiceProvider extends ServiceProvider
             abort_if($user === null, 404);
 
             return Import::visibleTo($user)->findOrFail($value);
+        });
+
+        // Refresh intelligence authorizes against the department through IssuePolicy::refresh.
+        Gate::define('refresh-intelligence', [IssuePolicy::class, 'refresh']);
+
+        Route::bind('issue', function (string $value): Issue {
+            $user = request()->user();
+            abort_if($user === null, 404);
+
+            return Issue::visibleTo($user)->findOrFail($value);
         });
 
         RateLimiter::for('imports-upload', fn (Request $request) => Limit::perMinute((int) config('imports.uploads_per_minute'))

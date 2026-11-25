@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\User;
 use App\Services\CurrentCompany;
 use App\Support\Navigation;
+use App\Support\NotificationPresenter;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -44,7 +45,21 @@ class HandleInertiaRequests extends Middleware
             ],
             'company' => fn () => $user === null ? null : $this->company(),
             'navigation' => fn () => Navigation::items($request),
+            'notifications' => fn () => $user === null ? null : $this->notifications($user),
             'flash' => fn () => $request->session()->get('flash'),
+        ];
+    }
+
+    /**
+     * The bell: unread count and the latest notifications of THIS user only.
+     *
+     * @return array{unread_count: int, items: list<array<string, mixed>>}
+     */
+    private function notifications(User $user): array
+    {
+        return [
+            'unread_count' => $user->unreadNotifications()->count(),
+            'items' => NotificationPresenter::many($user, $user->notifications()->limit(5)->get()),
         ];
     }
 

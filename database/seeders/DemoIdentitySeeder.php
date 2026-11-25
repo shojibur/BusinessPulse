@@ -2,7 +2,10 @@
 
 namespace Database\Seeders;
 
+use App\Actions\Intelligence\SeedDefaultRules;
 use App\Enums\Role;
+use App\Enums\RuleKey;
+use App\Models\BusinessRule;
 use App\Models\Company;
 use App\Models\Department;
 use App\Models\User;
@@ -44,6 +47,12 @@ class DemoIdentitySeeder extends Seeder
             // Expected branches are explicit (no auto-fill from imports); other settings keys are kept.
             $sales->settings = [...($sales->settings ?? []), 'expected_branches' => ['KL', 'PG', 'JB']];
             $sales->save();
+
+            // The three predefined rules; the demonstration uses a 15% high-severity drop (D25), not the default 25%.
+            app(SeedDefaultRules::class)->handle($sales);
+            $decline = BusinessRule::query()->where('department_id', $sales->id)->where('key', RuleKey::WeeklyRevenueDecline->value)->firstOrFail();
+            $decline->params = [...$decline->params, 'high_drop_pct' => '15.00'];
+            $decline->save();
 
             $owner = $this->user($company, $password, 'owner@meridian.demo', 'Lim Wei Han', Role::Owner, 'Owner', null, null);
             $manager = $this->user($company, $password, 'aisyah@meridian.demo', 'Nurul Aisyah', Role::Manager, 'Sales Manager', $sales, $owner);

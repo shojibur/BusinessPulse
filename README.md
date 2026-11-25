@@ -2,7 +2,7 @@
 
 BusinessPulse (Inventa Studio) is a Business Intelligence and Decision Execution Platform: Detect → Understand → Decide → Execute → Verify. This repository is **Stage 1, a functional proof of value**, built as a Laravel 13 + Inertia + Vue 3 modular monolith on PostgreSQL.
 
-Current state: **S01 Application Foundation, S02 Identity and Access and S03 Sales Data Import**. Sign-in, the three fixed roles (Owner, Manager, Staff), department scoping, read-only Company, Staff and Department settings, the shell, design system, queue, BusinessClock and test harness exist. Owners and Managers can upload, preview, confirm and trace daily branch sales CSV files under Data Imports. The navigation pages Today, Issues, Briefs, Meetings, Tasks and Outcomes are **placeholders** that show no business data; the features behind them arrive in later specifications (`.kiro/specs/`).
+Current state: **S01 Application Foundation, S02 Identity and Access, S03 Sales Data Import and S04 Intelligence and Issue Engine**. Sign-in, the three fixed roles (Owner, Manager, Staff), department scoping, read-only Company, Staff and Department settings, the shell, design system, queue, BusinessClock and test harness exist. Owners and Managers can upload, preview, confirm and trace daily branch sales CSV files under Data Imports. After each import the three predefined rules are evaluated and breaches become deduplicated Issues with their evidence; Owners and Managers see them under Issues and in the notification bell. The navigation pages Today, Briefs, Meetings, Tasks and Outcomes are **placeholders** that show no business data; the features behind them arrive in later specifications (`.kiro/specs/`).
 
 - Docker is not used anywhere. Local development is native.
 - Use fictional data only. Do not load real client data until the client has authorized it.
@@ -93,7 +93,11 @@ php artisan demo:set-date 2026-10-12 && php artisan demo:import week10-recovery
 
 Other fixtures: `week8-with-errors` (3 invalid rows, JB Saturday missing) and `week8-correction` (two corrected rows). Delete `storage/app/private/demo/fixed-datetime` to return to real time.
 
-## 5d. Passwords and access
+## 5d. Issues and intelligence
+
+Evaluation runs on the queue after every completed import, so **the queue worker must be running**. If an evaluation was not queued (for example the queue was down), open **Issues** and press **Refresh intelligence**: the evaluation uses the current data and the current business clock. After a fresh `migrate:fresh --seed` the demo rules use a 15% high-severity drop; a migration backfill creates default rules (25%) for existing databases. The S04 steps of the demonstration and a manual checklist are in `docs/s04-manual-verification.md`.
+
+## 5e. Passwords and access
 
 - **Password recovery is a manual Owner action.** There is no email reset and no self-service password change in Stage 1. This is an assumption pending client confirmation (S02 A2, A3).
 - A Manager can see the staff of their own department read-only; only the Owner administers accounts (S02 A4, also pending client confirmation).

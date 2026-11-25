@@ -5,6 +5,10 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\ImportTemplateController;
+use App\Http\Controllers\IssueController;
+use App\Http\Controllers\IssueTransitionController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\RefreshIntelligenceController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,7 +26,18 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
 
     // S01 placeholder pages: later specs replace each with a controller.
     Route::inertia('today', 'dashboard/Index')->name('today');
-    Route::inertia('issues', 'issues/Index')->name('issues.index');
+    // Issues (S04). Owner and Manager only: section.access plus IssuePolicy on every action.
+    Route::get('issues', [IssueController::class, 'index'])->name('issues.index');
+    Route::post('issues/refresh', RefreshIntelligenceController::class)->middleware('throttle:6,1')->name('issues.refresh');
+    Route::get('issues/{issue}', [IssueController::class, 'show'])->name('issues.show');
+    Route::post('issues/{issue}/acknowledge', [IssueTransitionController::class, 'acknowledge'])->name('issues.acknowledge');
+    Route::post('issues/{issue}/monitoring', [IssueTransitionController::class, 'startMonitoring'])->name('issues.monitoring');
+    Route::post('issues/{issue}/resolve', [IssueTransitionController::class, 'resolve'])->name('issues.resolve');
+
+    // Notifications: every signed-in user sees and clears only their own.
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+    Route::post('notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
     // Data Imports (S03). Owner and Manager only: section.access plus ImportPolicy on every action.
     Route::get('imports', [ImportController::class, 'index'])->name('imports.index');
     Route::get('imports/create', [ImportController::class, 'create'])->name('imports.create');

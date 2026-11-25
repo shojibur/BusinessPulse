@@ -77,7 +77,71 @@
           "status": "open",
           "completeness": null
         }
-      }
+      },
+      "evaluations": [
+        {
+          "clock": "2026-09-21 09:00",
+          "trigger": "import",
+          "rule": "weekly_revenue_decline",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "current": "155000.00",
+          "comparison": "154000.00",
+          "difference": "1000.00",
+          "differencePct": "0.65"
+        },
+        {
+          "clock": "2026-09-21 09:00",
+          "trigger": "import",
+          "rule": "sales_target_shortfall",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "current": "155000.00",
+          "comparison": "156000.00",
+          "difference": "-1000.00",
+          "differencePct": "99.36"
+        },
+        {
+          "clock": "2026-09-21 09:00",
+          "trigger": "import",
+          "rule": "missing_sales_data",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "presentDueBranchDays": 18,
+          "expectedDueBranchDays": 18,
+          "differencePct": "100.00"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "refresh",
+          "rule": "weekly_revenue_decline",
+          "result": "insufficient_data",
+          "severity": null,
+          "reason": "period_absent"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "refresh",
+          "rule": "sales_target_shortfall",
+          "result": "insufficient_data",
+          "severity": null,
+          "reason": "period_absent"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "refresh",
+          "rule": "missing_sales_data",
+          "result": "breached",
+          "severity": "medium",
+          "reason": null,
+          "presentDueBranchDays": 0,
+          "expectedDueBranchDays": 18,
+          "differencePct": "0.00"
+        }
+      ]
     },
     "week8-decline": {
       "file": "week8-decline.csv",
@@ -100,7 +164,44 @@
           "status": "closed",
           "completeness": "complete"
         }
-      }
+      },
+      "evaluations": [
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "weekly_revenue_decline",
+          "result": "breached",
+          "severity": "high",
+          "reason": null,
+          "current": "124000.00",
+          "comparison": "155000.00",
+          "difference": "-31000.00",
+          "differencePct": "-20.00"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "sales_target_shortfall",
+          "result": "breached",
+          "severity": "medium",
+          "reason": null,
+          "current": "124000.00",
+          "comparison": "156000.00",
+          "difference": "-32000.00",
+          "differencePct": "79.49"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "missing_sales_data",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "presentDueBranchDays": 18,
+          "expectedDueBranchDays": 18,
+          "differencePct": "100.00"
+        }
+      ]
     },
     "week8-with-errors": {
       "file": "week8-with-errors.csv",
@@ -139,7 +240,36 @@
           "status": "closed",
           "completeness": "incomplete"
         }
-      }
+      },
+      "evaluations": [
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "weekly_revenue_decline",
+          "result": "insufficient_data",
+          "severity": null,
+          "reason": "incomplete_period"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "sales_target_shortfall",
+          "result": "insufficient_data",
+          "severity": null,
+          "reason": "incomplete_period"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "missing_sales_data",
+          "result": "breached",
+          "severity": "medium",
+          "reason": null,
+          "presentDueBranchDays": 17,
+          "expectedDueBranchDays": 18,
+          "differencePct": "94.44"
+        }
+      ]
     },
     "week8-correction": {
       "file": "week8-correction.csv",
@@ -163,7 +293,44 @@
           "status": "closed",
           "completeness": "complete"
         }
-      }
+      },
+      "evaluations": [
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "weekly_revenue_decline",
+          "result": "breached",
+          "severity": "high",
+          "reason": null,
+          "current": "126000.00",
+          "comparison": "155000.00",
+          "difference": "-29000.00",
+          "differencePct": "-18.71"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "sales_target_shortfall",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "current": "126000.00",
+          "comparison": "156000.00",
+          "difference": "-30000.00",
+          "differencePct": "80.77"
+        },
+        {
+          "clock": "2026-09-28 09:00",
+          "trigger": "import",
+          "rule": "missing_sales_data",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "presentDueBranchDays": 18,
+          "expectedDueBranchDays": 18,
+          "differencePct": "100.00"
+        }
+      ]
     },
     "week9-interim": {
       "file": "week9-interim.csv",
@@ -187,7 +354,44 @@
           "status": "closed",
           "completeness": "complete"
         }
-      }
+      },
+      "evaluations": [
+        {
+          "clock": "2026-10-05 09:00",
+          "trigger": "import",
+          "rule": "weekly_revenue_decline",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "current": "138000.00",
+          "comparison": "124000.00",
+          "difference": "14000.00",
+          "differencePct": "11.29"
+        },
+        {
+          "clock": "2026-10-05 09:00",
+          "trigger": "import",
+          "rule": "sales_target_shortfall",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "current": "138000.00",
+          "comparison": "156000.00",
+          "difference": "-18000.00",
+          "differencePct": "88.46"
+        },
+        {
+          "clock": "2026-10-05 09:00",
+          "trigger": "import",
+          "rule": "missing_sales_data",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "presentDueBranchDays": 18,
+          "expectedDueBranchDays": 18,
+          "differencePct": "100.00"
+        }
+      ]
     },
     "week10-recovery": {
       "file": "week10-recovery.csv",
@@ -212,7 +416,44 @@
           "status": "closed",
           "completeness": "complete"
         }
-      }
+      },
+      "evaluations": [
+        {
+          "clock": "2026-10-12 09:00",
+          "trigger": "import",
+          "rule": "weekly_revenue_decline",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "current": "150000.00",
+          "comparison": "138000.00",
+          "difference": "12000.00",
+          "differencePct": "8.70"
+        },
+        {
+          "clock": "2026-10-12 09:00",
+          "trigger": "import",
+          "rule": "sales_target_shortfall",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "current": "150000.00",
+          "comparison": "156000.00",
+          "difference": "-6000.00",
+          "differencePct": "96.15"
+        },
+        {
+          "clock": "2026-10-12 09:00",
+          "trigger": "import",
+          "rule": "missing_sales_data",
+          "result": "not_breached",
+          "severity": null,
+          "reason": null,
+          "presentDueBranchDays": 18,
+          "expectedDueBranchDays": 18,
+          "differencePct": "100.00"
+        }
+      ]
     }
   }
 }
