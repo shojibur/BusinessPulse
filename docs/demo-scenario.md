@@ -131,3 +131,7 @@ Optional segments on a fresh reset: validation demo (`week8-with-errors.csv`), c
 | Transcription down | Paste `meeting-transcript.txt` as the manual transcript; extraction continues. |
 | Extraction down | Retry. No fake drafts are ever created. Rehearse beforehand and keep API budget available. |
 | No internet | Demonstrate only import, rules, issues, and trace. |
+
+## Related S09 documents
+
+Presenter script: `docs/demo-walkthrough.md`. Reset and seed: `demo:reset --force` (see `docs/local-setup.md`). Acceptance: `docs/acceptance-checklist.md`. Fallbacks: `docs/provider-failure-drills.md`.

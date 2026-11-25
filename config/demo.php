@@ -38,4 +38,16 @@ return [
 
     'password' => env('DEMO_PASSWORD'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Allow Demo Commands in Production
+    |--------------------------------------------------------------------------
+    |
+    | demo:seed and demo:reset refuse to run when APP_ENV is production unless
+    | this is explicitly true (a dedicated demo server only). Default false.
+    |
+    */
+
+    'allow_production' => (bool) env('DEMO_ALLOW_PRODUCTION_DEMO', false),
+
 ];
