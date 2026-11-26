@@ -1,0 +1,11 @@
+{
+  "decisions": [
+    {"summary": "Extend the Penang follow-up calls to the next ten accounts.", "excerpt": "Decision one: we will extend the Penang follow-up calls to the next ten accounts."},
+    {"summary": "Keep the Johor Bahru promo limited to two weeks.", "excerpt": "Decision two: we will keep the Johor Bahru promo limited to two weeks."}
+  ],
+  "task_drafts": [
+    {"title": "Book extra weekend staff for the Kuala Lumpur store", "description": "Confirm the weekend roster.", "assignee_name": "Daniel", "assignee_id": null, "deadline_phrase": "by Thursday", "excerpt": "Daniel, please book extra weekend staff for the Kuala Lumpur store by Thursday."},
+    {"title": "Send the Penang order summary to Wei Han", "description": "A weekly summary of Penang orders.", "assignee_name": "Priya", "assignee_id": null, "deadline_phrase": "every Friday", "excerpt": "Priya, send the Penang order summary to Wei Han every Friday."},
+    {"title": "Update the shelf labels in the Ipoh store", "description": "", "assignee_name": null, "assignee_id": null, "deadline_phrase": null, "excerpt": "Someone should update the shelf labels in the Ipoh store."}
+  ]
+}

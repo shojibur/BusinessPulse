@@ -19,7 +19,7 @@ final class DemoResetter
     public function __construct(private readonly DemoResetFlag $flag, private readonly DemoSeeder $seeder) {}
 
     /** @throws DemoSeedException when the reset cannot run or fails (nothing is half-deleted) */
-    public function reset(bool $populated = false): ResetSummary
+    public function reset(bool $populated = false, bool $full = false): ResetSummary
     {
         $lock = Cache::lock(DemoResetFlag::LOCK, 600);
 
@@ -43,7 +43,7 @@ final class DemoResetter
 
             [$filesDeleted, $undeleted] = $this->deleteFiles($files);
             $this->flag->clear(); // the seed runs its jobs in-process and would otherwise exit without effect
-            $seed = $this->seeder->seed($populated);
+            $seed = $this->seeder->seed($populated, $full);
 
             return new ResetSummary($deleted, $filesDeleted, $undeleted, $seed, (int) DB::table('failed_jobs')->count());
         } finally {

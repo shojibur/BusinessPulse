@@ -83,7 +83,7 @@ const statusColor = (status: MeetingSidebarItem['status']): string =>
 </script>
 
 <template>
-    <Card class="gap-0 p-0">
+    <Card class="@container gap-0 p-0">
         <div class="space-y-4 border-b p-5">
             <SectionHeader
                 title="Management meetings"
@@ -98,14 +98,19 @@ const statusColor = (status: MeetingSidebarItem['status']): string =>
                 </Button>
             </SectionHeader>
             <Tabs v-model="tab">
-                <TabsList class="w-full">
+                <!-- Three equal tabs that always fit the narrow list: a short label and a count pill. -->
+                <TabsList class="grid h-auto w-full grid-cols-3 gap-1 p-1">
                     <TabsTrigger
                         v-for="group in groupOrder"
                         :key="group"
                         :value="group"
-                        class="flex-1"
+                        class="h-auto min-w-0 flex-col gap-0.5 px-1 py-1.5 text-xs @[18rem]:flex-row @[18rem]:gap-1.5"
                     >
-                        {{ groupLabels[group] }} ({{ grouped[group].length }})
+                        <span class="truncate">{{ groupLabels[group] }}</span>
+                        <span
+                            class="rounded-full bg-muted px-1.5 text-[11px] leading-4 font-semibold text-muted-foreground tabular-nums"
+                            >{{ grouped[group].length }}</span
+                        >
                     </TabsTrigger>
                 </TabsList>
                 <TabsContent

@@ -12,7 +12,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Throwable;
 
-#[Signature('demo:reset {--force : Skip the typed confirmation} {--populated : Re-seed the populated demo (week 8 imported) instead of the clean presenter start}')]
+#[Signature('demo:reset {--force : Skip the typed confirmation} {--populated : Re-seed the populated demo (week 8 imported) instead of the clean presenter start} {--full : Re-seed the full demo story}')]
 #[Description('DESTRUCTIVE: delete ALL data of the demonstration company and its files, then re-seed it. Requires DEMO_MODE=true and exactly one company (the demo company). Refuses while queued jobs exist. Never run against real data.')]
 class ResetDemo extends Command
 {
@@ -38,7 +38,7 @@ class ResetDemo extends Command
         }
 
         try {
-            $summary = $resetter->reset((bool) $this->option('populated'));
+            $summary = $resetter->reset((bool) $this->option('populated'), (bool) $this->option('full'));
         } catch (DemoSeedException $e) {
             $this->components->error($e->getMessage());
 

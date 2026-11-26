@@ -15,8 +15,37 @@ class AiSettings
 {
     public const ANTHROPIC_DEFAULT_URL = 'https://api.anthropic.com';
 
+    /** The demo seeder pins every endpoint to "no AI" or to the recorded sample so seeding never reaches a live provider. */
+    public const MODE_OFF = 'off';
+
+    public const MODE_SAMPLE = 'sample';
+
+    public const SAMPLE_URL = 'https://demo-sample.invalid/v1';
+
+    private static ?string $pinned = null;
+
+    public static function pin(?string $mode): void
+    {
+        self::$pinned = $mode;
+    }
+
+    private function pinnedEndpoint(string $model, ?string $voice = null, bool $needsVoice = false): ?AiEndpoint
+    {
+        if (self::$pinned === null) {
+            return null;
+        }
+
+        $sample = self::$pinned === self::MODE_SAMPLE;
+
+        return new AiEndpoint(AiEndpoint::PROVIDER_OPENAI, $sample ? self::SAMPLE_URL : null, $sample ? 'demo-sample-key' : null, $model, $voice, source: $sample ? 'env' : 'none', needsVoice: $needsVoice);
+    }
+
     public function text(): AiEndpoint
     {
+        if (($pinned = $this->pinnedEndpoint('demo-sample-model')) !== null) {
+            return $pinned;
+        }
+
         $row = $this->row();
         $provider = self::provider($row?->text_provider ?: config('ai.text_provider'));
 
@@ -45,6 +74,10 @@ class AiSettings
 
     public function transcription(): AiEndpoint
     {
+        if (($pinned = $this->pinnedEndpoint('demo-sample-model')) !== null) {
+            return $pinned;
+        }
+
         $row = $this->row();
         $key = self::value($row?->transcription_api_key) ?? self::value(config('ai.api_key'));
 
@@ -59,6 +92,10 @@ class AiSettings
 
     public function speech(): AiEndpoint
     {
+        if (($pinned = $this->pinnedEndpoint('demo-sample-model', 'alloy', true)) !== null) {
+            return $pinned;
+        }
+
         $row = $this->row();
         $key = self::value($row?->speech_api_key) ?? self::value(config('ai.api_key'));
 

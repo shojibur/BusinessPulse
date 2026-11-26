@@ -39,17 +39,23 @@ class DemoSeeder
      *
      * @throws DemoSeedException
      */
-    public function seed(bool $populated = false): SeedSummary
+    public function seed(bool $populated = false, bool $full = false): SeedSummary
     {
+        $populated = $populated || $full;
         $company = Company::query()->where('is_demo', true)->first();
         $startFromClean = false;
+        $startFromPopulated = false;
 
         if ($company !== null) {
-            if ($populated && $this->alreadyPopulated($company)) {
+            if ($full && $this->alreadyFull($company)) {
                 return $this->summary($company, true, true);
             }
 
-            if ($this->alreadySeeded($company)) {
+            if ($full && $this->alreadyPopulated($company)) {
+                $startFromPopulated = true; // only the story after week 8 is missing
+            } elseif (! $full && $populated && $this->alreadyPopulated($company)) {
+                return $this->summary($company, true, true);
+            } elseif ($this->alreadySeeded($company)) {
                 if (! $populated) {
                     return $this->summary($company, true);
                 }
@@ -79,8 +85,12 @@ class DemoSeeder
                 // The clean start: no "Refresh intelligence" and no evaluation after this point.
             }
 
-            if ($populated) {
+            if ($populated && ! $startFromPopulated) {
                 $this->populate();
+            }
+
+            if ($full) {
+                app(DemoTimeline::class)->play(Company::query()->where('is_demo', true)->firstOrFail());
             }
         } finally {
             config(['queue.default' => $previousQueue]);
@@ -119,6 +129,15 @@ class DemoSeeder
         ]);
         $meeting->issues()->sync([$issue->id]);
         MeetingCreated::dispatch($meeting, $manager->id);
+    }
+
+    private function alreadyFull(Company $company): bool
+    {
+        $departmentIds = $company->departments()->pluck('id');
+
+        return Meeting::query()->whereIn('department_id', $departmentIds)->where('title', DemoTimeline::SECOND_MEETING_TITLE)->exists()
+            && DB::table('tasks')->whereIn('department_id', $departmentIds)->exists()
+            && DB::table('outcomes')->exists();
     }
 
     private function alreadyPopulated(Company $company): bool

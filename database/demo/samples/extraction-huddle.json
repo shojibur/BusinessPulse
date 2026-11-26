@@ -1,0 +1,12 @@
+{
+  "decisions": [
+    {"summary": "Prioritise reactivating the top lapsed Penang accounts.", "excerpt": "Decision one: we will prioritise reactivating the top lapsed Penang accounts."},
+    {"summary": "Run a limited pricing promotion trial in Johor Bahru.", "excerpt": "Decision two: we will run a limited pricing promotion trial in Johor Bahru."}
+  ],
+  "task_drafts": [
+    {"title": "Call the ten biggest lapsed Penang accounts", "description": "Reach the ten largest accounts that stopped ordering and note why.", "assignee_name": "Priya", "assignee_id": null, "deadline_phrase": "by Friday", "excerpt": "Priya, please call the ten biggest lapsed Penang accounts by Friday."},
+    {"title": "Prepare the JB promo proposal", "description": "Draft the limited pricing trial for Johor Bahru.", "assignee_name": "Farid", "assignee_id": null, "deadline_phrase": "by next Wednesday", "excerpt": "Farid, put together the JB promo proposal by next Wednesday."},
+    {"title": "Sort out the KL weekend display", "description": "", "assignee_name": "Daniel", "assignee_id": null, "deadline_phrase": null, "excerpt": "Daniel will sort out the KL weekend display."},
+    {"title": "Check why the Saturday stock was short", "description": "", "assignee_name": null, "assignee_id": null, "deadline_phrase": null, "excerpt": "Someone should check why the Saturday stock was short."}
+  ]
+}

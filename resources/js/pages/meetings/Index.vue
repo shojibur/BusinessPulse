@@ -176,7 +176,7 @@ const statusColor = (value: MeetingStatusValue): string =>
                 </div>
 
                 <Tabs v-model="tab">
-                    <TabsList>
+                    <TabsList class="max-w-full overflow-x-auto">
                         <TabsTrigger
                             v-for="group in groupOrder"
                             :key="group"

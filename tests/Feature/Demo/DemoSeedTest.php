@@ -8,6 +8,7 @@ use App\Models\Meeting;
 use App\Models\RuleEvaluation;
 use App\Models\SalesRecord;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -78,4 +79,26 @@ test('the populated seed is idempotent, upgrades a clean seed, and the clean see
     expect([Issue::count(), Import::count(), Meeting::count(), SalesRecord::count()])->toBe($counts);
 
     $this->artisan('demo:seed')->expectsOutputToContain('demo:reset')->assertExitCode(1);
+});
+
+test('the full seed plays the whole story through the real code paths and calls no live provider', function () {
+    Http::preventStrayRequests();
+
+    $this->artisan('demo:seed', ['--full' => true])->expectsOutputToContain('Full story')->assertExitCode(0);
+
+    expect(Meeting::count())->toBe(2)
+        ->and(Meeting::where('status', 'ready_for_review')->count())->toBe(2)
+        ->and(DB::table('task_drafts')->where('status', 'approved')->count())->toBe(4)
+        ->and(DB::table('task_drafts')->where('status', 'rejected')->count())->toBe(1)
+        ->and(DB::table('task_drafts')->where('status', 'pending')->count())->toBe(2) // ambiguous "Daniel" and the unowned stock check
+        ->and(DB::table('tasks')->where('status', 'completed')->count())->toBe(2)
+        ->and(DB::table('tasks')->where('status', 'in_progress')->count())->toBe(1)
+        ->and(DB::table('outcomes')->pluck('phase')->sort()->values()->all())->toBe(['during_action', 'post_action']) // week 9 and week 10, verified by the real engine
+        ->and(DB::table('briefs')->where('status', 'completed')->count())->toBe(3)
+        ->and(Issue::whereHas('rule', fn ($q) => $q->where('key', 'weekly_revenue_decline'))->sole()->status->value)->toBe('resolved')
+        ->and(Import::where('status', 'completed')->count())->toBe(4);
+
+    // Idempotent, and it never leaves the AI pinned or time frozen.
+    $this->artisan('demo:seed', ['--full' => true])->expectsOutputToContain('nothing changed')->assertExitCode(0);
+    expect(Meeting::count())->toBe(2)->and(Carbon::hasTestNow())->toBeFalse();
 });
