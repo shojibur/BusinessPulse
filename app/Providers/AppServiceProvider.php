@@ -11,6 +11,7 @@ use App\Services\CurrentCompany;
 use App\Support\BusinessClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -32,10 +33,23 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
+     * Trust the configured proxies (TRUSTED_PROXIES) so https, host and client address come from X-Forwarded-*.
+     */
+    public function configureTrustedProxies(): void
+    {
+        $value = config('app.trusted_proxies');
+
+        if (is_string($value) && trim($value) !== '') {
+            TrustProxies::at(trim($value) === '*' ? '*' : array_values(array_filter(array_map('trim', explode(',', $value)))));
+        }
+    }
+
+    /**
      * Bootstrap any application services.
      */
     public function boot(): void
     {
+        $this->configureTrustedProxies();
         $this->configureDefaults();
         $this->configureRouteBindings();
     }

@@ -54,6 +54,11 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    // Proxies whose X-Forwarded-* headers are trusted (Cloudflare, a load balancer, Ploi's nginx): `*` for all, or a
+    // comma-separated list of addresses. Empty trusts none. Without it, behind HTTPS termination the app builds http://
+    // asset and redirect addresses (mixed content). Only use `*` when the app is reachable only through the proxy.
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

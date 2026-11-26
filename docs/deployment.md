@@ -37,6 +37,12 @@ All jobs, including the AI jobs, run on the single `default` queue (`AI_QUEUE=de
 ## Production `.env` (key values)
 `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://...`, `SESSION_SECURE_COOKIE=true`, `DB_*` of the server database, `QUEUE_CONNECTION=database`, `CACHE_STORE=database`, `DEMO_MODE=false` (true only on a dedicated demo server together with `DEMO_ALLOW_PRODUCTION_DEMO=true`), AI variables set server-side, no secret in Git.
 
+## Behind a proxy (Ploi, Cloudflare, a load balancer)
+When HTTPS is ended by a proxy, set in the server `.env`: `TRUSTED_PROXIES=*` (only when the app is reachable only through the proxy), `APP_URL=https://your-domain`, `SESSION_SECURE_COOKIE=true`, `APP_ENV=production`, `APP_DEBUG=false`. Then `php artisan config:clear` (or `config:cache`). Without `TRUSTED_PROXIES` the app thinks the request is plain http and builds `http://` asset and redirect addresses (mixed content: broken or unstyled pages). Check with: `curl -sI https://your-domain/login | grep -i '^link'` (every address must start with `https://`) and the `set-cookie` header (must include `secure`).
+
+## Test domains and browser warnings
+Chrome may show "Dangerous site" for a free shared test domain such as `*.ploi.team`. That is Google Safe Browsing reputation (phishing heuristics on shared domains that serve sign-in forms), not a problem with your certificate or this code, and it cannot be fixed from the app. Use your own domain (for example `app.yourcompany.com`) with Ploi's Let's Encrypt certificate for anything shown to other people. To check a domain: `https://transparencyreport.google.com/safe-browsing/search`. To report a false positive: `https://safebrowsing.google.com/safebrowsing/report_error/`. A verified domain in Google Search Console also gets a Security issues report and a review request.
+
 ## Backups and restore
 Nightly `pg_dump` of the application database and an rsync of `storage/app/private`; test a restore on a scratch server. Backups hold personal data and follow the retention period (`docs/retention-and-deletion.md`).
 

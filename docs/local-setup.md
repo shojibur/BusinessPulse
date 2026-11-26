@@ -41,6 +41,7 @@ Fast loop while you work: `composer test:quick` runs only the test files you cha
 | `QUEUE_CONNECTION`, `DB_QUEUE_RETRY_AFTER` | Database queue; `retry_after` must exceed the longest job timeout | yes | `database`, 300 |
 | `CACHE_STORE`, `FILESYSTEM_DISK` | Database cache, private local disk | yes | `database`, `local` |
 | `BUSINESS_TIMEZONE` | Business timezone | no | `Asia/Kuala_Lumpur` |
+| `TRUSTED_PROXIES` | Proxies trusted for X-Forwarded-* (`*` behind Cloudflare, Ploi or a load balancer; empty for local) | on a server behind a proxy | empty |
 | `DEMO_MODE` | Enables the demo clock and demo commands | no | `false` |
 | `DEMO_ALLOW_PRODUCTION_DEMO` | Allows demo commands when `APP_ENV=production` (dedicated demo server only) | no | `false` |
 | `DEMO_PASSWORD` | Password of the demo users (8+ characters) | demo only | empty |
