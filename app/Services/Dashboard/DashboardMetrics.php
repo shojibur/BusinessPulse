@@ -5,10 +5,15 @@ namespace App\Services\Dashboard;
 use App\Enums\IssueSeverity;
 use App\Enums\IssueStatus;
 use App\Enums\WeekCompleteness;
+use App\Models\ActivityLog;
 use App\Models\Brief;
 use App\Models\Company;
 use App\Models\Department;
+use App\Models\Import;
 use App\Models\Issue;
+use App\Models\Meeting;
+use App\Models\Outcome;
+use App\Models\Task;
 use App\Models\User;
 use App\Services\AI\BriefSummaryComposer;
 use App\Services\Imports\Freshness;
@@ -17,8 +22,10 @@ use App\Services\Imports\WeekState;
 use App\Services\Intelligence\EvaluationHealth;
 use App\Services\Intelligence\Indeterminate;
 use App\Services\Intelligence\MetricCalculator;
+use App\Services\Outcomes\OutcomePresenter;
 use App\Services\Tasks\TaskCounts;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Assembles the dashboard from S03 coverage and S04 metrics. It adds no arithmetic: every figure is computed by
@@ -35,6 +42,7 @@ final class DashboardMetrics
         private readonly ReportingCoverage $coverage,
         private readonly EvaluationHealth $health,
         private readonly TaskCounts $tasks,
+        private readonly OutcomePresenter $outcomes,
     ) {}
 
     public function forOwnerOrManager(User $user, Department $department): DashboardData
@@ -67,6 +75,10 @@ final class DashboardMetrics
             revenueVsTarget: $hasData ? $this->series($company, $department, $latest) : [],
             latestBrief: $this->latestBrief($user, $timezone),
             taskCounts: $user->isOwner() ? $this->tasks->forCompany($user->company_id) : $this->tasks->forDepartment($department->id),
+            urgentIssues: $this->urgentIssues($user, $timezone),
+            taskStatus: $this->taskStatus($user),
+            outcome: $this->latestOutcome($user, $timezone),
+            activity: $this->recentActivity($user, $timezone),
         );
     }
 
@@ -248,5 +260,163 @@ final class DashboardMetrics
             'coverage_status' => $brief->coverage_status?->value,
             'generated_at' => $brief->generated_at?->setTimezone($timezone)->toIso8601String(),
         ];
+    }
+
+    /**
+     * The open issues the user may see, most severe first, each with one plain line of figures from its stored evaluation.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function urgentIssues(User $user, string $timezone): array
+    {
+        return Issue::visibleTo($user)->with(['rule', 'latestEvaluation', 'department'])
+            ->where('status', '!=', IssueStatus::Resolved->value)
+            ->orderByRaw("case severity when 'critical' then 0 when 'high' then 1 when 'medium' then 2 else 3 end")
+            ->orderByDesc('last_detected_at')->orderByDesc('id')->limit(5)->get()
+            ->map(fn (Issue $issue) => [
+                'id' => $issue->id,
+                'title' => $issue->title,
+                'severity' => $issue->severity->value,
+                'status_label' => $issue->status->label(),
+                'detail' => $this->issueLine($issue),
+                'detected_at' => $issue->last_detected_at?->setTimezone($timezone)->toIso8601String(),
+                'url' => route('issues.show', $issue),
+            ])->all();
+    }
+
+    /** One line from the stored evaluation, formatted by MetricCalculator (no new arithmetic). */
+    private function issueLine(Issue $issue): ?string
+    {
+        $e = $issue->latestEvaluation;
+
+        if ($e === null) {
+            return null;
+        }
+
+        $pct = $e->difference_pct === null ? null : $this->metrics->display2((string) $e->difference_pct);
+
+        return match ($issue->rule->key->value) {
+            'weekly_revenue_decline' => $pct === null ? null : "{$pct}% vs the week before"
+                .($e->current_value !== null && $e->comparison_value !== null ? ': '.$this->metrics->formatMoney($e->current_value).' vs '.$this->metrics->formatMoney($e->comparison_value) : ''),
+            'sales_target_shortfall' => $pct === null ? null : "{$pct}% of target"
+                .($e->current_value !== null && $e->comparison_value !== null ? ': '.$this->metrics->formatMoney($e->current_value).' of '.$this->metrics->formatMoney($e->comparison_value) : ''),
+            default => $e->current_value === null ? null : (int) $e->current_value.' of '.(int) $e->comparison_value.' due branch-days received',
+        };
+    }
+
+    /**
+     * Task counts by status for the donut, in one aggregate query, with the same visibility as the Tasks pages.
+     *
+     * @return array<string, int|array<string, int>>
+     */
+    private function taskStatus(User $user): array
+    {
+        $rows = Task::query()->visibleTo($user)->selectRaw('tasks.status, count(*) as total')->groupBy('tasks.status')->pluck('total', 'status');
+        $counts = [];
+
+        foreach (['pending', 'in_progress', 'blocked', 'completed', 'cancelled'] as $status) {
+            $counts[$status] = (int) ($rows[$status] ?? 0);
+        }
+
+        $total = array_sum($counts);
+
+        // Whole-number shares for the legend, worked out here so the page does no arithmetic.
+        $percent = array_map(fn (int $count) => $total === 0 ? 0 : (int) round($count * 100 / $total), $counts);
+
+        return $counts + ['total' => $total, 'percent' => $percent];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function latestOutcome(User $user, string $timezone): ?array
+    {
+        $outcome = Outcome::query()->visibleTo($user)->with('issue')->orderByDesc('evaluated_at')->orderByDesc('id')->first();
+
+        return $outcome === null ? null : $this->outcomes->summary($outcome, $timezone) + [
+            'issueTitle' => $outcome->issue?->title,
+            'issueUrl' => $outcome->issue === null ? null : route('issues.show', $outcome->issue),
+        ];
+    }
+
+    /**
+     * The latest activity rows of the user's scope (company for an Owner, department for a Manager). Titles and links come
+     * from the linked records only, and a row whose record the user may not open is left out.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function recentActivity(User $user, string $timezone): array
+    {
+        $rows = ActivityLog::query()->where('company_id', $user->company_id)
+            ->when($user->isManager(), fn ($q) => $q->where('department_id', $user->department_id))
+            ->whereIn('subject_type', ['Import', 'Brief', 'Meeting', 'Task', 'Outcome', 'Issue'])
+            ->orderByDesc('id')->limit(20)->get();
+
+        $models = [
+            'Import' => Import::query()->whereIn('id', $rows->where('subject_type', 'Import')->pluck('subject_id'))->get()->keyBy('id'),
+            'Brief' => Brief::query()->whereIn('id', $rows->where('subject_type', 'Brief')->pluck('subject_id'))->get()->keyBy('id'),
+            'Meeting' => Meeting::query()->whereIn('id', $rows->where('subject_type', 'Meeting')->pluck('subject_id'))->get()->keyBy('id'),
+            'Task' => Task::query()->whereIn('id', $rows->where('subject_type', 'Task')->pluck('subject_id'))->get()->keyBy('id'),
+            'Issue' => Issue::query()->whereIn('id', $rows->where('subject_type', 'Issue')->pluck('subject_id'))->get()->keyBy('id'),
+        ];
+        $names = User::query()->whereIn('id', $rows->pluck('user_id')->filter()->unique())->pluck('name', 'id');
+        $visibleOutcomes = Outcome::query()->visibleTo($user)->whereIn('id', $rows->where('subject_type', 'Outcome')->pluck('subject_id'))->pluck('id')->flip();
+        $gate = Gate::forUser($user);
+        $out = [];
+
+        foreach ($rows as $row) {
+            $type = (string) $row->subject_type;
+            $model = ($models[$type] ?? null)?->get($row->subject_id);
+
+            // Only records the user may open: a missing or foreign record is left out.
+            if ($type === 'Outcome' ? ! $visibleOutcomes->has($row->subject_id) : ($model === null || ! $gate->allows('view', $model))) {
+                continue;
+            }
+
+            $label = $this->activityLabel($row->action, $row->properties ?? []);
+            if ($label === null) {
+                continue;
+            }
+
+            [$title, $url] = match ($type) {
+                'Import' => [$model->original_filename, route('imports.show', $model)],
+                'Brief' => [$model->headline, route('briefs.show', $model)],
+                'Meeting' => [$model->title, route('meetings.show', $model)],
+                'Task' => [$model->title, route('tasks.show', $model)],
+                'Issue' => [$model->title, route('issues.show', $model)],
+                default => [null, route('outcomes.show', $row->subject_id)],
+            };
+
+            $at = $row->created_at->setTimezone($timezone);
+            $out[] = [
+                'id' => $row->id,
+                'label' => $label,
+                'by' => $row->user_id === null ? 'System' : ($names[$row->user_id] ?? 'System'),
+                'at' => $at->toIso8601String(),
+                'atLabel' => $at->format('j M Y, H:i'),
+                'title' => $title,
+                'url' => $url,
+            ];
+
+            if (count($out) === 5) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param  array<string, mixed>  $properties */
+    private function activityLabel(string $action, array $properties): ?string
+    {
+        $replace = [];
+
+        foreach ($properties as $key => $value) {
+            $replace[$key] = is_bool($value) ? ($value ? 'yes' : 'no') : str_replace('_', ' ', (string) $value);
+        }
+
+        $label = trans('activity.'.$action, $replace);
+
+        return $label === 'activity.'.$action ? null : $label;
     }
 }

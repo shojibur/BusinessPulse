@@ -87,6 +87,8 @@ export type OutcomeDetail = {
         status: string;
         statusLabel: string;
         url: string;
+        severity: 'high' | 'medium' | 'low';
+        detectedLabel: string;
     };
     ruleName: string;
     departmentName: string;

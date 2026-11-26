@@ -63,6 +63,7 @@ function signOut(): void {
         :page-title="pageTitle"
         :user-name="admin?.name"
         :user-subtitle="admin?.email"
+        context-name="Platform admin"
         @sign-out="signOut"
     >
         <slot />

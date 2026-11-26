@@ -34,6 +34,14 @@ final readonly class DashboardData implements Arrayable
         public ?array $latestBrief,
         /** @var array{open: int, overdue: int} persisted task counts (Owner: company, Manager: department) */
         public array $taskCounts = ['open' => 0, 'overdue' => 0],
+        /** @var list<array<string, mixed>> open issues, high severity first (at most five) */
+        public array $urgentIssues = [],
+        /** @var array<string, int> task counts by status plus `total` (Owner: company, Manager: department) */
+        public array $taskStatus = [],
+        /** @var array<string, mixed>|null the latest outcome the user may see */
+        public ?array $outcome = null,
+        /** @var list<array<string, mixed>> the latest activity the user may see (at most five) */
+        public array $activity = [],
     ) {}
 
     public function toArray(): array

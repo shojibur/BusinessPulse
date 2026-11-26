@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\Role;
+use App\Services\AI\OpenAiClient;
 use App\Services\Dashboard\DashboardMetrics;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,6 +36,7 @@ class DashboardController extends Controller
             'audience' => 'owner_manager',
             'data' => $this->metrics->forOwnerOrManager($user, $department)->toArray(),
             'canGenerateBrief' => true,
+            'ai' => ['text' => OpenAiClient::textConfigured()],
         ]);
     }
 }

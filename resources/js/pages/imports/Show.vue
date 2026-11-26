@@ -236,9 +236,7 @@ const isFinished = computed(
                 "
                 :icon="FileSpreadsheet"
             />
-            <div
-                class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6"
-            >
+            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <MetricTile
                     label="Total rows"
                     :value="formatNumber(record.total_rows)"

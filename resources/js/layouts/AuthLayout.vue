@@ -17,14 +17,14 @@ const points = [
     <div class="grid min-h-svh lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <!-- Brand panel: wide screens only. -->
         <aside
-            class="relative hidden flex-col justify-between overflow-hidden bg-sidebar p-12 text-sidebar-foreground lg:flex"
+            class="relative hidden flex-col justify-between overflow-hidden bg-[#0b1b2e] p-12 text-slate-300 lg:flex"
         >
             <div
                 class="pointer-events-none absolute -top-24 -right-24 size-80 rounded-full bg-primary/20 blur-3xl"
                 aria-hidden="true"
             />
             <div
-                class="pointer-events-none absolute -bottom-32 -left-16 size-96 rounded-full bg-sidebar-ring/10 blur-3xl"
+                class="pointer-events-none absolute -bottom-32 -left-16 size-96 rounded-full bg-teal-300/10 blur-3xl"
                 aria-hidden="true"
             />
             <div class="relative flex items-center gap-3 text-white">
@@ -51,7 +51,7 @@ const points = [
                         class="flex items-center gap-3 text-sm"
                     >
                         <span
-                            class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sidebar-ring"
+                            class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-teal-300"
                         >
                             <component
                                 :is="point.icon"

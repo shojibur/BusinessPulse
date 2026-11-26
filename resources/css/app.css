@@ -111,14 +111,14 @@
     --info: #0369a1;
     --info-bg: #e0f2fe;
 
-    --sidebar: #0b1b2e;
-    --sidebar-foreground: #cbd5e1;
+    --sidebar: #ffffff;
+    --sidebar-foreground: #475569;
     --sidebar-primary: #0f9488;
     --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #152a42;
-    --sidebar-accent-foreground: #ffffff;
-    --sidebar-border: #1c3350;
-    --sidebar-ring: #5eead4;
+    --sidebar-accent: #e6f4f2;
+    --sidebar-accent-foreground: #0f766e;
+    --sidebar-border: #e5eaf0;
+    --sidebar-ring: #0f9488;
 }
 
 @layer base {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Link, usePage } from '@inertiajs/vue3';
-import { Menu, PanelLeftClose, PanelLeftOpen } from '@lucide/vue';
+import { CalendarDays, Menu, PanelLeftClose, PanelLeftOpen } from '@lucide/vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import ShellNav from '@/components/ShellNav.vue';
@@ -39,6 +39,10 @@ defineProps<{
     pageTitle: string;
     userName?: string | null;
     userSubtitle?: string | null;
+    /** The company (or panel) the user works in, shown under the brand. */
+    contextName?: string | null;
+    /** Today's business date for the header pill. */
+    dateLabel?: string | null;
 }>();
 
 const emit = defineEmits<{ signOut: [] }>();
@@ -79,11 +83,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
             >
                 <Link
                     :href="brandHref"
-                    class="flex h-14 shrink-0 items-center gap-3 text-white outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                    class="flex h-16 shrink-0 items-center gap-3 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                     :class="collapsed ? 'justify-center px-0' : 'px-4'"
                 >
                     <span
-                        class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"
+                        class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground"
                     >
                         <component
                             :is="brandIcon"
@@ -95,17 +99,41 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                         class="min-w-0 leading-tight"
                         :class="collapsed && 'sr-only'"
                     >
-                        <span class="block truncate text-base font-semibold">
+                        <span
+                            class="block truncate text-lg font-bold tracking-tight"
+                        >
                             {{ brandName }}
                         </span>
                         <span
                             v-if="brandSubtitle"
-                            class="block truncate text-xs text-sidebar-foreground"
+                            class="block truncate text-xs text-muted-foreground"
                         >
                             {{ brandSubtitle }}
                         </span>
                     </span>
                 </Link>
+                <div
+                    v-if="contextName"
+                    class="px-3 pb-3"
+                    :class="collapsed && 'flex justify-center px-0'"
+                >
+                    <div
+                        class="flex items-center gap-2.5 rounded-lg border border-sidebar-border bg-muted/40 p-2"
+                        :class="collapsed && 'border-0 bg-transparent p-0'"
+                        :title="contextName"
+                    >
+                        <span
+                            class="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary-text"
+                            aria-hidden="true"
+                            >{{ contextName.charAt(0).toUpperCase() }}</span
+                        >
+                        <span
+                            v-if="!collapsed"
+                            class="min-w-0 truncate text-sm font-medium text-foreground"
+                            >{{ contextName }}</span
+                        >
+                    </div>
+                </div>
                 <nav aria-label="Primary" class="flex-1 overflow-y-auto p-2">
                     <ShellNav :items="navigation" :collapsed="collapsed" />
                 </nav>
@@ -148,7 +176,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                             class="flex w-72 flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
                         >
                             <SheetHeader class="h-14 justify-center px-4">
-                                <SheetTitle class="text-white">
+                                <SheetTitle class="text-foreground">
                                     {{ brandName }}
                                 </SheetTitle>
                                 <SheetDescription class="sr-only">
@@ -224,6 +252,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
                         </ol>
                     </nav>
 
+                    <span
+                        v-if="dateLabel"
+                        class="hidden items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-xs font-medium text-foreground sm:inline-flex"
+                    >
+                        <CalendarDays
+                            class="size-4 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                        {{ dateLabel }}
+                    </span>
                     <slot name="header-actions" />
                 </header>
 

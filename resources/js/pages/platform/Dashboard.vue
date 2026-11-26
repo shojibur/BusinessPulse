@@ -4,12 +4,14 @@ import {
     Building2,
     CircleCheck,
     CirclePause,
+    History,
     Plus,
     Sparkles,
     Users,
 } from '@lucide/vue';
-import StatCard from '@/components/platform/StatCard.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -66,27 +68,27 @@ const providerLabel = (provider: string): string =>
     </PageHeader>
 
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
+        <MetricTile
             label="Companies"
-            :value="stats.companies"
+            :value="String(stats.companies)"
             :icon="Building2"
             :caption="stats.demo ? `${stats.demo} demo` : undefined"
         />
-        <StatCard
+        <MetricTile
             label="Active"
-            :value="stats.active"
+            :value="String(stats.active)"
             :icon="CircleCheck"
             tone="success"
         />
-        <StatCard
+        <MetricTile
             label="Suspended"
-            :value="stats.suspended"
+            :value="String(stats.suspended)"
             :icon="CirclePause"
             tone="warning"
         />
-        <StatCard
+        <MetricTile
             label="Users"
-            :value="stats.users"
+            :value="String(stats.users)"
             :icon="Users"
             tone="info"
         />
@@ -95,7 +97,7 @@ const providerLabel = (provider: string): string =>
     <div class="mt-6 grid gap-6 xl:grid-cols-3">
         <Card class="gap-0 p-0 xl:col-span-2">
             <div class="flex items-center justify-between border-b px-5 py-4">
-                <h2 class="text-base font-semibold">Newest companies</h2>
+                <SectionHeader title="Newest companies" :icon="Building2" />
                 <Button variant="ghost" size="sm" as-child>
                     <Link :href="index().url">View all</Link>
                 </Button>
@@ -145,7 +147,7 @@ const providerLabel = (provider: string): string =>
 
         <Card class="gap-0 p-0">
             <div class="flex items-center justify-between border-b px-5 py-4">
-                <h2 class="text-base font-semibold">AI services</h2>
+                <SectionHeader title="AI services" :icon="Sparkles" />
                 <Button variant="ghost" size="sm" as-child>
                     <Link :href="aiEdit().url">Configure</Link>
                 </Button>
@@ -176,7 +178,7 @@ const providerLabel = (provider: string): string =>
 
     <Card class="mt-6 gap-0 p-0">
         <div class="border-b px-5 py-4">
-            <h2 class="text-base font-semibold">Recent platform activity</h2>
+            <SectionHeader title="Recent platform activity" :icon="History" />
         </div>
         <p
             v-if="activity.length === 0"

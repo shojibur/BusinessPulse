@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import { Info, MessageSquareQuote } from '@lucide/vue';
 import PageHeader from '@/components/PageHeader.vue';
+import StepTracker from '@/components/StepTracker.vue';
 import SectionHeader from '@/components/SectionHeader.vue';
+import AssigneeAvatar from '@/components/tasks/AssigneeAvatar.vue';
 import CommentThread from '@/components/tasks/CommentThread.vue';
 import OverdueBadge from '@/components/tasks/OverdueBadge.vue';
 import StatusActions from '@/components/tasks/StatusActions.vue';
@@ -19,7 +22,7 @@ import type {
     TaskStatusValue,
 } from '@/types';
 
-defineProps<{
+const props = defineProps<{
     task: TaskDetailData;
     meeting: {
         id: number;
@@ -34,6 +37,21 @@ defineProps<{
     can: { changeStatus: TaskStatusValue[]; comment: boolean };
     businessToday: string;
 }>();
+
+// Progress of the work: pending, in progress, completed. Blocked stays on "in progress"; cancelled has no tracker.
+const steps = [
+    { key: 'pending', label: 'Pending' },
+    { key: 'in_progress', label: 'In progress' },
+    { key: 'completed', label: 'Completed' },
+];
+
+const currentStep = computed(() =>
+    props.task.status === 'completed'
+        ? steps.length
+        : props.task.status === 'pending'
+          ? 0
+          : 1,
+);
 </script>
 
 <template>
@@ -53,6 +71,17 @@ defineProps<{
     <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <!-- Main column: the work and the conversation. -->
         <div class="min-w-0 space-y-6">
+            <Card v-if="task.status !== 'cancelled'" class="gap-3 p-5">
+                <StepTracker :steps="steps" :current="currentStep" />
+                <p
+                    v-if="task.status === 'blocked'"
+                    class="text-center text-xs font-medium text-severity-medium"
+                    role="status"
+                >
+                    This task is blocked.
+                </p>
+            </Card>
+
             <Card v-if="task.description" class="gap-2 p-5">
                 <SectionHeader title="Description" />
                 <p class="text-sm whitespace-pre-wrap">
@@ -148,6 +177,13 @@ defineProps<{
                         <dt class="text-xs text-muted-foreground">Due date</dt>
                         <dd class="font-medium">
                             {{ formatDate(task.dueDate) }}
+                        </dd>
+                    </div>
+                    <div class="col-span-2">
+                        <dt class="text-xs text-muted-foreground">Assignee</dt>
+                        <dd class="mt-1 flex items-center gap-2 font-medium">
+                            <AssigneeAvatar :name="task.assignee.name" />
+                            {{ task.assignee.name }}
                         </dd>
                     </div>
                     <div>

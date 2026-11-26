@@ -12,6 +12,14 @@ import type { IssueTasks, StatusTone } from '@/types';
 
 const props = defineProps<{ tasks: IssueTasks }>();
 
+// Share of linked tasks that are finished (cancelled tasks do not count).
+const progress = computed(() => {
+    const c = props.tasks.counts;
+    const total = c.pending + c.in_progress + c.blocked + c.completed;
+
+    return total === 0 ? null : Math.round((c.completed / total) * 100);
+});
+
 const chips = computed<{ label: string; count: number; tone: StatusTone }[]>(
     () => [
         {
@@ -50,7 +58,27 @@ const chips = computed<{ label: string; count: number; tone: StatusTone }[]>(
             title="Tasks"
             description="Completing every task moves this issue to monitoring. It does not resolve it."
             :icon="ListChecks"
-        />
+        >
+            <span
+                v-if="progress !== null"
+                class="text-xs font-semibold text-foreground tabular-nums"
+                >{{ progress }}% complete</span
+            >
+        </SectionHeader>
+        <div
+            v-if="progress !== null"
+            class="h-1.5 overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            :aria-valuenow="progress"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-label="Share of linked tasks completed"
+        >
+            <div
+                class="h-full rounded-full bg-primary"
+                :style="{ width: `${progress}%` }"
+            />
+        </div>
         <div class="flex flex-wrap gap-2" role="status">
             <StatusBadge
                 v-for="chip in chips"

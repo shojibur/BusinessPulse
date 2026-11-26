@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
-import { CircleAlert, ListChecks } from '@lucide/vue';
+import {
+    CircleAlert,
+    CircleCheck,
+    ListChecks,
+    TriangleAlert,
+    Ban,
+} from '@lucide/vue';
 import EmptyState from '@/components/EmptyState.vue';
 import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
@@ -49,7 +55,10 @@ const empty = () =>
 <template>
     <Head title="My tasks" />
 
-    <PageHeader title="My tasks" description="The tasks assigned to you." />
+    <PageHeader
+        title="My tasks"
+        description="Everything assigned to you, with what is late first."
+    />
 
     <div class="space-y-6">
         <div class="grid gap-4 sm:grid-cols-2" aria-label="Task summary">
@@ -116,7 +125,12 @@ const empty = () =>
                 aria-labelledby="overdue-heading"
                 class="space-y-3"
             >
-                <SectionHeader id="overdue-heading" title="Overdue" />
+                <SectionHeader
+                    id="overdue-heading"
+                    :title="`Overdue (${sections.overdue.length})`"
+                    description="Past their due date. Update these first."
+                    :icon="TriangleAlert"
+                />
                 <TaskRow
                     v-for="task in sections.overdue"
                     :key="task.id"
@@ -129,7 +143,12 @@ const empty = () =>
                 aria-labelledby="open-heading"
                 class="space-y-3"
             >
-                <SectionHeader id="open-heading" title="Open" />
+                <SectionHeader
+                    id="open-heading"
+                    :title="`Open (${sections.open.length})`"
+                    description="Pending, in progress or blocked."
+                    :icon="ListChecks"
+                />
                 <TaskRow
                     v-for="task in sections.open"
                     :key="task.id"
@@ -142,7 +161,11 @@ const empty = () =>
                 aria-labelledby="done-heading"
                 class="space-y-3"
             >
-                <SectionHeader id="done-heading" title="Completed" />
+                <SectionHeader
+                    id="done-heading"
+                    :title="`Completed (${sections.completed.length})`"
+                    :icon="CircleCheck"
+                />
                 <TaskRow
                     v-for="task in sections.completed"
                     :key="task.id"
@@ -154,7 +177,11 @@ const empty = () =>
                 aria-labelledby="cancelled-heading"
                 class="space-y-3"
             >
-                <SectionHeader id="cancelled-heading" title="Cancelled" />
+                <SectionHeader
+                    id="cancelled-heading"
+                    :title="`Cancelled (${sections.cancelled.length})`"
+                    :icon="Ban"
+                />
                 <TaskRow
                     v-for="task in sections.cancelled"
                     :key="task.id"

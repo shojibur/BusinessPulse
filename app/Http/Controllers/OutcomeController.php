@@ -9,6 +9,7 @@ use App\Models\Feedback;
 use App\Models\Outcome;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\Outcomes\IssueOutcomeProps;
 use App\Services\Outcomes\OutcomePresenter;
 use App\Services\Outcomes\OutcomeWording;
 use Illuminate\Http\Request;
@@ -85,7 +86,8 @@ class OutcomeController extends Controller
         return Inertia::render('outcomes/Show', [
             'outcome' => [
                 'id' => $o->id, 'heading' => OutcomeWording::HEADING, 'standingSentence' => OutcomeWording::STANDING,
-                'issue' => ['id' => $issue->id, 'title' => $issue->title, 'status' => $issue->status->value, 'statusLabel' => $issue->status->label(), 'url' => route('issues.show', $issue->id)],
+                'issue' => ['id' => $issue->id, 'title' => $issue->title, 'status' => $issue->status->value, 'statusLabel' => $issue->status->label(), 'url' => route('issues.show', $issue->id),
+                    'severity' => $issue->severity->value, 'detectedLabel' => $issue->first_detected_at->setTimezone($timezone)->format('j M Y')],
                 'ruleName' => $issue->rule->name, 'departmentName' => $issue->department->name,
                 'outcomeMetric' => $o->outcome_metric->value, 'outcomeMetricLabel' => OutcomeWording::metric($o->outcome_metric),
                 'baselinePeriod' => ['start' => $b['periodStart'], 'end' => $b['periodEnd']],
@@ -110,6 +112,8 @@ class OutcomeController extends Controller
                 'manualNote' => $o->manual_note === null ? null : ['text' => $o->manual_note, 'byName' => User::query()->whereKey($o->manual_note_by)->value('name'), 'atLabel' => $o->manual_note_at?->setTimezone($timezone)->format('j M Y, H:i')],
             ],
             'chart' => $chart,
+            // The activity trace of the issue (the same data as the issue page), loaded after the page.
+            'trace' => Inertia::defer(fn () => app(IssueOutcomeProps::class)->trace($issue, $user)),
             'otherOutcomes' => Outcome::query()->where('issue_id', $issue->id)->where('id', '!=', $o->id)->orderByDesc('evaluated_at')->orderByDesc('id')->get()
                 ->map(fn (Outcome $x) => ['id' => $x->id, 'resultLabel' => OutcomeWording::result($x->result), 'phaseLabel' => OutcomeWording::phase($x->phase), 'evaluatedAtLabel' => $x->evaluated_at->setTimezone($timezone)->format('j M Y, H:i'), 'url' => route('outcomes.show', $x->id)])->values(),
             'tasks' => Task::query()->where('issue_id', $issue->id)->with('assignee:id,name')->orderBy('due_date')->limit(20)->get()

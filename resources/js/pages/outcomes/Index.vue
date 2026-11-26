@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { Deferred, Head, Link, router } from '@inertiajs/vue3';
-import { ChevronRight, TrendingUp } from '@lucide/vue';
+import {
+    ChevronRight,
+    CircleCheck,
+    Minus,
+    TrendingDown,
+    TrendingUp,
+} from '@lucide/vue';
 import { ref } from 'vue';
 import EmptyState from '@/components/EmptyState.vue';
 import ChangeFigures from '@/components/outcomes/ChangeFigures.vue';
 import OutcomeResultBadge from '@/components/outcomes/OutcomeResultBadge.vue';
 import PhaseBadge from '@/components/outcomes/PhaseBadge.vue';
 import PageHeader from '@/components/PageHeader.vue';
-import SectionHeader from '@/components/SectionHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -38,6 +43,23 @@ function apply(): void {
         { preserveState: true, replace: true },
     );
 }
+
+const resultIcon = (r: string) =>
+    r === 'improved' ? CircleCheck : r === 'worsened' ? TrendingDown : Minus;
+
+const resultTile = (r: string): string =>
+    r === 'improved'
+        ? 'bg-success-bg text-success'
+        : r === 'worsened'
+          ? 'bg-severity-high-bg text-severity-high'
+          : 'bg-muted text-muted-foreground';
+
+const changeColor = (r: string): string =>
+    r === 'improved'
+        ? 'text-success'
+        : r === 'worsened'
+          ? 'text-severity-high'
+          : 'text-foreground';
 </script>
 
 <template>
@@ -45,13 +67,14 @@ function apply(): void {
 
     <PageHeader
         title="Outcomes"
-        description="Observed change after actions. This shows what changed, not that the actions caused it."
+        description="What changed after management actions were taken."
     />
 
     <div class="space-y-6">
-        <Card class="gap-4 p-5">
-            <SectionHeader title="Filter" />
-            <div class="flex flex-wrap items-end gap-3">
+        <Card class="gap-0 overflow-hidden p-0">
+            <div
+                class="flex flex-wrap items-end gap-3 border-b bg-muted/30 px-5 py-4"
+            >
                 <div class="grid gap-1">
                     <label
                         for="outcome-result"
@@ -96,94 +119,107 @@ function apply(): void {
                         </option>
                     </NativeSelect>
                 </div>
+                <p class="ms-auto text-xs text-muted-foreground tabular-nums">
+                    {{ pagination.total }} outcome{{
+                        pagination.total === 1 ? '' : 's'
+                    }}
+                </p>
             </div>
-        </Card>
 
-        <Deferred data="outcomes">
-            <template #fallback>
-                <div class="space-y-3" aria-busy="true">
-                    <Skeleton class="h-20 w-full" /><Skeleton
-                        class="h-20 w-full"
-                    />
-                </div>
-            </template>
-            <Card v-if="!outcomes || outcomes.length === 0">
+            <Deferred data="outcomes">
+                <template #fallback>
+                    <div class="space-y-3 p-5" aria-busy="true">
+                        <Skeleton class="h-16 w-full" /><Skeleton
+                            class="h-16 w-full"
+                        />
+                    </div>
+                </template>
                 <EmptyState
+                    v-if="!outcomes || outcomes.length === 0"
                     :icon="TrendingUp"
                     message="No outcomes yet. They appear after an issue has actions in progress and a later week has been evaluated."
                 />
-            </Card>
-            <Card v-else class="gap-0 overflow-hidden p-0">
-                <ul class="divide-y">
-                    <li
-                        v-for="o in outcomes"
-                        :key="o.id"
-                        class="border-l-4 transition-colors hover:bg-muted/40"
-                        :class="{
-                            'border-l-success': o.result === 'improved',
-                            'border-l-severity-high': o.result === 'worsened',
-                            'border-l-slate-300':
-                                o.result !== 'improved' &&
-                                o.result !== 'worsened',
-                        }"
-                    >
+                <ul v-else class="divide-y">
+                    <li v-for="o in outcomes" :key="o.id">
                         <Link
                             :href="o.url"
-                            class="block space-y-2 px-5 py-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
+                            class="group flex flex-wrap items-center gap-4 px-5 py-4 outline-none transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
                         >
                             <span
-                                class="flex flex-wrap items-start justify-between gap-2"
+                                class="flex size-11 shrink-0 items-center justify-center rounded-xl"
+                                :class="resultTile(o.result)"
                             >
+                                <component
+                                    :is="resultIcon(o.result)"
+                                    class="size-5"
+                                    aria-hidden="true"
+                                />
+                            </span>
+                            <span class="min-w-0 flex-1">
                                 <span
-                                    class="text-sm/5 font-semibold text-foreground"
+                                    class="block truncate text-sm/5 font-semibold text-foreground"
                                     >{{ o.issueTitle }}</span
                                 >
-                                <span class="flex flex-wrap items-center gap-2">
-                                    <OutcomeResultBadge
-                                        :result="o.result"
-                                        :label="o.resultLabel"
-                                    />
-                                    <PhaseBadge
-                                        :label="o.phaseLabel"
-                                        :used-for-verification="
-                                            o.usedForVerification
-                                        "
-                                    />
-                                    <ChevronRight
-                                        class="hidden size-4 text-muted-foreground sm:block"
-                                        aria-hidden="true"
-                                    />
+                                <span
+                                    class="block truncate text-xs text-muted-foreground"
+                                >
+                                    {{ o.departmentName }} · {{ o.ruleName }} ·
+                                    issue {{ o.issueStatusLabel }} · evaluated
+                                    {{ o.evaluatedAtLabel }}
+                                </span>
+                                <span
+                                    v-if="o.notEvaluableText"
+                                    class="mt-1 block text-xs"
+                                    >{{ o.notEvaluableText }}</span
+                                >
+                                <span
+                                    v-else
+                                    class="mt-1 block text-xs text-muted-foreground tabular-nums"
+                                >
+                                    {{ o.outcomeMetricLabel }}:
+                                    <span class="font-medium text-foreground">{{
+                                        o.baselineLabel
+                                    }}</span>
+                                    →
+                                    <span class="font-medium text-foreground">{{
+                                        o.followupLabel
+                                    }}</span>
                                 </span>
                             </span>
-                            <span class="block text-xs text-muted-foreground">
-                                {{ o.departmentName }} · {{ o.ruleName }} ·
-                                issue {{ o.issueStatusLabel }} ·
-                                {{ o.evaluatedAtLabel }}
-                            </span>
                             <span
-                                v-if="o.notEvaluableText"
-                                class="block text-sm"
-                                >{{ o.notEvaluableText }}</span
+                                v-if="!o.notEvaluableText"
+                                class="text-base/6 font-semibold"
+                                :class="changeColor(o.result)"
                             >
-                            <span v-else class="block text-sm tabular-nums">
-                                {{ o.outcomeMetricLabel }}:
-                                <span class="font-medium">{{
-                                    o.baselineLabel
-                                }}</span>
-                                →
-                                <span class="font-medium">{{
-                                    o.followupLabel
-                                }}</span>
-                                ·
                                 <ChangeFigures :labels="o.changeLabels" />
+                            </span>
+                            <span class="flex flex-wrap items-center gap-2">
+                                <OutcomeResultBadge
+                                    :result="o.result"
+                                    :label="o.resultLabel"
+                                />
+                                <PhaseBadge
+                                    :label="o.phaseLabel"
+                                    :used-for-verification="
+                                        o.usedForVerification
+                                    "
+                                />
+                                <ChevronRight
+                                    class="hidden size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 sm:block"
+                                    aria-hidden="true"
+                                />
                             </span>
                         </Link>
                     </li>
                 </ul>
-            </Card>
+            </Deferred>
+        </Card>
+
+        <Deferred data="outcomes">
+            <template #fallback><span /></template>
             <nav
                 v-if="pagination.last_page > 1"
-                class="mt-4 flex items-center justify-between"
+                class="flex items-center justify-between"
                 aria-label="Outcome pages"
             >
                 <Button
@@ -212,5 +248,9 @@ function apply(): void {
                 </Button>
             </nav>
         </Deferred>
+
+        <p class="px-1 text-xs text-muted-foreground">
+            Observed change after actions, not proof that the actions caused it.
+        </p>
     </div>
 </template>

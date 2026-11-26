@@ -26,6 +26,8 @@ declare module '@inertiajs/core' {
             /** The signed-in platform admin (S10); null on every company page. */
             platformAdmin: { name: string; email: string } | null;
             navigation: NavItem[];
+            /** Today's business date, for the header; null when signed out. */
+            businessDate: string | null;
             flash: FlashMessage | null;
             notifications: NotificationsShared | null;
             [key: string]: unknown;

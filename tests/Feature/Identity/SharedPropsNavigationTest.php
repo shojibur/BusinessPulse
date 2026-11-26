@@ -8,8 +8,8 @@ test('Owner and Manager receive all nine navigation items, Staff only Today and 
     $this->actingAs($f->{$user})->get($user === 'staff' ? '/my-tasks' : '/today')->assertOk()
         ->assertInertia(fn (Assert $page) => $page->where('navigation', fn ($navigation) => collect($navigation)->pluck('label')->all() === $labels));
 })->with([
-    'owner' => ['owner', ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Settings']],
-    'manager' => ['manager', ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Settings']],
+    'owner' => ['owner', ['Today', 'Issues', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Data Imports', 'Settings']],
+    'manager' => ['manager', ['Today', 'Issues', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Data Imports', 'Settings']],
     'staff' => ['staff', ['Today', 'My Tasks']],
 ]);
 

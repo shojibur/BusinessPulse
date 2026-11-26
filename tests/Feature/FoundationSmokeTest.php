@@ -11,7 +11,7 @@ test('a guest is sent to the login page from Today', function () {
 });
 
 test('every navigation item has a placeholder page and the shell shares all nine items', function () {
-    $expected = ['Today', 'Issues', 'Data Imports', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Settings'];
+    $expected = ['Today', 'Issues', 'Briefs', 'Meetings', 'Tasks', 'My Tasks', 'Outcomes', 'Data Imports', 'Settings'];
     $this->actingAs(identity()->owner);
 
     foreach (config('navigation') as $item) {

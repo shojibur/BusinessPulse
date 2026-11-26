@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\User;
 use App\Services\CurrentCompany;
+use App\Support\BusinessClock;
 use App\Support\Navigation;
 use App\Support\NotificationPresenter;
 use Illuminate\Http\Request;
@@ -48,6 +49,8 @@ class HandleInertiaRequests extends Middleware
             // The signed-in platform admin (S10), name and email only; null on every company page.
             'platformAdmin' => fn () => ($admin = Auth::guard('platform')->user()) === null ? null : ['name' => $admin->name, 'email' => $admin->email],
             'navigation' => fn () => Navigation::items($request),
+            // Today's business date (the demo clock in demo mode), for the header.
+            'businessDate' => fn () => $user === null ? null : app(BusinessClock::class)->today()->format('j M Y'),
             'notifications' => fn () => $user === null ? null : $this->notifications($user),
             'flash' => fn () => $request->session()->get('flash'),
         ];

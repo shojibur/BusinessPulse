@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
-import { CalendarDays, UserRound } from '@lucide/vue';
+import { CalendarDays } from '@lucide/vue';
 import { computed } from 'vue';
+import AssigneeAvatar from '@/components/tasks/AssigneeAvatar.vue';
 import OverdueBadge from '@/components/tasks/OverdueBadge.vue';
 import StatusActions from '@/components/tasks/StatusActions.vue';
 import TaskStatusBadge from '@/components/tasks/TaskStatusBadge.vue';
@@ -45,7 +46,7 @@ const edge = computed(() =>
                 Due {{ formatDate(task.dueDate) }}
             </span>
             <span class="inline-flex items-center gap-1.5">
-                <UserRound class="size-3.5" aria-hidden="true" />
+                <AssigneeAvatar :name="task.assignee.name" size="sm" />
                 {{ task.assignee.name }}
             </span>
         </p>

@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
-import { CalendarDays, Info } from '@lucide/vue';
+import {
+    CalendarDays,
+    CircleCheck,
+    CirclePlus,
+    FileSpreadsheet,
+    Info,
+    Minus,
+    Pencil,
+    TriangleAlert,
+} from '@lucide/vue';
 import MetricTile from '@/components/MetricTile.vue';
 import SectionHeader from '@/components/SectionHeader.vue';
 import WeekStateList from '@/components/WeekStateList.vue';
@@ -45,27 +54,39 @@ defineProps<{ preview: ImportPreview }>();
             </AlertDescription>
         </Alert>
 
-        <div class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <MetricTile
                 label="Total rows"
                 :value="formatNumber(preview.counts.total)"
-            />
-            <MetricTile label="New" :value="formatNumber(preview.counts.new)" />
-            <MetricTile
-                label="Corrected"
-                :value="formatNumber(preview.counts.corrected)"
-            />
-            <MetricTile
-                label="Unchanged"
-                :value="formatNumber(preview.counts.unchanged)"
-            />
-            <MetricTile
-                label="Invalid"
-                :value="formatNumber(preview.counts.invalid)"
+                :icon="FileSpreadsheet"
             />
             <MetricTile
                 label="Valid"
                 :value="formatNumber(preview.counts.valid)"
+                :icon="CircleCheck"
+                tone="success"
+            />
+            <MetricTile
+                label="Invalid"
+                :value="formatNumber(preview.counts.invalid)"
+                :icon="TriangleAlert"
+                :tone="preview.counts.invalid > 0 ? 'warning' : 'neutral'"
+            />
+            <MetricTile
+                label="New"
+                :value="formatNumber(preview.counts.new)"
+                :icon="CirclePlus"
+                tone="info"
+            />
+            <MetricTile
+                label="Corrected"
+                :value="formatNumber(preview.counts.corrected)"
+                :icon="Pencil"
+            />
+            <MetricTile
+                label="Unchanged"
+                :value="formatNumber(preview.counts.unchanged)"
+                :icon="Minus"
             />
         </div>
 

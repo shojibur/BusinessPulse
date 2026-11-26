@@ -16,9 +16,33 @@ export type TaskRowData = {
     issue: { id: number; title: string } | null;
     allowedTransitions: TaskStatusValue[];
     url: string;
+    /** One short line of the description (management list only). */
+    description?: string;
 };
 
 export type TaskSummary = { open: number; overdue: number };
+
+export type TaskStats = {
+    total: number;
+    inProgress: number;
+    completed: number;
+    overdue: number;
+    pendingDrafts: number;
+};
+
+export type TaskBoardColumn = {
+    status: TaskStatusValue;
+    label: string;
+    count: number;
+    items: TaskRowData[];
+};
+
+export type TaskBoardData = {
+    columns: TaskBoardColumn[];
+    shown: number;
+    total: number;
+    cancelled: number;
+};
 
 export type TaskDetailData = {
     id: number;

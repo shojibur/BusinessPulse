@@ -74,6 +74,8 @@ const pageTitle = computed(
         :page-title="pageTitle"
         :user-name="user?.name"
         :user-subtitle="userSubtitle"
+        :context-name="page.props.company?.name"
+        :date-label="page.props.businessDate"
         @sign-out="signOut"
     >
         <template #header-actions>

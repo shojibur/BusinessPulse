@@ -16,13 +16,13 @@
 */
 
 return [
-    ['label' => 'Today', 'route' => 'today', 'icon' => 'LayoutDashboard', 'active' => 'today', 'roles' => ['owner', 'manager', 'staff']],
-    ['label' => 'Issues', 'route' => 'issues.index', 'icon' => 'TriangleAlert', 'active' => 'issues.*', 'roles' => ['owner', 'manager']],
-    ['label' => 'Data Imports', 'route' => 'imports.index', 'icon' => 'Upload', 'active' => 'imports.*', 'roles' => ['owner', 'manager']],
-    ['label' => 'Briefs', 'route' => 'briefs.index', 'icon' => 'FileText', 'active' => 'briefs.*', 'roles' => ['owner', 'manager']],
-    ['label' => 'Meetings', 'route' => 'meetings.index', 'icon' => 'Mic', 'active' => 'meetings.*', 'roles' => ['owner', 'manager']],
-    ['label' => 'Tasks', 'route' => 'tasks.index', 'icon' => 'ListChecks', 'active' => 'tasks.index', 'roles' => ['owner', 'manager']],
-    ['label' => 'My Tasks', 'route' => 'tasks.mine', 'icon' => 'CircleCheck', 'active' => 'tasks.mine', 'roles' => ['owner', 'manager', 'staff']],
-    ['label' => 'Outcomes', 'route' => 'outcomes.index', 'icon' => 'TrendingUp', 'active' => 'outcomes.*', 'roles' => ['owner', 'manager']],
-    ['label' => 'Settings', 'route' => 'settings.index', 'icon' => 'Settings', 'active' => 'settings.*', 'roles' => ['owner', 'manager']],
+    ['label' => 'Today', 'route' => 'today', 'icon' => 'LayoutDashboard', 'active' => 'today', 'roles' => ['owner', 'manager', 'staff'], 'group' => null],
+    ['label' => 'Issues', 'route' => 'issues.index', 'icon' => 'TriangleAlert', 'active' => 'issues.*', 'roles' => ['owner', 'manager'], 'group' => null],
+    ['label' => 'Briefs', 'route' => 'briefs.index', 'icon' => 'FileText', 'active' => 'briefs.*', 'roles' => ['owner', 'manager'], 'group' => null],
+    ['label' => 'Meetings', 'route' => 'meetings.index', 'icon' => 'Mic', 'active' => 'meetings.*', 'roles' => ['owner', 'manager'], 'group' => null],
+    ['label' => 'Tasks', 'route' => 'tasks.index', 'icon' => 'ListChecks', 'active' => 'tasks.index', 'roles' => ['owner', 'manager'], 'group' => null],
+    ['label' => 'My Tasks', 'route' => 'tasks.mine', 'icon' => 'CircleCheck', 'active' => 'tasks.mine', 'roles' => ['owner', 'manager', 'staff'], 'group' => null],
+    ['label' => 'Outcomes', 'route' => 'outcomes.index', 'icon' => 'TrendingUp', 'active' => 'outcomes.*', 'roles' => ['owner', 'manager'], 'group' => null],
+    ['label' => 'Data Imports', 'route' => 'imports.index', 'icon' => 'Upload', 'active' => 'imports.*', 'roles' => ['owner', 'manager'], 'group' => 'Company'],
+    ['label' => 'Settings', 'route' => 'settings.index', 'icon' => 'Settings', 'active' => 'settings.*', 'roles' => ['owner', 'manager'], 'group' => 'Company'],
 ];

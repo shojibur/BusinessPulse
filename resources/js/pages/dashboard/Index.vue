@@ -7,7 +7,6 @@ import {
     FileText,
     LayoutDashboard,
     ListChecks,
-    OctagonAlert,
     Target,
     TrendingDown,
     TrendingUp,
@@ -23,6 +22,12 @@ import SectionHeader from '@/components/SectionHeader.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import ExecutiveBriefBanner from '@/components/dashboard/ExecutiveBriefBanner.vue';
+import OutcomeSummaryCard from '@/components/dashboard/OutcomeSummaryCard.vue';
+import RecentActivityCard from '@/components/dashboard/RecentActivityCard.vue';
+import TaskStatusCard from '@/components/dashboard/TaskStatusCard.vue';
+import UrgentFindingsCard from '@/components/dashboard/UrgentFindingsCard.vue';
+import type { DashboardExtras } from '@/components/dashboard/types';
 import { Spinner } from '@/components/ui/spinner';
 import { chartPalette } from '@/lib/chartPalette';
 import {
@@ -31,20 +36,16 @@ import {
     formatDateTime,
     formatMoney,
 } from '@/lib/format';
-import {
-    index as briefsIndex,
-    show as briefShow,
-    store as briefStore,
-} from '@/routes/briefs';
+import { store as briefStore } from '@/routes/briefs';
 import { index as importsIndex } from '@/routes/imports';
 import { index as tasksIndex } from '@/routes/tasks';
 import { index as issuesIndex } from '@/routes/issues';
 import type { DashboardData, DashboardFigure } from '@/types';
-import BriefSourceBadge from '@/components/BriefSourceBadge.vue';
 
 const props = defineProps<{
     audience: 'staff' | 'owner_manager';
-    data?: DashboardData | null;
+    data?: (DashboardData & DashboardExtras) | null;
+    ai?: { text: boolean };
 }>();
 
 const generating = ref(false);
@@ -140,27 +141,38 @@ const series = computed(() => props.data?.revenueVsTarget ?? []);
 const chartOption = computed(() => ({
     tooltip: { trigger: 'axis' },
     legend: { bottom: 0 },
-    grid: { left: 8, right: 8, top: 16, bottom: 36, containLabel: true },
-    xAxis: { type: 'category', data: series.value.map((p) => p.label) },
+    grid: { left: 8, right: 16, top: 24, bottom: 36, containLabel: true },
+    xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: series.value.map((p) => p.label),
+    },
     yAxis: {
         type: 'value',
         axisLabel: { formatter: (v: number) => `${v / 1000}k` },
+        splitLine: { lineStyle: { color: '#e3e8ee' } },
     },
     series: [
         {
             name: 'Revenue',
-            type: 'bar',
+            type: 'line',
+            smooth: true,
+            symbolSize: 8,
             data: series.value.map((p) =>
                 p.revenue === null ? null : Number(p.revenue),
             ),
+            lineStyle: { color: chartPalette.teal, width: 3 },
             itemStyle: { color: chartPalette.teal },
+            areaStyle: { color: chartPalette.teal, opacity: 0.12 },
         },
         {
             name: 'Target',
             type: 'line',
+            symbol: 'none',
             data: series.value.map((p) =>
                 p.target === null ? null : Number(p.target),
             ),
+            lineStyle: { color: chartPalette.slate, type: 'dashed', width: 2 },
             itemStyle: { color: chartPalette.slate },
         },
     ],
@@ -174,16 +186,43 @@ const chartTable = computed(() => ({
         p.is_complete ? formatMoney(p.target) : 'Incomplete',
     ]),
 }));
+
+// A time-of-day greeting, then the first name.
+const greeting = computed(() => {
+    const hour = new Date().getHours();
+    const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+
+    return `Good ${part}${firstName.value ? `, ${firstName.value}` : ''}`;
+});
+
+// The weekly change as a short pill beside the revenue figure.
+const changeChip = computed(() => {
+    const figure = props.data?.change;
+
+    if (!figure?.available) {
+        return undefined;
+    }
+
+    const n = Number(figure.value);
+
+    return `${n > 0 ? '+' : ''}${figure.value}%`;
+});
+
+const targetChip = computed(() =>
+    props.data?.targetAchievement.available
+        ? `Target ${props.data.targetAchievement.target}`
+        : undefined,
+);
 </script>
 
 <template>
     <Head title="Today" />
 
     <PageHeader
-        title="Today"
+        :title="greeting"
         :description="
             data
-                ? `${firstName ? `Hello, ${firstName}. ` : ''}${data.departmentName} · business overview`
+                ? `${data.departmentName} · your business performance, key actions and outcomes.`
                 : undefined
         "
     >
@@ -253,38 +292,31 @@ const chartTable = computed(() => ({
             <AlertDescription>{{ data.coverageNotice }}</AlertDescription>
         </Alert>
 
-        <!-- The money: the three figures an owner checks first. -->
-        <section aria-label="Key figures" class="grid gap-4 sm:grid-cols-3">
+        <ExecutiveBriefBanner
+            :brief="data.latestBrief"
+            :ai-configured="ai?.text ?? false"
+        />
+
+        <!-- The four numbers an owner checks first. -->
+        <section
+            aria-label="Key figures"
+            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        >
             <MetricTile
                 label="Revenue"
                 :value="value(data.revenue)"
                 :caption="period(data.revenue)"
-                :icon="Banknote"
-            />
-            <MetricTile
-                label="Weekly change"
-                :value="value(data.change)"
-                :caption="change.caption ?? period(data.change)"
-                :icon="change.down ? TrendingDown : TrendingUp"
-                :tone="change.tone"
+                :icon="change.down ? TrendingDown : Banknote"
+                :chip="changeChip"
+                :chip-tone="change.tone"
             />
             <MetricTile
                 label="Target achievement"
                 :value="value(data.targetAchievement)"
-                :caption="
-                    data.targetAchievement.available
-                        ? `Target ${data.targetAchievement.target}`
-                        : period(data.targetAchievement)
-                "
+                :caption="period(data.targetAchievement)"
                 :icon="Target"
+                :chip="targetChip"
             />
-        </section>
-
-        <!-- What needs doing: each tile opens the matching list. -->
-        <section
-            aria-label="Issues and tasks"
-            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-        >
             <Link
                 :href="issuesIndex({ query: { status: 'open_issues' } }).url"
                 class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
@@ -295,24 +327,12 @@ const chartTable = computed(() => ({
                     caption="View all open issues"
                     :icon="TriangleAlert"
                     :tone="data.openIssueCount > 0 ? 'warning' : 'success'"
-                />
-            </Link>
-            <Link
-                :href="
-                    issuesIndex({
-                        query: { status: 'open_issues', severity: 'high' },
-                    }).url
-                "
-                class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-            >
-                <MetricTile
-                    label="High priority"
-                    :value="String(data.highPriorityIssueCount)"
-                    caption="View high-priority issues"
-                    :icon="OctagonAlert"
-                    :tone="
-                        data.highPriorityIssueCount > 0 ? 'danger' : 'success'
+                    :chip="
+                        data.highPriorityIssueCount > 0
+                            ? `${data.highPriorityIssueCount} urgent`
+                            : undefined
                     "
+                    chip-tone="danger"
                 />
             </Link>
             <Link
@@ -320,23 +340,21 @@ const chartTable = computed(() => ({
                 class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
                 <MetricTile
-                    label="Open tasks"
+                    label="Active tasks"
                     :value="String(data.taskCounts.open)"
-                    caption="View open tasks"
+                    :caption="
+                        data.taskCounts.overdue > 0
+                            ? `${data.taskCounts.overdue} overdue`
+                            : 'None overdue'
+                    "
                     :icon="ListChecks"
                     tone="info"
-                />
-            </Link>
-            <Link
-                :href="tasksIndex({ query: { overdue: 1 } }).url"
-                class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-            >
-                <MetricTile
-                    label="Overdue tasks"
-                    :value="String(data.taskCounts.overdue)"
-                    caption="View overdue tasks"
-                    :icon="Clock"
-                    :tone="data.taskCounts.overdue > 0 ? 'danger' : 'success'"
+                    :chip="
+                        data.taskStatus.in_progress > 0
+                            ? `${data.taskStatus.in_progress} in progress`
+                            : undefined
+                    "
+                    chip-tone="info"
                 />
             </Link>
         </section>
@@ -347,11 +365,11 @@ const chartTable = computed(() => ({
             :message="message"
         />
 
-        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
             <Card class="gap-4 p-5">
                 <SectionHeader
-                    title="Revenue vs target by week"
-                    description="The most recent closed weeks."
+                    title="Revenue trend"
+                    description="Weekly revenue against target, most recent closed weeks."
                     :icon="TrendingUp"
                 />
                 <EChart
@@ -362,38 +380,13 @@ const chartTable = computed(() => ({
                     empty-message="No closed week with sales data yet. Upload sales data in Data Imports."
                 />
             </Card>
+            <UrgentFindingsCard :issues="data.urgentIssues" />
+        </div>
 
-            <Card class="gap-4 p-5">
-                <SectionHeader title="Latest brief" :icon="FileText">
-                    <Link
-                        :href="briefsIndex().url"
-                        class="text-sm text-primary-text hover:underline"
-                        >All briefs</Link
-                    >
-                </SectionHeader>
-                <template v-if="data.latestBrief">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <BriefSourceBadge
-                            status="completed"
-                            :source="data.latestBrief.source"
-                        />
-                        <span class="text-xs text-muted-foreground">{{
-                            formatDateTime(data.latestBrief.generated_at)
-                        }}</span>
-                    </div>
-                    <p class="text-sm/6 font-medium">
-                        {{ data.latestBrief.headline }}
-                    </p>
-                    <Button variant="outline" as-child>
-                        <Link :href="briefShow(data.latestBrief.id).url"
-                            >Open brief</Link
-                        >
-                    </Button>
-                </template>
-                <p v-else class="text-sm text-muted-foreground">
-                    No brief has been generated yet.
-                </p>
-            </Card>
+        <div class="grid items-start gap-6 lg:grid-cols-2 xl:grid-cols-3">
+            <TaskStatusCard :status="data.taskStatus" />
+            <OutcomeSummaryCard :outcome="data.outcome" />
+            <RecentActivityCard :entries="data.activity" />
         </div>
     </div>
 </template>

@@ -123,3 +123,21 @@ export type IssueMeetings = {
 };
 
 export type { Pagination };
+
+/** One row of the meetings list shown beside the detail page. */
+export type MeetingSidebarItem = {
+    id: number;
+    title: string;
+    meetingDate: string;
+    departmentName: string;
+    status: MeetingStatusValue;
+    statusLabel: string;
+    url: string;
+};
+
+export type LatestBriefSummary = {
+    id: number;
+    headline: string;
+    generatedAt: string | null;
+    url: string;
+};

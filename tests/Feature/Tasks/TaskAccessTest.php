@@ -48,7 +48,7 @@ test('a manager of another department gets 404 on tasks and drafts of this depar
         $this->actingAs($this->supportManager)->{$method}($url)->assertNotFound();
     }
     $this->actingAs($this->supportManager)->get("/meetings/{$this->x->meeting->id}")->assertNotFound();
-    $this->actingAs($this->supportManager)->get('/tasks')->assertOk()->assertInertia(fn ($p) => $p->has('tasks', 0));
+    $this->actingAs($this->supportManager)->get('/tasks?view=list')->assertOk()->assertInertia(fn ($p) => $p->has('tasks', 0));
     $this->actingAs($this->otherOwner)->get("/tasks/{$this->mine->id}")->assertNotFound();
     expect(Task::count())->toBe(2)->and($draft->fresh()->status->value)->toBe('pending');
 });
@@ -56,8 +56,8 @@ test('a manager of another department gets 404 on tasks and drafts of this depar
 test('owner and own-department manager can read, change status, comment and review drafts', function () {
     $this->actingAs($this->f->owner)->get("/tasks/{$this->mine->id}")->assertOk();
     $this->actingAs($this->f->manager)->get("/tasks/{$this->mine->id}")->assertOk();
-    $this->actingAs($this->f->manager)->get('/tasks')->assertOk()->assertInertia(fn ($p) => $p->has('tasks', 2));
-    $this->actingAs($this->f->owner)->get('/tasks')->assertOk()->assertInertia(fn ($p) => $p->has('tasks', 2));
+    $this->actingAs($this->f->manager)->get('/tasks?view=list')->assertOk()->assertInertia(fn ($p) => $p->has('tasks', 2));
+    $this->actingAs($this->f->owner)->get('/tasks?view=list')->assertOk()->assertInertia(fn ($p) => $p->has('tasks', 2));
     $this->actingAs($this->f->manager)->post("/task-drafts/{$this->x->drafts[0]->id}/approve")->assertRedirect();
     $this->actingAs($this->f->manager)->get("/meetings/{$this->x->meeting->id}")->assertInertia(fn ($p) => $p->has('draftReview.pending', 3)->has('draftReview.history', 1));
 });

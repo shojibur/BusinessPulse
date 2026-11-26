@@ -2,6 +2,9 @@
 
 namespace App\Support;
 
+use App\Enums\IssueStatus;
+use App\Models\Issue;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -13,8 +16,10 @@ use Illuminate\Http\Request;
  */
 class Navigation
 {
+    private const OPEN_TASK_STATUSES = ['pending', 'in_progress', 'blocked'];
+
     /**
-     * @return list<array{label: string, href: string, icon: string, active: bool}>
+     * @return list<array{label: string, href: string, icon: string, active: bool, group: string|null, badge: int|null}>
      */
     public static function items(Request $request): array
     {
@@ -36,10 +41,27 @@ class Navigation
                 'href' => route($item['route'], absolute: false),
                 'icon' => $item['icon'],
                 'active' => $request->routeIs($item['active']),
+                'group' => $item['group'] ?? null,
+                'badge' => self::badge($user, $item['route']),
             ];
         }
 
         return $items;
+    }
+
+    /**
+     * The count shown next to a section: open issues and open tasks the user can see. Null shows nothing.
+     */
+    private static function badge(User $user, string $route): ?int
+    {
+        $count = match ($route) {
+            'issues.index' => Issue::query()->visibleTo($user)->where('status', '!=', IssueStatus::Resolved->value)->count(),
+            'tasks.index' => Task::query()->visibleTo($user)->whereIn('status', self::OPEN_TASK_STATUSES)->count(),
+            'tasks.mine' => Task::query()->where('assignee_id', $user->id)->whereIn('status', self::OPEN_TASK_STATUSES)->count(),
+            default => 0,
+        };
+
+        return $count > 0 ? $count : null;
     }
 
     /**

@@ -2,21 +2,29 @@
 import { Head, Link, router } from '@inertiajs/vue3';
 import {
     Banknote,
+    Building2,
     CalendarDays,
     ChevronLeft,
+    CircleCheck,
+    CircleX,
+    DatabaseZap,
     Gauge,
+    Hash,
     History,
     Info,
+    Minus,
     RefreshCw,
+    ShieldCheck,
     Target,
     TrendingDown,
     TrendingUp,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import type { Component } from 'vue';
 import EvaluationEvidence from '@/components/EvaluationEvidence.vue';
 import IssueStatusBadge from '@/components/IssueStatusBadge.vue';
 import MetricTile from '@/components/MetricTile.vue';
-import PageHeader from '@/components/PageHeader.vue';
+import OutcomeComparisonChart from '@/components/outcomes/OutcomeComparisonChart.vue';
 import SectionHeader from '@/components/SectionHeader.vue';
 import TimelineList from '@/components/TimelineList.vue';
 import type { TimelineItem } from '@/components/TimelineList.vue';
@@ -30,13 +38,23 @@ import OutcomePanel from '@/components/issues/OutcomePanel.vue';
 import RelatedTasksPanel from '@/components/issues/RelatedTasksPanel.vue';
 import TracePanel from '@/components/issues/TracePanel.vue';
 import { Label } from '@/components/ui/label';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { index, show } from '@/routes/issues';
 import { acknowledge, monitoring, refresh, resolve } from '@/routes/issues';
 import type {
     EvaluationView,
+    IssueChart,
     IssueDetail,
+    IssueEligibility,
     IssueMeetings,
     IssueTasks,
     FeedbackPanelData,
@@ -59,6 +77,8 @@ const props = defineProps<{
     actions: { acknowledge: boolean; monitoring: boolean; resolve: boolean };
     lastEvaluatedAt: string | null;
     stale: boolean;
+    chart: IssueChart | null;
+    eligibility: IssueEligibility | null;
     evaluationStatus: 'never' | 'current' | 'partial' | 'failed' | 'stale';
     refreshDepartmentId: number;
 }>();
@@ -126,11 +146,76 @@ type Tile = {
     label: string;
     value: string;
     caption?: string;
-    icon: typeof Gauge;
+    icon: Component;
     tone: 'neutral' | 'danger' | 'success' | 'warning' | 'info';
+    chip?: string;
+    chipTone?: 'neutral' | 'danger' | 'success' | 'warning' | 'info';
 };
 
+const outcomeTiles = computed<Tile[] | null>(() => {
+    const o = props.outcomes?.latest;
+
+    if (!o || o.notEvaluableText) {
+        return null;
+    }
+
+    const tone: Tile['tone'] =
+        o.result === 'improved'
+            ? 'success'
+            : o.result === 'worsened'
+              ? 'danger'
+              : 'neutral';
+    const list: Tile[] = [];
+
+    // The week before the problem, when the compared periods are known.
+    if (props.chart?.values[0]) {
+        list.push({
+            label: 'Before the issue',
+            value: formatMoney(props.chart.values[0]),
+            caption: props.chart.categories[0]?.replace('Before ', ''),
+            icon: CalendarDays,
+            tone: 'neutral',
+        });
+    }
+
+    list.push(
+        {
+            label: 'At detection',
+            value: o.baselineLabel ?? '—',
+            caption: props.chart?.categories[1]?.replace('Baseline ', ''),
+            icon: Banknote,
+            tone: 'neutral',
+            chip:
+                props.baseline.difference_pct === null
+                    ? undefined
+                    : `${props.baseline.difference_pct}%`,
+            chipTone: 'danger',
+        },
+        {
+            label: 'After action',
+            value: o.followupLabel ?? '—',
+            caption: props.chart?.categories[2]?.replace('Follow-up ', ''),
+            icon: TrendingUp,
+            tone: 'neutral',
+        },
+        {
+            label: 'Change from detection',
+            value: o.changeLabels[0] ?? '—',
+            icon: o.result === 'worsened' ? TrendingDown : TrendingUp,
+            tone,
+            chip: o.changeLabels[1] ?? undefined,
+            chipTone: tone,
+        },
+    );
+
+    return list;
+});
+
 const tiles = computed<Tile[]>(() => {
+    if (outcomeTiles.value !== null) {
+        return outcomeTiles.value;
+    }
+
     const e = props.latest;
     const breached = e.result === 'breached';
     const pct = e.difference_pct === null ? '—' : `${e.difference_pct}%`;
@@ -244,6 +329,45 @@ const tiles = computed<Tile[]>(() => {
     ];
 });
 
+const ruleIcon = computed<Component>(
+    () =>
+        ({
+            weekly_revenue_decline: TrendingDown,
+            sales_target_shortfall: Target,
+            missing_sales_data: DatabaseZap,
+        })[props.issue.rule_key] ?? Gauge,
+);
+
+const headerTone = computed(
+    () =>
+        ({
+            high: 'bg-severity-high-bg text-severity-high',
+            medium: 'bg-severity-medium-bg text-severity-medium',
+            low: 'bg-muted text-muted-foreground',
+        })[props.issue.severity],
+);
+
+// One sentence from the latest evaluation, built only from stored figures.
+const summarySentence = computed(() => {
+    const e = props.latest;
+
+    if (e.difference_pct === null) {
+        return props.issue.rule_name;
+    }
+
+    const pct = e.difference_pct;
+
+    if (e.metric_name === 'weekly_change_pct') {
+        return `Revenue is ${pct.startsWith('-') ? `${pct.slice(1)}% below` : `${pct}% above`} the previous comparable week.`;
+    }
+
+    if (e.metric_name === 'target_achievement_pct') {
+        return `Revenue reached ${pct}% of the weekly target.`;
+    }
+
+    return `Sales data was received for ${pct}% of the expected branch-days.`;
+});
+
 const historyItems = computed<TimelineItem[]>(() =>
     props.statusHistory.map((entry, position) => {
         const title =
@@ -279,19 +403,70 @@ const historyItems = computed<TimelineItem[]>(() =>
 <template>
     <Head :title="issue.title" />
 
-    <PageHeader
-        :title="issue.title"
-        :description="`${issue.department} · ${issue.rule_name}`"
+    <header
+        class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
     >
-        <SeverityBadge :severity="issue.severity" />
-        <IssueStatusBadge :status="issue.status" :label="issue.status_label" />
-        <Button variant="outline" as-child>
+        <div class="flex min-w-0 items-start gap-4">
+            <span
+                class="flex size-14 shrink-0 items-center justify-center rounded-2xl"
+                :class="headerTone"
+            >
+                <component :is="ruleIcon" class="size-7" aria-hidden="true" />
+            </span>
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-3">
+                    <h1
+                        class="text-2xl/8 font-semibold tracking-tight text-foreground"
+                    >
+                        {{ issue.title }}
+                    </h1>
+                    <IssueStatusBadge
+                        :status="issue.status"
+                        :label="issue.status_label"
+                    />
+                    <SeverityBadge :severity="issue.severity" />
+                </div>
+                <p class="mt-1 text-sm text-muted-foreground">
+                    {{ summarySentence }}
+                </p>
+                <div class="mt-3 flex flex-wrap gap-2 text-xs font-medium">
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1"
+                    >
+                        <Building2
+                            class="size-3.5 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                        {{ issue.department }}
+                    </span>
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1"
+                    >
+                        <CalendarDays
+                            class="size-3.5 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                        Detected {{ formatDate(issue.first_detected_at) }}
+                    </span>
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1 tabular-nums"
+                    >
+                        <Hash
+                            class="size-3.5 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                        Issue {{ issue.id }}
+                    </span>
+                </div>
+            </div>
+        </div>
+        <Button variant="outline" as-child class="shrink-0">
             <Link :href="index().url">
                 <ChevronLeft aria-hidden="true" />
                 All issues
             </Link>
         </Button>
-    </PageHeader>
+    </header>
 
     <div class="space-y-6">
         <Alert v-if="stale" role="status">
@@ -352,18 +527,164 @@ const historyItems = computed<TimelineItem[]>(() =>
                 :caption="tile.caption"
                 :icon="tile.icon"
                 :tone="tile.tone"
+                :chip="tile.chip"
+                :chip-tone="tile.chipTone"
             />
         </div>
 
-        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <!-- Main column: the evidence and the work. -->
+        <div
+            class="grid items-start gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]"
+        >
+            <!-- Left: how it unfolded, whether it can be closed, and the evidence. -->
             <div class="min-w-0 space-y-6">
+                <Card class="gap-4 p-5">
+                    <SectionHeader
+                        title="Issue timeline"
+                        description="Every status change, in order."
+                        :icon="History"
+                    />
+                    <TimelineList :items="historyItems" />
+                </Card>
+
+                <Card v-if="eligibility" class="gap-4 p-5">
+                    <SectionHeader
+                        title="Resolution eligibility"
+                        description="Whether the latest result can close this issue."
+                        :icon="ShieldCheck"
+                    />
+                    <div class="flex flex-wrap items-center gap-4">
+                        <span
+                            class="flex size-12 shrink-0 items-center justify-center rounded-full"
+                            :class="
+                                eligibility.met
+                                    ? 'bg-success-bg text-success'
+                                    : 'bg-muted text-muted-foreground'
+                            "
+                        >
+                            <CircleCheck
+                                v-if="eligibility.met"
+                                class="size-6"
+                                aria-hidden="true"
+                            />
+                            <Minus v-else class="size-6" aria-hidden="true" />
+                        </span>
+                        <div class="min-w-0 flex-1 basis-64">
+                            <p class="text-base/6 font-semibold">
+                                {{
+                                    eligibility.met
+                                        ? 'Eligible for verified resolution'
+                                        : 'Not yet eligible'
+                                }}
+                            </p>
+                            <p class="text-sm text-muted-foreground">
+                                <template v-if="eligibility.met">
+                                    The after-action result
+                                    {{ eligibility.followupLabel }} meets the
+                                    recovery threshold of
+                                    {{ eligibility.limitLabel }}.
+                                </template>
+                                <template v-else>
+                                    {{ eligibility.phaseLabel }}.
+                                    <template v-if="eligibility.limitLabel">
+                                        Recovery needs
+                                        {{ eligibility.limitLabel }} or more.
+                                    </template>
+                                </template>
+                            </p>
+                        </div>
+                        <div
+                            v-if="eligibility.limitLabel"
+                            class="rounded-xl bg-muted/60 px-4 py-3 text-right"
+                        >
+                            <p class="text-xs text-muted-foreground">
+                                Recovery threshold
+                            </p>
+                            <p class="text-xl/7 font-semibold tabular-nums">
+                                {{ eligibility.limitLabel }}
+                            </p>
+                        </div>
+                    </div>
+                    <ul
+                        v-if="eligibility.checks.length"
+                        class="grid gap-x-6 gap-y-2 border-t pt-4 text-sm sm:grid-cols-2"
+                    >
+                        <li
+                            v-for="check in eligibility.checks"
+                            :key="check.name"
+                            class="flex items-center gap-2"
+                        >
+                            <CircleCheck
+                                v-if="check.state === 'passed'"
+                                class="size-4 shrink-0 text-success"
+                                aria-hidden="true"
+                            />
+                            <CircleX
+                                v-else-if="check.state === 'failed'"
+                                class="size-4 shrink-0 text-severity-high"
+                                aria-hidden="true"
+                            />
+                            <Minus
+                                v-else
+                                class="size-4 shrink-0 text-muted-foreground"
+                                aria-hidden="true"
+                            />
+                            <span>{{ check.label }}</span>
+                            <span class="sr-only"
+                                >({{
+                                    check.state === 'passed'
+                                        ? 'passed'
+                                        : check.state === 'failed'
+                                          ? 'failed'
+                                          : 'not checked'
+                                }})</span
+                            >
+                        </li>
+                    </ul>
+                </Card>
+
                 <section class="space-y-3">
                     <SectionHeader
-                        title="Evidence"
+                        title="Supporting evidence"
                         description="Every figure comes from a stored evaluation. Changes are observed, not proven causes."
                         :icon="Gauge"
                     />
+                    <Card v-if="chart" class="gap-0 overflow-hidden p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Period</TableHead>
+                                    <TableHead class="text-right">{{
+                                        chart.metricLabel
+                                    }}</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                <TableRow
+                                    v-for="(
+                                        label, position
+                                    ) in chart.categories"
+                                    :key="label"
+                                    :class="
+                                        position === 1
+                                            ? 'bg-severity-medium-bg/50'
+                                            : position === 2
+                                              ? 'bg-success-bg/50'
+                                              : ''
+                                    "
+                                >
+                                    <TableCell>{{ label }}</TableCell>
+                                    <TableCell
+                                        class="text-right font-medium tabular-nums"
+                                        >{{
+                                            formatMoney(
+                                                chart.values[position] ?? null,
+                                            )
+                                        }}</TableCell
+                                    >
+                                </TableRow>
+                            </TableBody>
+                        </Table>
+                    </Card>
                     <div class="grid gap-4 2xl:grid-cols-2">
                         <EvaluationEvidence
                             :evaluation="baseline"
@@ -377,12 +698,10 @@ const historyItems = computed<TimelineItem[]>(() =>
                     </div>
                 </section>
 
-                <RelatedTasksPanel v-if="tasks" :tasks="tasks" />
                 <RelatedMeetingsPanel v-if="meetings" :meetings="meetings" />
-                <OutcomePanel :outcomes="outcomes ?? null" />
             </div>
 
-            <!-- Side column: what to do, the facts and the history. -->
+            <!-- Right: what to do, how it is going and the outcome. -->
             <aside class="min-w-0 space-y-6">
                 <Card v-if="anyAction" class="gap-4 p-5">
                     <SectionHeader title="Take action" />
@@ -467,6 +786,24 @@ const historyItems = computed<TimelineItem[]>(() =>
                     </form>
                 </Card>
 
+                <Card v-if="chart" class="gap-3 p-5">
+                    <SectionHeader
+                        title="Revenue performance"
+                        description="Weekly revenue across the compared periods."
+                        :icon="TrendingUp"
+                    />
+                    <OutcomeComparisonChart
+                        :categories="chart.categories"
+                        :values="chart.values"
+                        :unit="chart.unit"
+                        :metric-label="chart.metricLabel"
+                    />
+                </Card>
+
+                <RelatedTasksPanel v-if="tasks" :tasks="tasks" />
+                <OutcomePanel :outcomes="outcomes ?? null" />
+                <FeedbackPanel v-if="feedback" :feedback="feedback" />
+
                 <Card class="gap-4 p-5">
                     <SectionHeader title="Details" />
                     <dl class="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
@@ -543,13 +880,6 @@ const historyItems = computed<TimelineItem[]>(() =>
                             </dd>
                         </div>
                     </dl>
-                </Card>
-
-                <FeedbackPanel v-if="feedback" :feedback="feedback" />
-
-                <Card class="gap-4 p-5">
-                    <SectionHeader title="Status history" :icon="History" />
-                    <TimelineList :items="historyItems" />
                 </Card>
 
                 <TracePanel :trace="trace" />

@@ -14,6 +14,47 @@ export type IssueRow = {
     last_detected_at: string | null;
     detection_count: number;
     key_figure: { label: string; value: string | null };
+    rule_key:
+        | 'weekly_revenue_decline'
+        | 'sales_target_shortfall'
+        | 'missing_sales_data';
+    /** One line from the latest evaluation, for example "Revenue RM 124,000.00, down 20.00% from RM 155,000.00". */
+    summary: string | null;
+    chips: { kind: string; label: string }[];
+    tasks: { total: number; completed: number };
+    latest_outcome: {
+        result: string;
+        label: string;
+        change: string | null;
+        followup: string | null;
+        url: string;
+    } | null;
+};
+
+export type IssueCounts = {
+    open: number;
+    high: number;
+    in_action: number;
+    monitoring: number;
+    new_this_week: number;
+};
+
+export type IssueDepartmentOption = { id: number; name: string };
+
+export type IssueChart = {
+    categories: string[];
+    values: (string | null)[];
+    unit: 'MYR' | '%';
+    metricLabel: string;
+};
+
+export type IssueEligibility = {
+    met: boolean;
+    usedForVerification: boolean;
+    phaseLabel: string;
+    limitLabel: string | null;
+    followupLabel: string | null;
+    checks: { name: string; label: string; state: string }[];
 };
 
 export type MissingBranchDay = {

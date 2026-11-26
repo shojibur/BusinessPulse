@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\BriefStatus;
 use App\Enums\MeetingStatus;
 use App\Enums\TaskDraftStatus;
 use App\Events\Meetings\MeetingCreated;
 use App\Http\Requests\StoreMeetingRequest;
 use App\Http\Requests\UpdateMeetingRequest;
+use App\Models\Brief;
 use App\Models\Department;
 use App\Models\Issue;
 use App\Models\Meeting;
@@ -63,7 +65,7 @@ class MeetingController extends Controller
             'statusOptions' => array_map(fn (MeetingStatus $s) => ['value' => $s->value, 'label' => $s->label()], MeetingStatus::cases()),
             'issueOptions' => $this->issueOptions($request)->map(fn ($issue) => ['id' => $issue->id, 'title' => $issue->title])->values(),
             'can' => ['create' => true],
-        ]);
+        ] + $this->overview($request));
     }
 
     public function create(Request $request): Response
@@ -110,7 +112,7 @@ class MeetingController extends Controller
                 'transcriptMin' => 20,
                 'transcriptMax' => 60000,
             ],
-        ]);
+        ] + $this->overview($request));
     }
 
     public function edit(Request $request, Meeting $meeting): Response
@@ -128,6 +130,42 @@ class MeetingController extends Controller
         });
 
         return to_route('meetings.show', $meeting);
+    }
+
+    /**
+     * What the meetings pages share: the meetings the user may see (for the list beside the detail), the latest
+     * completed brief the user may see (headline and date only), and today's business date for grouping.
+     *
+     * @return array<string, mixed>
+     */
+    private function overview(Request $request): array
+    {
+        $user = $request->user();
+        $timezone = $user->company->timezone;
+
+        $brief = Brief::query()->visibleTo($user)->where('status', BriefStatus::Completed->value)->whereNotNull('headline')
+            ->orderByDesc('generated_at')->orderByDesc('id')->first();
+
+        return [
+            'sidebar' => Meeting::query()->visibleTo($user)->with('department:id,name')
+                ->orderByDesc('meeting_date')->orderByDesc('id')->limit(40)->get()
+                ->map(fn (Meeting $meeting) => [
+                    'id' => $meeting->id,
+                    'title' => $meeting->title,
+                    'meetingDate' => $meeting->meeting_date->format('Y-m-d'),
+                    'departmentName' => $meeting->department->name,
+                    'status' => $meeting->status->value,
+                    'statusLabel' => $meeting->status->label(),
+                    'url' => route('meetings.show', $meeting),
+                ])->values(),
+            'latestBrief' => $brief === null ? null : [
+                'id' => $brief->id,
+                'headline' => $brief->headline,
+                'generatedAt' => $brief->generated_at?->setTimezone($timezone)->toIso8601String(),
+                'url' => route('briefs.show', $brief),
+            ],
+            'businessToday' => $this->clock->today($timezone)->format('Y-m-d'),
+        ];
     }
 
     /** @return Collection<int, Issue> */

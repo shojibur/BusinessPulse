@@ -39,7 +39,7 @@ const initials = computed(
         <DropdownMenuTrigger as-child>
             <button
                 type="button"
-                class="flex w-full items-center gap-3 rounded-md p-2 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                class="flex w-full items-center gap-3 rounded-md p-2 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                 :class="collapsed && 'justify-center'"
                 :aria-label="`Account menu for ${name}`"
             >
@@ -51,19 +51,21 @@ const initials = computed(
                     </AvatarFallback>
                 </Avatar>
                 <span v-if="!collapsed" class="min-w-0 flex-1">
-                    <span class="block truncate text-sm font-medium text-white">
+                    <span
+                        class="block truncate text-sm font-medium text-foreground"
+                    >
                         {{ name }}
                     </span>
                     <span
                         v-if="subtitle"
-                        class="block truncate text-xs text-sidebar-foreground"
+                        class="block truncate text-xs text-muted-foreground"
                     >
                         {{ subtitle }}
                     </span>
                 </span>
                 <ChevronsUpDown
                     v-if="!collapsed"
-                    class="size-4 shrink-0 text-sidebar-foreground"
+                    class="size-4 shrink-0 text-muted-foreground"
                     aria-hidden="true"
                 />
             </button>
