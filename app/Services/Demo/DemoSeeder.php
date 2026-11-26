@@ -45,8 +45,8 @@ class DemoSeeder
 
         $password = (string) config('demo.password');
 
-        if (mb_strlen($password) < 12) {
-            throw new DemoSeedException('DEMO_PASSWORD must be set to at least 12 characters before seeding. No user was created.');
+        if (mb_strlen($password) < 8) {
+            throw new DemoSeedException('DEMO_PASSWORD must be set to at least 8 characters before seeding. No user was created.');
         }
 
         $previousQueue = config('queue.default');

@@ -111,7 +111,7 @@ test('the seeder refuses a missing or short DEMO_PASSWORD and writes nothing', f
     $this->artisan('db:seed', ['--class' => DemoIdentitySeeder::class])->expectsOutputToContain('DEMO_PASSWORD');
 
     assertNothingWritten();
-})->with([null, '', 'short-11-ch']);
+})->with([null, '', 'seven77']);
 
 test('the seeder refuses to run next to a real company and writes nothing more', function () {
     Company::factory()->create(['name' => 'Real Client Sdn Bhd', 'is_demo' => false]);

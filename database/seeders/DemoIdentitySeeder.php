@@ -96,8 +96,8 @@ class DemoIdentitySeeder extends Seeder
             return false;
         }
 
-        if (strlen((string) config('demo.password')) < 12) {
-            $this->say('error', 'Refusing to seed: DEMO_PASSWORD must be set to at least 12 characters. Nothing was written.');
+        if (strlen((string) config('demo.password')) < 8) {
+            $this->say('error', 'Refusing to seed: DEMO_PASSWORD must be set to at least 8 characters. Nothing was written.');
 
             return false;
         }

@@ -12,7 +12,7 @@ Prerequisites: PHP 8.5 with extensions pdo_pgsql, bcmath, intl, mbstring, filein
 7. Open `http://127.0.0.1:8000` and sign in as `owner@meridian.demo` with `DEMO_PASSWORD`.
 
 ## Demonstration setup
-In `.env`: `DEMO_MODE=true`, `DEMO_PASSWORD` (12 characters or more). Then `php artisan demo:seed` (first time) or `php artisan demo:reset --force` (DESTRUCTIVE: deletes the demo company and re-seeds; demo database only). Earlier commands: `php artisan demo:set-date YYYY-MM-DD`, `php artisan demo:import <fixture>`, `php artisan demo:check-fixtures`. Use a SCRATCH database for experiments; never point these commands at a real database. Never touch other projects' databases.
+In `.env`: `DEMO_MODE=true`, `DEMO_PASSWORD` (8 characters or more; use a longer one on any server other than your own machine). Then `php artisan demo:seed` (first time) or `php artisan demo:reset --force` (DESTRUCTIVE: deletes the demo company and re-seeds; demo database only). Earlier commands: `php artisan demo:set-date YYYY-MM-DD`, `php artisan demo:import <fixture>`, `php artisan demo:check-fixtures`. Use a SCRATCH database for experiments; never point these commands at a real database. Never touch other projects' databases.
 
 ## Verification
 `composer validate --strict`, `./vendor/bin/pint --test`, `composer test`, `npm run verify` (type-check, lint, format check, build, tests), `php artisan demo:check-fixtures`.
@@ -37,7 +37,7 @@ In `.env`: `DEMO_MODE=true`, `DEMO_PASSWORD` (12 characters or more). Then `php 
 | `BUSINESS_TIMEZONE` | Business timezone | no | `Asia/Kuala_Lumpur` |
 | `DEMO_MODE` | Enables the demo clock and demo commands | no | `false` |
 | `DEMO_ALLOW_PRODUCTION_DEMO` | Allows demo commands when `APP_ENV=production` (dedicated demo server only) | no | `false` |
-| `DEMO_PASSWORD` | Password of the demo users (12+ characters) | demo only | empty |
+| `DEMO_PASSWORD` | Password of the demo users (8+ characters) | demo only | empty |
 | `AI_BASE_URL`, `OPENAI_API_KEY` | AI provider endpoint and key (server side only) | for AI | empty |
 | `AI_TEXT_MODEL`, `AI_TRANSCRIPTION_MODEL`, `AI_SPEECH_MODEL`, `AI_SPEECH_VOICE` | Model and voice names (never hardcoded) | for AI | empty |
 | `LOG_CHANNEL`, `LOG_STACK`, `LOG_LEVEL`, `MAIL_MAILER`, `BCRYPT_ROUNDS`, `APP_LOCALE`, `APP_FALLBACK_LOCALE`, `APP_MAINTENANCE_DRIVER`, `VITE_APP_NAME` | Framework defaults; no mail is sent in Stage 1 | no | see `.env.example` |
