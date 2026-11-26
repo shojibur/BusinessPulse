@@ -42,6 +42,12 @@ final readonly class DashboardData implements Arrayable
         public ?array $outcome = null,
         /** @var list<array<string, mixed>> the latest activity the user may see (at most five) */
         public array $activity = [],
+        /** @var list<array{value: string, label: string, complete: bool, latest: bool}> closed weeks to choose from, newest first */
+        public array $weekOptions = [],
+        /** The past week being viewed (Y-m-d of its Monday), or null for the latest. */
+        public ?string $viewingWeek = null,
+        /** @var array<string, mixed>|null sales of one chosen day by branch; null when there is no sales data */
+        public ?array $daily = null,
     ) {}
 
     public function toArray(): array

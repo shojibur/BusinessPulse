@@ -44,11 +44,47 @@ export type DashboardActivityEntry = {
     by: string;
     at: string;
     atLabel: string;
+    ago: string | null;
     title: string | null;
     url: string | null;
 };
 
+export type WeekOption = {
+    value: string;
+    label: string;
+    complete: boolean;
+    latest: boolean;
+};
+
+export type DailyBranchLine = {
+    code: string;
+    reported: boolean;
+    revenue: string | null;
+    target: string | null;
+    achievement: string | null;
+};
+
+export type DailySales = {
+    date: string;
+    default_date: string;
+    min_date: string;
+    max_date: string;
+    status: 'complete' | 'partial' | 'non_trading' | 'not_due' | 'none';
+    message: string | null;
+    total:
+        | (DailyBranchLine & { reported_count: number; expected_count: number })
+        | null;
+    branches: DailyBranchLine[];
+    missing: string[];
+};
+
 export type DashboardExtras = {
+    /** Sales of one chosen day by branch; null when there is no sales data. */
+    daily: DailySales | null;
+    /** Closed weeks to choose from, newest first. */
+    weekOptions: WeekOption[];
+    /** The past week being viewed (its Monday), or null for the latest. */
+    viewingWeek: string | null;
     urgentIssues: DashboardUrgentIssue[];
     taskStatus: TaskStatusCounts;
     outcome: DashboardOutcome | null;

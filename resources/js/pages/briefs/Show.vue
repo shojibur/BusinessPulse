@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import {
+    ChevronLeft,
+    ChevronRight,
     Info,
     ListChecks,
     RefreshCw,
@@ -19,14 +21,20 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDateRange, formatDateTime } from '@/lib/format';
-import { index, retry } from '@/routes/briefs';
+import { index, retry, store } from '@/routes/briefs';
 import { store as audioStore } from '@/routes/briefs/audio';
-import type { AiAvailability, AudioView, BriefView } from '@/types';
+import type {
+    AiAvailability,
+    AudioView,
+    BriefAdjacent,
+    BriefView,
+} from '@/types';
 
 const props = defineProps<{
     brief: BriefView;
     audio: AudioView;
     ai: AiAvailability;
+    adjacent: BriefAdjacent;
 }>();
 
 const inProgress = computed(
@@ -34,6 +42,17 @@ const inProgress = computed(
         props.brief.status === 'queued' || props.brief.status === 'generating',
 );
 const retrying = ref(false);
+const writingNew = ref(false);
+
+// The same data gives the same brief, so a new one is only written on request.
+function writeNewBrief(): void {
+    writingNew.value = true;
+    router.post(
+        store().url,
+        { force: true },
+        { onFinish: () => (writingNew.value = false) },
+    );
+}
 
 // A coloured left edge shows how serious each finding is.
 const severityEdge: Record<string, string> = {
@@ -96,6 +115,32 @@ const coverageLabel = computed(
         "
     >
         <BriefSourceBadge :status="brief.status" :source="brief.source" />
+        <Button v-if="adjacent.previous" variant="outline" size="sm" as-child>
+            <Link
+                :href="adjacent.previous.url"
+                :title="adjacent.previous.label"
+            >
+                <ChevronLeft aria-hidden="true" />
+                Earlier brief
+            </Link>
+        </Button>
+        <Button v-if="adjacent.next" variant="outline" size="sm" as-child>
+            <Link :href="adjacent.next.url" :title="adjacent.next.label">
+                Later brief
+                <ChevronRight aria-hidden="true" />
+            </Link>
+        </Button>
+        <Button
+            v-if="brief.status === 'completed'"
+            variant="outline"
+            size="sm"
+            :disabled="writingNew"
+            @click="writeNewBrief"
+        >
+            <Spinner v-if="writingNew" />
+            <RefreshCw v-else aria-hidden="true" />
+            Write a new brief
+        </Button>
         <Button variant="outline" as-child>
             <Link :href="index().url">All briefs</Link>
         </Button>
@@ -149,7 +194,10 @@ const coverageLabel = computed(
                 </h2>
                 <p class="text-xs text-muted-foreground">
                     {{ coverageLabel }} · Generated
-                    {{ formatDateTime(brief.generated_at) }} ·
+                    <span :title="formatDateTime(brief.generated_at)">{{
+                        brief.ago ?? formatDateTime(brief.generated_at)
+                    }}</span>
+                    ·
                     {{ brief.notice }}
                 </p>
             </Card>

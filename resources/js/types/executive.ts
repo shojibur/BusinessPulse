@@ -44,6 +44,7 @@ export type LatestBrief = {
     source: 'ai' | 'fallback' | null;
     coverage_status: CoverageStatusValue | null;
     generated_at: string | null;
+    ago: string | null;
 };
 
 export type CoverageStatusValue = 'sufficient' | 'partial' | 'stale';
@@ -79,8 +80,19 @@ export type BriefRow = {
     source: 'ai' | 'fallback' | null;
     coverage_status: CoverageStatusValue | null;
     headline: string | null;
+    /** The day the brief's figures describe. */
+    as_of_date: string | null;
+    /** For example "2 hours ago", measured on the business clock. */
+    ago: string | null;
     created_at: string;
     generated_at: string | null;
+};
+
+export type BriefNeighbour = { id: number; url: string; label: string };
+
+export type BriefAdjacent = {
+    previous: BriefNeighbour | null;
+    next: BriefNeighbour | null;
 };
 
 export type BriefStatusValue = 'queued' | 'generating' | 'completed' | 'failed';
@@ -109,6 +121,7 @@ export type BriefView = {
     as_of_date: string | null;
     created_at: string;
     generated_at: string | null;
+    ago: string | null;
     notice: string | null;
     /** Queued or writing for over 45 seconds: the background worker is probably not running. */
     stalled: boolean;

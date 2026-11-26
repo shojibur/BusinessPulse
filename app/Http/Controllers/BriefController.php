@@ -11,8 +11,12 @@ use App\Jobs\GenerateBriefJob;
 use App\Models\Brief;
 use App\Models\Company;
 use App\Models\Issue;
+use App\Models\User;
+use App\Services\AI\BriefFingerprint;
 use App\Services\AI\BriefPresenter;
 use App\Services\AI\OpenAiClient;
+use App\Support\Flash;
+use App\Support\TimeAgo;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,13 +33,19 @@ class BriefController extends Controller
 
     public function __construct(private readonly BriefPresenter $presenter) {}
 
-    public function index(Request $request): Response
+    public function index(Request $request, TimeAgo $ago): Response
     {
         Gate::authorize('viewAny', Brief::class);
         $user = $request->user();
         $timezone = $user->company->timezone;
 
-        $briefs = Brief::visibleTo($user)->latest('created_at')->latest('id')->paginate(15)->withQueryString();
+        // Optional date range on the brief's as-of date (the day its figures describe).
+        $range = $request->validate(['from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from']]);
+
+        $briefs = Brief::visibleTo($user)
+            ->when($range['from'] ?? null, fn ($query, $from) => $query->whereDate('as_of_date', '>=', $from))
+            ->when($range['to'] ?? null, fn ($query, $to) => $query->whereDate('as_of_date', '<=', $to))
+            ->latest('created_at')->latest('id')->paginate(15)->withQueryString();
 
         return Inertia::render('briefs/Index', [
             'briefs' => $briefs->getCollection()->map(fn (Brief $brief) => [
@@ -44,10 +54,13 @@ class BriefController extends Controller
                 'source' => $brief->source?->value,
                 'coverage_status' => $brief->coverage_status?->value,
                 'headline' => $brief->headline,
+                'as_of_date' => $brief->as_of_date?->format('Y-m-d'),
+                'ago' => $ago->label($brief->generated_at ?? $brief->created_at),
                 'created_at' => $brief->created_at->setTimezone($timezone)->toIso8601String(),
                 'generated_at' => $brief->generated_at?->setTimezone($timezone)->toIso8601String(),
             ])->values(),
             'ai' => ['text' => OpenAiClient::textConfigured()],
+            'filters' => ['from' => $range['from'] ?? null, 'to' => $range['to'] ?? null],
             'pagination' => [
                 'current_page' => $briefs->currentPage(),
                 'last_page' => $briefs->lastPage(),
@@ -86,6 +99,7 @@ class BriefController extends Controller
                 'as_of_date' => $brief->as_of_date?->format('Y-m-d'),
                 'created_at' => $brief->created_at->setTimezone($timezone)->toIso8601String(),
                 'generated_at' => $brief->generated_at?->setTimezone($timezone)->toIso8601String(),
+                'ago' => app(TimeAgo::class)->label($brief->generated_at ?? $brief->created_at),
                 'notice' => $this->notice($brief),
                 // Queued or writing for over 45 seconds: the background worker is probably not running.
                 'stalled' => in_array($brief->status, [BriefStatus::Queued, BriefStatus::Generating], true) && $brief->updated_at->lt(now()->subSeconds(45)),
@@ -94,6 +108,7 @@ class BriefController extends Controller
                 ], $blocks['items']),
             ],
             'ai' => ['text' => OpenAiClient::textConfigured()],
+            'adjacent' => ['previous' => $this->neighbour($user, $brief, $timezone, earlier: true), 'next' => $this->neighbour($user, $brief, $timezone, earlier: false)],
             'audio' => [
                 'status' => $brief->audio_status->value,
                 'configured' => OpenAiClient::speechConfigured(),
@@ -103,13 +118,29 @@ class BriefController extends Controller
         ]);
     }
 
-    public function store(GenerateBriefRequest $request): RedirectResponse
+    public function store(GenerateBriefRequest $request, BriefFingerprint $fingerprints): RedirectResponse
     {
         $user = $request->user();
+        $fingerprint = $fingerprints->for($user);
+        $scopeDepartment = $user->isManager() ? $user->department_id : null;
 
-        $brief = DB::transaction(function () use ($user): Brief {
+        $reused = null;
+
+        $brief = DB::transaction(function () use ($user, $request, $fingerprint, $scopeDepartment, &$reused): ?Brief {
             // Serializes concurrent requests of one company so only one brief is created.
             Company::query()->whereKey($user->company_id)->lockForUpdate()->firstOrFail();
+
+            // The same data and the same AI would write the same brief: open the existing one (unless a new one is asked for).
+            if (! $request->boolean('force')) {
+                $reused = Brief::query()->where('company_id', $user->company_id)->where('department_id', $scopeDepartment)
+                    ->where('source_fingerprint', $fingerprint)
+                    ->whereIn('status', [BriefStatus::Queued->value, BriefStatus::Generating->value, BriefStatus::Completed->value])
+                    ->latest('id')->first();
+
+                if ($reused !== null) {
+                    return null;
+                }
+            }
 
             $inProgress = Brief::query()->where('company_id', $user->company_id)
                 ->whereIn('status', [BriefStatus::Queued->value, BriefStatus::Generating->value])
@@ -126,8 +157,15 @@ class BriefController extends Controller
                 'department_id' => $user->isManager() ? $user->department_id : null,
                 'requested_by' => $user->id,
                 'status' => BriefStatus::Queued,
+                'source_fingerprint' => $fingerprint,
             ]);
         });
+
+        if ($brief === null) {
+            Flash::success('Your latest brief already matches the current data, so no new one was written. Use "Write a new brief" to write it again.');
+
+            return to_route('briefs.show', $reused);
+        }
 
         GenerateBriefJob::dispatch($brief->id, $brief->company_id);
 
@@ -166,5 +204,25 @@ class BriefController extends Controller
             str_starts_with($brief->error_message, 'evaluation_') => 'Generated from stored data: the latest evaluation did not complete for every rule.',
             default => 'AI unavailable: generated from stored data',
         };
+    }
+
+    /**
+     * The brief generated just before (earlier) or just after this one among the briefs the user may see, or null.
+     *
+     * @return array{id: int, url: string, label: string}|null
+     */
+    private function neighbour(User $user, Brief $brief, string $timezone, bool $earlier): ?array
+    {
+        $other = Brief::visibleTo($user)
+            ->where(fn ($query) => $query->where('created_at', $earlier ? '<' : '>', $brief->created_at)
+                ->orWhere(fn ($same) => $same->where('created_at', $brief->created_at)->where('id', $earlier ? '<' : '>', $brief->id)))
+            ->orderBy('created_at', $earlier ? 'desc' : 'asc')->orderBy('id', $earlier ? 'desc' : 'asc')
+            ->first();
+
+        return $other === null ? null : [
+            'id' => $other->id,
+            'url' => route('briefs.show', $other),
+            'label' => $other->created_at->setTimezone($timezone)->format('j M Y, H:i'),
+        ];
     }
 }

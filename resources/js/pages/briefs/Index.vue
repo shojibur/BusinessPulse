@@ -1,23 +1,44 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ChevronRight, FileText } from '@lucide/vue';
-import { ref } from 'vue';
+import { CalendarRange, ChevronRight, FileText } from '@lucide/vue';
+import { computed, ref } from 'vue';
 import AiUnavailableNotice from '@/components/AiUnavailableNotice.vue';
 import BriefSourceBadge from '@/components/BriefSourceBadge.vue';
 import EmptyState from '@/components/EmptyState.vue';
 import PageHeader from '@/components/PageHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import { formatDateTime } from '@/lib/format';
-import { show, store } from '@/routes/briefs';
+import { formatDate, formatDateTime } from '@/lib/format';
+import { index, show, store } from '@/routes/briefs';
 import type { AiAvailability, BriefRow, Pagination } from '@/types';
 
-defineProps<{
+const props = defineProps<{
     briefs: BriefRow[];
     pagination: Pagination;
     ai: AiAvailability;
+    filters: { from: string | null; to: string | null };
 }>();
+
+const from = ref(props.filters.from ?? '');
+const to = ref(props.filters.to ?? '');
+const filtered = computed(() => from.value !== '' || to.value !== '');
+
+function applyDates(): void {
+    router.get(
+        index().url,
+        { from: from.value || undefined, to: to.value || undefined },
+        { preserveState: true, preserveScroll: true },
+    );
+}
+
+function clearDates(): void {
+    from.value = '';
+    to.value = '';
+    applyDates();
+}
 
 const generating = ref(false);
 const error = ref<string | null>(null);
@@ -58,10 +79,44 @@ function generate(): void {
         {{ error }}
     </p>
 
+    <!-- Find an earlier brief by the day its figures describe. -->
+    <Card class="mb-4 gap-3 p-4">
+        <form
+            class="flex flex-wrap items-end gap-3"
+            novalidate
+            @submit.prevent="applyDates"
+        >
+            <CalendarRange
+                class="mb-2 size-5 text-muted-foreground"
+                aria-hidden="true"
+            />
+            <div class="grid gap-1">
+                <Label for="brief-from" class="text-xs">From (as of)</Label>
+                <Input id="brief-from" v-model="from" type="date" />
+            </div>
+            <div class="grid gap-1">
+                <Label for="brief-to" class="text-xs">To (as of)</Label>
+                <Input id="brief-to" v-model="to" type="date" />
+            </div>
+            <Button type="submit" variant="outline">Show briefs</Button>
+            <Button
+                v-if="filtered"
+                type="button"
+                variant="ghost"
+                @click="clearDates"
+                >Clear</Button
+            >
+        </form>
+    </Card>
+
     <Card v-if="briefs.length === 0">
         <EmptyState
             :icon="FileText"
-            message="No briefs yet. Generate one to summarise the current issues."
+            :message="
+                filtered
+                    ? 'No briefs match these dates.'
+                    : 'No briefs yet. Generate one to summarise the current issues.'
+            "
         >
             <Button :disabled="generating" @click="generate"
                 >Generate brief</Button
@@ -92,11 +147,26 @@ function generate(): void {
                                             : ' is being prepared')
                                 }}
                             </span>
-                            <span class="block text-xs text-muted-foreground">{{
-                                formatDateTime(
-                                    brief.generated_at ?? brief.created_at,
-                                )
-                            }}</span>
+                            <span class="block text-xs text-muted-foreground">
+                                <template v-if="brief.as_of_date"
+                                    >As of {{ formatDate(brief.as_of_date) }} ·
+                                </template>
+                                <span
+                                    :title="
+                                        formatDateTime(
+                                            brief.generated_at ??
+                                                brief.created_at,
+                                        )
+                                    "
+                                    >{{
+                                        brief.ago ??
+                                        formatDateTime(
+                                            brief.generated_at ??
+                                                brief.created_at,
+                                        )
+                                    }}</span
+                                >
+                            </span>
                         </span>
                         <BriefSourceBadge
                             :status="brief.status"

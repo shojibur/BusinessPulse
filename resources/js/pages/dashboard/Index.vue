@@ -22,12 +22,14 @@ import SectionHeader from '@/components/SectionHeader.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import DailySalesCard from '@/components/dashboard/DailySalesCard.vue';
 import ExecutiveBriefBanner from '@/components/dashboard/ExecutiveBriefBanner.vue';
 import OutcomeSummaryCard from '@/components/dashboard/OutcomeSummaryCard.vue';
 import RecentActivityCard from '@/components/dashboard/RecentActivityCard.vue';
 import TaskStatusCard from '@/components/dashboard/TaskStatusCard.vue';
 import UrgentFindingsCard from '@/components/dashboard/UrgentFindingsCard.vue';
 import type { DashboardExtras } from '@/components/dashboard/types';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Spinner } from '@/components/ui/spinner';
 import { chartPalette } from '@/lib/chartPalette';
 import {
@@ -36,6 +38,7 @@ import {
     formatDateTime,
     formatMoney,
 } from '@/lib/format';
+import { today } from '@/routes';
 import { store as briefStore } from '@/routes/briefs';
 import { index as importsIndex } from '@/routes/imports';
 import { index as tasksIndex } from '@/routes/tasks';
@@ -49,6 +52,33 @@ const props = defineProps<{
 }>();
 
 const generating = ref(false);
+
+// The reporting week shown in the headline figures. Issues, tasks and activity always show today's status.
+const selectedWeek = computed(
+    () =>
+        props.data?.viewingWeek ??
+        props.data?.weekOptions.find((week) => week.latest)?.value ??
+        '',
+);
+const viewingPast = computed(() => props.data?.viewingWeek != null);
+
+function chooseWeek(value: unknown): void {
+    const latest = props.data?.weekOptions.find((week) => week.latest)?.value;
+
+    router.get(
+        today().url,
+        {
+            ...(value === latest || value === ''
+                ? {}
+                : { week: String(value) }),
+            ...(props.data?.daily &&
+            props.data.daily.date !== props.data.daily.default_date
+                ? { day: props.data.daily.date }
+                : {}),
+        },
+        { preserveScroll: true, preserveState: true, only: ['data'] },
+    );
+}
 const error = ref<string | null>(null);
 
 function generateBrief(): void {
@@ -226,15 +256,44 @@ const targetChip = computed(() =>
                 : undefined
         "
     >
-        <Button
-            v-if="audience === 'owner_manager' && data"
-            :disabled="generating"
-            @click="generateBrief"
-        >
-            <Spinner v-if="generating" />
-            <FileText v-else aria-hidden="true" />
-            Generate brief
-        </Button>
+        <div class="flex flex-wrap items-end gap-3">
+            <div
+                v-if="
+                    audience === 'owner_manager' &&
+                    data &&
+                    data.weekOptions.length > 1
+                "
+                class="grid gap-1"
+            >
+                <label for="week-select" class="text-xs text-muted-foreground"
+                    >Reporting week</label
+                >
+                <NativeSelect
+                    id="week-select"
+                    class="min-w-56"
+                    :model-value="selectedWeek"
+                    @update:model-value="chooseWeek"
+                >
+                    <option
+                        v-for="week in data.weekOptions"
+                        :key="week.value"
+                        :value="week.value"
+                    >
+                        {{ week.label }}{{ week.latest ? ' (latest)' : '' }}
+                        {{ week.complete ? '' : ' - incomplete' }}
+                    </option>
+                </NativeSelect>
+            </div>
+            <Button
+                v-if="audience === 'owner_manager' && data"
+                :disabled="generating"
+                @click="generateBrief"
+            >
+                <Spinner v-if="generating" />
+                <FileText v-else aria-hidden="true" />
+                Generate brief
+            </Button>
+        </div>
     </PageHeader>
 
     <Card v-if="audience === 'staff'">
@@ -255,6 +314,22 @@ const targetChip = computed(() =>
         <p v-if="error" class="text-sm text-destructive" role="alert">
             {{ error }}
         </p>
+
+        <Alert v-if="viewingPast" role="status">
+            <Clock aria-hidden="true" />
+            <AlertTitle>You are viewing an earlier week</AlertTitle>
+            <AlertDescription>
+                The headline figures are for the week you chose. Issues, tasks
+                and activity show today's status.
+                <button
+                    type="button"
+                    class="font-medium text-primary-text underline-offset-2 hover:underline"
+                    @click="chooseWeek('')"
+                >
+                    Back to the latest week
+                </button>
+            </AlertDescription>
+        </Alert>
 
         <!-- Slim notices: only when something needs attention. -->
         <Alert v-if="data.freshness.behind" role="status">
@@ -300,7 +375,7 @@ const targetChip = computed(() =>
         <!-- The four numbers an owner checks first. -->
         <section
             aria-label="Key figures"
-            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4"
         >
             <MetricTile
                 label="Revenue"
@@ -382,6 +457,12 @@ const targetChip = computed(() =>
             </Card>
             <UrgentFindingsCard :issues="data.urgentIssues" />
         </div>
+
+        <DailySalesCard
+            v-if="data.daily"
+            :daily="data.daily"
+            :viewing-week="data.viewingWeek"
+        />
 
         <div class="grid items-start gap-6 lg:grid-cols-2 xl:grid-cols-3">
             <TaskStatusCard :status="data.taskStatus" />

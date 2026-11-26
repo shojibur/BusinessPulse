@@ -24,6 +24,7 @@ use App\Services\Intelligence\Indeterminate;
 use App\Services\Intelligence\MetricCalculator;
 use App\Services\Outcomes\OutcomePresenter;
 use App\Services\Tasks\TaskCounts;
+use App\Support\TimeAgo;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Gate;
 
@@ -43,9 +44,13 @@ final class DashboardMetrics
         private readonly EvaluationHealth $health,
         private readonly TaskCounts $tasks,
         private readonly OutcomePresenter $outcomes,
+        private readonly DailySalesView $daily,
     ) {}
 
-    public function forOwnerOrManager(User $user, Department $department): DashboardData
+    /**
+     * @param  CarbonImmutable|null  $selectedWeekStart  a closed week the user picked; null shows the latest (the default)
+     */
+    public function forOwnerOrManager(User $user, Department $department, ?CarbonImmutable $selectedWeekStart = null, ?CarbonImmutable $selectedDay = null): DashboardData
     {
         $company = $user->company;
         $latest = $this->coverage->latestClosedWeek($department);
@@ -56,11 +61,23 @@ final class DashboardMetrics
 
         // R2: when the latest closed week is incomplete or absent, show the latest closed COMPLETE week with its explicit
         // dates and a prominent warning. (The rule engine still evaluates the latest closed week without fallback.)
-        $shown = $hasData ? $this->shownWeek($department, $latest) : null;
+        $weekOptions = $hasData ? $this->weekOptions($department, $latest) : [];
+        $picked = $selectedWeekStart === null ? null : collect($weekOptions)->firstWhere('value', $selectedWeekStart->format('Y-m-d'));
+        $viewingWeek = $picked !== null && ! $picked['latest'] ? $picked['value'] : null;
 
-        [$revenue, $change, $target] = $shown === null
-            ? array_fill(0, 3, $this->insufficient($hasData ? 'incomplete_period' : 'period_absent', $latest))
-            : $this->figures($company, $department, $shown);
+        if ($viewingWeek !== null) {
+            // A past closed week the user chose: its own figures, or a clear "missing data" message, never zeros.
+            $shown = $this->coverage->weekState($department, CarbonImmutable::parse($viewingWeek, 'UTC'));
+            [$revenue, $change, $target] = $shown->completeness === WeekCompleteness::Complete
+                ? $this->figures($company, $department, $shown)
+                : array_fill(0, 3, $this->insufficient('selected_week_incomplete', $shown));
+        } else {
+            $shown = $hasData ? $this->shownWeek($department, $latest) : null;
+
+            [$revenue, $change, $target] = $shown === null
+                ? array_fill(0, 3, $this->insufficient($hasData ? 'incomplete_period' : 'period_absent', $latest))
+                : $this->figures($company, $department, $shown);
+        }
 
         return new DashboardData(
             departmentName: $department->name,
@@ -69,7 +86,7 @@ final class DashboardMetrics
             targetAchievement: $target,
             freshness: $this->freshnessData($freshness, $health, $timezone),
             evaluation: $health,
-            coverageNotice: $hasData ? $this->coverageNotice($latest, $shown) : null,
+            coverageNotice: $viewingWeek !== null ? null : ($hasData ? $this->coverageNotice($latest, $shown) : null),
             openIssueCount: $this->issueCount($department, null),
             highPriorityIssueCount: $this->issueCount($department, [IssueSeverity::High->value, IssueSeverity::Critical->value]),
             revenueVsTarget: $hasData ? $this->series($company, $department, $latest) : [],
@@ -79,7 +96,36 @@ final class DashboardMetrics
             taskStatus: $this->taskStatus($user),
             outcome: $this->latestOutcome($user, $timezone),
             activity: $this->recentActivity($user, $timezone),
+            weekOptions: $weekOptions,
+            viewingWeek: $viewingWeek,
+            daily: $this->daily->for($company, $department, $selectedDay, $freshness->latestSalesDate),
         );
+    }
+
+    /**
+     * The closed weeks (with data) of the chart window, newest first, for the week selector.
+     *
+     * @return list<array{value: string, label: string, complete: bool, latest: bool}>
+     */
+    private function weekOptions(Department $department, WeekState $latest): array
+    {
+        $states = $this->coverage->weekStates($department, $latest->weekStart->subWeeks(self::SERIES_WEEKS - 1), $latest->weekStart);
+        $options = [];
+
+        foreach (array_reverse($states) as $week) {
+            if ($week->completeness === null || $week->completeness === WeekCompleteness::Absent) {
+                continue;
+            }
+
+            $options[] = [
+                'value' => $week->weekStart->format('Y-m-d'),
+                'label' => BriefSummaryComposer::range($week->weekStart, $week->weekEnd),
+                'complete' => $week->completeness === WeekCompleteness::Complete,
+                'latest' => $week->weekStart->equalTo($latest->weekStart),
+            ];
+        }
+
+        return $options;
     }
 
     /** The latest closed week when complete, otherwise the latest closed complete week within the chart window. */
@@ -160,6 +206,7 @@ final class DashboardMetrics
         return ['available' => false, 'reason' => $reason, 'message' => match ($reason) {
             'incomplete_period' => "The latest closed week ({$range}) is missing sales data, so its figures are not shown.",
             'period_absent' => 'No sales data for the latest closed week yet.',
+            'selected_week_incomplete' => "The week {$range} is missing sales data, so its figures are not shown.",
             'comparison_week_incomplete' => "The week before ({$range}) is incomplete, so the weekly change cannot be compared.",
             default => 'This cannot be calculated because the comparison value is zero.',
         }] + $this->period($week);
@@ -259,6 +306,7 @@ final class DashboardMetrics
             'source' => $brief->source?->value,
             'coverage_status' => $brief->coverage_status?->value,
             'generated_at' => $brief->generated_at?->setTimezone($timezone)->toIso8601String(),
+            'ago' => app(TimeAgo::class)->label($brief->generated_at),
         ];
     }
 
@@ -394,6 +442,7 @@ final class DashboardMetrics
                 'by' => $row->user_id === null ? 'System' : ($names[$row->user_id] ?? 'System'),
                 'at' => $at->toIso8601String(),
                 'atLabel' => $at->format('j M Y, H:i'),
+                'ago' => app(TimeAgo::class)->label($row->created_at),
                 'title' => $title,
                 'url' => $url,
             ];

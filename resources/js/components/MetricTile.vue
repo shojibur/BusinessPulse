@@ -44,13 +44,14 @@ const chipTones = {
 </script>
 
 <template>
-    <Card class="flex-row items-center gap-4 p-5">
+    <Card class="@container flex-row items-center gap-4 p-5">
+        <!-- The icon tile and the big number adapt to the tile's own width, so a long amount never wraps. -->
         <span
             v-if="icon"
-            class="flex size-14 shrink-0 items-center justify-center rounded-2xl"
+            class="hidden size-12 shrink-0 items-center justify-center rounded-2xl @[15rem]:flex"
             :class="iconTones[tone]"
         >
-            <component :is="icon" class="size-7" aria-hidden="true" />
+            <component :is="icon" class="size-6" aria-hidden="true" />
         </span>
         <div class="min-w-0 flex-1">
             <p class="truncate text-sm/5 font-medium text-muted-foreground">
@@ -58,7 +59,7 @@ const chipTones = {
             </p>
             <div class="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <p
-                    class="text-[28px]/9 font-semibold tracking-tight tabular-nums"
+                    class="text-[22px]/8 font-semibold tracking-tight whitespace-nowrap tabular-nums @[17rem]:text-[26px]/9"
                     :class="valueTones[tone]"
                 >
                     {{ value }}

@@ -4,7 +4,7 @@ import { ArrowRight, Sparkles } from '@lucide/vue';
 import { computed } from 'vue';
 import { Card } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/format';
-import { show as briefShow } from '@/routes/briefs';
+import { index as briefsIndex, show as briefShow } from '@/routes/briefs';
 import type { LatestBrief } from '@/types';
 
 const props = defineProps<{
@@ -51,13 +51,22 @@ const subtitle = computed(() =>
                 v-if="brief"
                 class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
             >
-                <span>Generated {{ formatDateTime(brief.generated_at) }}</span>
+                <span :title="formatDateTime(brief.generated_at)"
+                    >Generated
+                    {{ brief.ago ?? formatDateTime(brief.generated_at) }}</span
+                >
                 <Link
                     :href="briefShow(brief.id).url"
                     class="inline-flex items-center gap-1 text-sm font-medium text-primary-text hover:underline"
                 >
                     View full brief
                     <ArrowRight class="size-4" aria-hidden="true" />
+                </Link>
+                <Link
+                    :href="briefsIndex().url"
+                    class="text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+                >
+                    Earlier briefs
                 </Link>
             </div>
         </div>

@@ -31,7 +31,10 @@ defineProps<{ entries: DashboardActivityEntry[] }>();
                     {{ entry.label }}
                 </p>
                 <p class="text-xs/4 text-muted-foreground">
-                    {{ entry.by }} · {{ entry.atLabel }}
+                    {{ entry.by }} ·
+                    <span :title="entry.atLabel">{{
+                        entry.ago ?? entry.atLabel
+                    }}</span>
                     <template v-if="entry.title">
                         ·
                         <Link
