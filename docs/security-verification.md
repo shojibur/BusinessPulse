@@ -27,6 +27,7 @@ Result codes: 200 page or action OK, 302 redirect (to login for A, B), 403 forbi
 | `GET briefs/{brief}/audio` (file) | 302 | 302 | audio | audio | 404 | 403 | 403 | S05 authorized streaming | `BriefGenerationTest` |
 | `GET meetings`, `meetings/{meeting}`, create, edit, transcript, re-extract, retry | 302 | 302 | 200 | 200 | 404 | 403 | 403 | S06 | `Meetings/MeetingAuthorizationTest` |
 | `POST meetings/{meeting}/recording` (upload) | 302 | 302 | 200/302 | 200/302 | 404 | 403 | 403 | S06 | `Meetings/RecordingUploadTest` |
+| `DELETE meetings/{meeting}/recording` (early deletion, Owner only) | 302 | 302 | 200/302 | 403 | 404 | 403 | 403 | S06 requirement 15 | `Meetings/RecordingRetentionTest` |
 | `GET meetings/{meeting}/recording/download`, `stream` (file) | 302 | 302 | file | file | 404 | 403 | 403 | S06 authorized streaming | `Meetings/RecordingAccessTest` |
 | `PATCH task-drafts/{taskDraft}`, `approve`, `reject` | 302 | 302 | 200/302 | 200/302 | 404 | 403 | 403 | S07 | `Tasks/TaskApprovalRulesTest`, `TaskApprovalIdempotencyTest`, `TaskAccessTest` |
 | `GET tasks`, `tasks/{task}` | 302 | 302 | 200 | 200 | 404 | 200 (own task) | 404 | S07 | `Tasks/TaskAccessTest` |

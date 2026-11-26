@@ -80,7 +80,7 @@ final class MeetingPresenter
                 'retry' => Gate::forUser($user)->allows('retry', $meeting) && $meeting->status === MeetingStatus::Failed
                     && ($meeting->failure_stage?->value !== 'transcription' || ($present && $meeting->recording_consent_at !== null)),
                 'reExtract' => Gate::forUser($user)->allows('reExtract', $meeting) && $meeting->status === MeetingStatus::ReadyForReview,
-                'deleteRecording' => false, // PoV Polish
+                'deleteRecording' => Gate::forUser($user)->allows('deleteRecording', $meeting) && $present && $meeting->status !== MeetingStatus::Transcribing,
             ],
             'polling' => $meeting->status->polling(),
         ];

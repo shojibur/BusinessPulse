@@ -128,7 +128,7 @@ Events: `TranscriptReady`, `ExtractionCompleted` and `MeetingProcessingFailed` a
   - [x] 8.3 [PoV Core] Implement recording stream and download
     - `MeetingMediaController` with policy checks (Owner, or Manager of the meeting's department; Staff never), `response()->file()` with Range support (206), `X-Content-Type-Options: nosniff`, allow-listed content type, attachment download using the sanitized name, 404 when no recording, no public URL
     - _Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8_
-  - [ ] 8.4 [PoV Polish] Implement `RecordingDeleter`, Owner deletion and `recordings:purge`
+  - [x] 8.4 [PoV Polish] Implement `RecordingDeleter`, Owner deletion and `recordings:purge`
     - Must exist before real (non-demo) recordings are processed
     - `RecordingDeleter` (skips `transcribing`, handles a missing file, logs filesystem errors without aborting, dispatches `RecordingDeleted` with reason)
     - `DeleteRecordingRequest` and `MeetingRecordingController@destroy` (Owner only, rejected while `transcribing`)

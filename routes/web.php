@@ -78,6 +78,7 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
     Route::get('meetings/{meeting}/edit', [MeetingController::class, 'edit'])->name('meetings.edit');
     Route::put('meetings/{meeting}', [MeetingController::class, 'update'])->middleware('throttle:meetings-actions')->name('meetings.update');
     Route::post('meetings/{meeting}/recording', [MeetingRecordingController::class, 'store'])->middleware('throttle:meetings-upload')->name('meetings.recording.store');
+    Route::delete('meetings/{meeting}/recording', [MeetingRecordingController::class, 'destroy'])->middleware('throttle:meetings-actions')->name('meetings.recording.destroy');
     Route::get('meetings/{meeting}/recording/stream', [MeetingMediaController::class, 'stream'])->middleware('throttle:meetings-media')->name('meetings.recording.stream');
     Route::get('meetings/{meeting}/recording/download', [MeetingMediaController::class, 'download'])->middleware('throttle:meetings-media')->name('meetings.recording.download');
     Route::post('meetings/{meeting}/transcript', [MeetingTranscriptController::class, 'store'])->middleware('throttle:meetings-actions')->name('meetings.transcript.store');

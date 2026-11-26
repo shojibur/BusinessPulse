@@ -19,7 +19,7 @@ A throwaway local PHP script imitated the OpenAI endpoints (transcription return
 
 ## Not verified (no credentials, no real audio fixture)
 - Real transcription (`AI_TRANSCRIPTION_MODEL`), real extraction with a live model and the real prompt-injection behaviour of a live model, provider 429/5xx timing against a live worker, and transcription of `meeting-recording.mp3` (not produced; see `database/demo/README.md`). The server-side injection defence is verified independently of any model behaviour by the tests above.
-- Polish items not built: Re-extract, Owner deletion, `recordings:purge`, Decisions polish, `RelatedMeetings` polish.
+- Polish items not built at S06 time: Re-extract (added minimally in S07), Decisions polish, `RelatedMeetings` polish. Owner deletion and `recordings:purge` were built later as S06 task 8.4 (see `docs/retention-and-deletion.md`).
 
 ## Deviations
 - The state table also allows `uploaded -> failed` and `transcribed -> failed` (a job that dies before claiming the meeting), needed by the design's own `failed()` handlers.

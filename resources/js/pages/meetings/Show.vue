@@ -3,6 +3,7 @@ import { Head, Link, router } from '@inertiajs/vue3';
 import { CircleAlert, RefreshCw, ShieldCheck } from '@lucide/vue';
 import { onBeforeUnmount, ref, watch } from 'vue';
 import EmptyState from '@/components/EmptyState.vue';
+import DeleteRecordingDialog from '@/components/meetings/DeleteRecordingDialog.vue';
 import ManualTranscriptForm from '@/components/meetings/ManualTranscriptForm.vue';
 import MeetingStatusBadge from '@/components/meetings/MeetingStatusBadge.vue';
 import RecordingUploadCard from '@/components/meetings/RecordingUploadCard.vue';
@@ -227,12 +228,20 @@ const processingText: Record<string, string> = {
                         >
                             Your browser does not support audio playback.
                         </audio>
-                        <div v-if="meeting.recording.downloadUrl">
-                            <Button variant="outline" size="sm" as-child
+                        <div class="flex flex-wrap gap-2">
+                            <Button
+                                v-if="meeting.recording.downloadUrl"
+                                variant="outline"
+                                size="sm"
+                                as-child
                                 ><a :href="meeting.recording.downloadUrl"
                                     >Download</a
                                 ></Button
                             >
+                            <DeleteRecordingDialog
+                                v-if="meeting.can.deleteRecording"
+                                :meeting-id="meeting.id"
+                            />
                         </div>
                     </Card>
                     <Card

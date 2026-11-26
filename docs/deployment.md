@@ -37,7 +37,7 @@ killasgroup=true
 `DB_QUEUE_RETRY_AFTER=300` must stay above the longest job timeout (150 s) and the worker `--timeout` (180 s).
 
 ## Cron
-`* * * * * deploy cd /var/www/businesspulse && php artisan schedule:run >> /dev/null 2>&1` (runs `recordings:purge` once S06 8.4 is built; see RF-02).
+`* * * * * deploy cd /var/www/businesspulse && php artisan schedule:run >> /dev/null 2>&1` (runs `recordings:purge` daily at 02:00 through the scheduler; see `docs/retention-and-deletion.md`).
 
 ## HTTPS and storage
 `certbot --nginx -d demo.example.com`. Keep `storage/app/private` writable by `deploy` only; no `storage:link` for private files.
