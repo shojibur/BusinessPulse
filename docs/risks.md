@@ -21,10 +21,10 @@ Likelihood and impact: low, medium, high. Status is set to `open`, `mitigated` o
 | R-12 | The recording retention command and Owner deletion were built in S06 task 8.4 but the manual scratch-database verification has not been run | low | high | Run the verification in `docs/retention-and-deletion.md` and record it; use fictional recordings only until then | Engineering | open | RF-02 |
 | R-13 | A presenter clicks "Refresh intelligence" before the week 8 upload | medium | medium | Warning at the top of `docs/demo-walkthrough.md`; if it happens, `demo:reset --force` and restart (refuses while jobs are pending) | Presenter | open | none |
 | R-14 | AI provider cost and rate limits | medium | medium | Rehearsal budgeting (`docs/rehearsal-protocol.md`); app limits (`ai-requests`) and one attempt per call | Operator | open | none |
-| R-15 | Background jobs and listeners do not check the reset flag | low | medium | `demo:reset` refuses while the `jobs` table is non-empty; take no action during a reset | Engineering | open | RF-01 |
+| R-15 | Background jobs and listeners might act while a demo reset runs | low | medium | Jobs and listeners exit while the reset flag is active (RF-01 closed); `demo:reset` also refuses while the `jobs` table is non-empty | Engineering | mitigated | RF-01 |
 | R-16 | Manual rehearsals, drills, recording and the signed checklist are not yet done | high | medium | Run `docs/rehearsal-protocol.md`; sign `docs/acceptance-checklist.md` | Operator | open | none |
 | R-17 | Authorization matrix manual run not yet executed | medium | high | Execute `docs/security-verification.md` on a scratch database; fix any FAIL | Engineering | open | none |
-| R-18 | Staff "Today" navigation item only redirects (cosmetic) | high | low | Known; explain or fix in a later spec | Engineering | open | RF-03 |
+| R-18 | Staff "Today" navigation item only redirects to My Tasks | high | low | By design per S02 and S07; revisit only if the client asks | Engineering | accepted | RF-03 |
 
 ## Review
 After the last rehearsal, set each status to `open`, `mitigated` or `accepted` and add a Readiness_Fix id to any risk that came from a failed verification step.

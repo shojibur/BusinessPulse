@@ -12,6 +12,7 @@ use App\Models\Meeting;
 use App\Models\TaskDraft;
 use App\Services\AI\Exceptions\RecoverableProviderException;
 use App\Services\AI\MeetingTaskExtractor;
+use App\Services\Demo\DemoResetFlag;
 use App\Services\Meetings\MeetingRunGuard;
 use App\Services\Meetings\MeetingStageException;
 use App\Services\Meetings\MeetingStateMachine;
@@ -59,6 +60,10 @@ class ExtractMeetingTasksJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(MeetingRunGuard $guard, MeetingTaskExtractor $extractor, MeetingStateMachine $states): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $meeting = Meeting::query()->find($this->meetingId);
 
         if ($meeting === null) {

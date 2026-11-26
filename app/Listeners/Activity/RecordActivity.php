@@ -7,6 +7,7 @@ use App\Services\Activity\ActivityEntry;
 use App\Services\Activity\ActivityMap;
 use App\Services\Activity\ActivityRecorder;
 use App\Services\Activity\SubjectDepartmentResolver;
+use App\Services\Demo\DemoResetFlag;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
@@ -34,6 +35,10 @@ class RecordActivity implements ShouldQueue
 
     public function handle(object $event): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $spec = ActivityMap::core()[$event::class] ?? null;
 
         if ($spec === null) {

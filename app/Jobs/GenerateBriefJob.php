@@ -8,6 +8,7 @@ use App\Events\Briefing\BriefGenerated;
 use App\Models\Brief;
 use App\Services\AI\BriefGenerator;
 use App\Services\AI\Exceptions\RecoverableProviderException;
+use App\Services\Demo\DemoResetFlag;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -52,6 +53,10 @@ class GenerateBriefJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(BriefGenerator $generator): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $brief = Brief::query()->find($this->briefId);
 
         if ($brief === null || in_array($brief->status, [BriefStatus::Completed, BriefStatus::Failed], true)) {

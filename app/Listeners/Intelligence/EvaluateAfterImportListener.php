@@ -5,6 +5,7 @@ namespace App\Listeners\Intelligence;
 use App\Actions\Intelligence\DispatchEvaluation;
 use App\Enums\ImportStatus;
 use App\Events\Imports\ImportCompleted;
+use App\Services\Demo\DemoResetFlag;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -19,6 +20,10 @@ class EvaluateAfterImportListener
 
     public function handle(ImportCompleted $event): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         if (! in_array($event->status, [ImportStatus::Completed, ImportStatus::CompletedWithErrors], true)) {
             return;
         }

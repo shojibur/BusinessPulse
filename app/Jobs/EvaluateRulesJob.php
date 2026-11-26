@@ -8,6 +8,7 @@ use App\Events\Intelligence\EvaluationRunCompleted;
 use App\Models\BusinessRule;
 use App\Models\Department;
 use App\Models\RuleEvaluation;
+use App\Services\Demo\DemoResetFlag;
 use App\Services\Imports\ReportingCoverage;
 use App\Services\Intelligence\EvaluationContext;
 use App\Services\Intelligence\EvaluationHealth;
@@ -81,6 +82,10 @@ class EvaluateRulesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
     public function handle(SeedDefaultRules $seed, ReportingCoverage $coverage, BusinessClock $clock): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $evaluateLock = Cache::lock("evaluate:{$this->departmentId}", 120);
 
         try {

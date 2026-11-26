@@ -114,7 +114,7 @@ Events: `TranscriptReady`, `ExtractionCompleted` and `MeetingProcessingFailed` a
     - Add a case for a missing meeting id that exits without effect
     - _Requirements: 25.1, 25.16_
 
-- [ ] 8. HTTP layer
+- [x] 8. HTTP layer
   - [x] 8.1 [PoV Core] Implement meeting create, edit, list and detail
     - `MeetingController`, `StoreMeetingRequest`, `UpdateMeetingRequest`, `MeetingResource`, `MeetingListItemResource`, `TaskDraftSummary`
     - Title, date, department and Issue validation (max 10, same department), Manager other-department 404, department immutable, date edit blocked while processing, `MeetingCreated` after commit (Polish event)
@@ -147,7 +147,7 @@ Events: `TranscriptReady`, `ExtractionCompleted` and `MeetingProcessingFailed` a
   - [x] 8.7 [PoV Core] Register routes and throttles
     - Add the routes from the design's route table in the auth group with the throttle middleware names from task 3.3, including the Polish routes for deletion and Re-extract
     - _Requirements: 3.12, 16.8, 20.1, 20.5, 20.8_
-  - [ ] 8.8 [PoV Polish] Implement Re-extract
+  - [x] 8.8 [PoV Polish] Implement Re-extract
     - `ReExtractMeetingRequest`, `MeetingProcessingController@reExtract`
     - CAS `ready_for_review -> extracting`, dispatch `ExtractMeetingTasksJob` after commit, 422 when the CAS loses
     - Verify supersession of pending drafts, preservation of approved and rejected drafts, the `extraction_run` increment and the duplicate-of-approved discard
@@ -169,7 +169,7 @@ Events: `TranscriptReady`, `ExtractionCompleted` and `MeetingProcessingFailed` a
   - Run the fixture path in the design's Testing Strategy (manual transcript from `database/demo/meeting-transcript.txt`, steps 1 to 4 and 6 to 7) and confirm the four expected draft resolutions and no Owner-assigned draft.
   - Ensure all checks pass, ask the user if questions arise.
 
-- [ ] 11. Frontend
+- [x] 11. Frontend
   - [x] 11.1 [PoV Core] Add shared types and the read-only Task drafts tab
     - TypeScript types for meeting props, enums and `TaskDraftSummary`
     - `TaskDraftsTab.vue`: one row per draft with title, assignee resolution (name when resolved, otherwise a `StatusBadge`), deadline resolution (date when resolved, otherwise badge and suggested phrase), status and excerpt, the four counts, the "AI generated, review before use" label, an empty message, and no approve, reject or edit control. S07 edits this component directly
@@ -190,7 +190,7 @@ Events: `TranscriptReady`, `ExtractionCompleted` and `MeetingProcessingFailed` a
     - Include it from `Issues/Show.vue` when the `meetings` prop is not null
     - List of linked meetings with title, date, status and link, an empty message, and a "Create meeting" link with the Issue preselected
     - _Requirements: 19.3, 19.4, 19.6, 19.7_
-  - [ ] 11.6 [PoV Polish] Add the Polish Show.vue pieces
+  - [x] 11.6 [PoV Polish] Add the Polish Show.vue pieces
     - Decisions tab polish (excerpts, empty message, "AI generated, review before use" label)
     - Re-extract action, "Transcript changed after the last extraction" banner and the Re-extract hint
     - Discard notice from `extraction_discarded_count`

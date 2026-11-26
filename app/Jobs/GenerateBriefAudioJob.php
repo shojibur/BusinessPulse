@@ -8,6 +8,7 @@ use App\Models\Brief;
 use App\Services\AI\Exceptions\ProviderException;
 use App\Services\AI\Exceptions\RecoverableProviderException;
 use App\Services\AI\SpeechService;
+use App\Services\Demo\DemoResetFlag;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -49,6 +50,10 @@ class GenerateBriefAudioJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(SpeechService $speech): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $brief = Brief::query()->find($this->briefId);
 
         if ($brief === null || $brief->status !== BriefStatus::Completed || $brief->audio_status === AudioStatus::Ready) {

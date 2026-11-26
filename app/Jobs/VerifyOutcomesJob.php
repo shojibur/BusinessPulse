@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Services\Demo\DemoResetFlag;
 use App\Services\Outcomes\OutcomeVerifier;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -43,6 +44,10 @@ class VerifyOutcomesJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 
     public function handle(OutcomeVerifier $verifier): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $verifier->verifyDepartment($this->departmentId);
     }
 

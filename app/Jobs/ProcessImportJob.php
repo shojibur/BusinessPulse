@@ -8,6 +8,7 @@ use App\Events\Imports\ImportCompleted;
 use App\Events\Imports\ImportFailed;
 use App\Models\Import;
 use App\Models\SalesRecord;
+use App\Services\Demo\DemoResetFlag;
 use App\Services\Imports\ExpectedBranches;
 use App\Services\Imports\ImportAnalysis;
 use App\Services\Imports\ImportPreviewBuilder;
@@ -71,6 +72,10 @@ final class ProcessImportJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(ImportPreviewBuilder $previews): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $import = Import::query()->with(['department', 'company'])->find($this->importId);
 
         // Stale or repeated dispatch: only a processing import is worked on.

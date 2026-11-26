@@ -10,6 +10,7 @@ use App\Events\Meetings\TranscriptReady;
 use App\Models\Meeting;
 use App\Services\AI\Exceptions\RecoverableProviderException;
 use App\Services\AI\TranscriptionService;
+use App\Services\Demo\DemoResetFlag;
 use App\Services\Meetings\MeetingRunGuard;
 use App\Services\Meetings\MeetingStageException;
 use App\Services\Meetings\MeetingStateMachine;
@@ -56,6 +57,10 @@ class TranscribeMeetingJob implements ShouldBeUnique, ShouldQueue
 
     public function handle(MeetingRunGuard $guard, TranscriptionService $service, MeetingStateMachine $states): void
     {
+        // A demo reset is deleting this company's data: do nothing (RF-01).
+        if (app(DemoResetFlag::class)->isActive()) {
+            return;
+        }
         $meeting = Meeting::query()->find($this->meetingId);
 
         if ($meeting === null) {
