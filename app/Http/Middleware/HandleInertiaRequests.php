@@ -7,6 +7,7 @@ use App\Services\CurrentCompany;
 use App\Support\Navigation;
 use App\Support\NotificationPresenter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -44,6 +45,8 @@ class HandleInertiaRequests extends Middleware
                 'role' => $user?->role->value,
             ],
             'company' => fn () => $user === null ? null : $this->company(),
+            // The signed-in platform admin (S10), name and email only; null on every company page.
+            'platformAdmin' => fn () => ($admin = Auth::guard('platform')->user()) === null ? null : ['name' => $admin->name, 'email' => $admin->email],
             'navigation' => fn () => Navigation::items($request),
             'notifications' => fn () => $user === null ? null : $this->notifications($user),
             'flash' => fn () => $request->session()->get('flash'),

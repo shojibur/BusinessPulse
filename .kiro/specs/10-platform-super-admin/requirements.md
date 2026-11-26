@@ -22,5 +22,12 @@
 12. Tenant isolation SHALL be tested: a user of company A gets 404 for a record of company B on the main modules, with two companies present.
 13. Demo commands (`demo:seed`, `demo:reset`) keep refusing to run when any non-demo company exists. Real SMEs therefore belong in a non-demo database.
 
+## Addendum: user management (explicit user instruction, 2026-11-26)
+14. A Platform_Admin SHALL manage the users of a company from `/platform/companies/{company}`: list them (name, email, role, job title, department, manager, status), add a user, edit a user, deactivate and reactivate a user, and reset a user's password. Users are never deleted.
+15. Roles follow the existing model: an Owner has no department and no manager; a Manager belongs to a department and reports to an active Owner; Staff belong to a department and report to an active Manager of that department. Emails are unique across the application; passwords are at least 12 characters.
+16. A company SHALL always keep at least one active Owner: deactivating or demoting the last active Owner is refused.
+17. Deactivating a user, resetting a password, and changing a role or email SHALL end the user's open sessions.
+18. A user of another company SHALL be a 404 on every user route. Audit entries list ids and changed field names, never passwords or other values.
+
 ## Out of scope
 Billing, plans, invoices, self-service registration, email invitations, impersonation ("log in as"), per-company AI budgets, a database or schema per company, company deletion, editing a company after creation (the Owner uses Settings).

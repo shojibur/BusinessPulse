@@ -47,6 +47,52 @@ const exampleUrl = 'https://api.example.com/v1';
 
 const isClaude = computed(() => form.text_provider === 'anthropic');
 
+// Services that speak the OpenAI audio API. Picking one fills the address; "Other" keeps whatever address is typed.
+// (The address and the model names are always yours to change: check the provider's current model list.)
+type Preset = { value: string; label: string; url: string };
+
+const openAiUrl = 'https://api.openai.com/v1';
+const groqUrl = 'https://api.groq.com/openai/v1';
+
+const transcriptionPresets: Preset[] = [
+    { value: 'openai', label: 'OpenAI (Whisper)', url: openAiUrl },
+    { value: 'groq', label: 'Groq (Whisper)', url: groqUrl },
+    { value: 'custom', label: 'Other OpenAI-compatible service', url: '' },
+];
+
+const speechPresets: Preset[] = [
+    { value: 'openai', label: 'OpenAI', url: openAiUrl },
+    { value: 'custom', label: 'Other OpenAI-compatible service', url: '' },
+];
+
+const presetOf = (url: string, presets: Preset[]): string =>
+    presets.find((preset) => preset.url !== '' && preset.url === url.trim())
+        ?.value ?? 'custom';
+
+const transcriptionPreset = computed(() =>
+    presetOf(form.transcription_base_url, transcriptionPresets),
+);
+
+const speechPreset = computed(() =>
+    presetOf(form.speech_base_url, speechPresets),
+);
+
+function pickTranscriptionPreset(value: unknown): void {
+    const preset = transcriptionPresets.find((p) => p.value === value);
+
+    if (preset && preset.url !== '') {
+        form.transcription_base_url = preset.url;
+    }
+}
+
+function pickSpeechPreset(value: unknown): void {
+    const preset = speechPresets.find((p) => p.value === value);
+
+    if (preset && preset.url !== '') {
+        form.speech_base_url = preset.url;
+    }
+}
+
 const sourceLabel = (s: AiCapabilityStatus): string =>
     s.source === 'platform'
         ? 'Key saved here'
@@ -197,8 +243,26 @@ function testConnection(): void {
         <Card class="gap-4 p-5">
             <h2 class="text-lg/7 font-semibold">Transcription</h2>
             <p class="text-sm text-muted-foreground">
-                Always OpenAI-compatible. Claude has no transcription service.
+                Any service that offers the OpenAI-style speech-to-text API.
+                Pick one to fill in its address, or choose Other and type your
+                own.
             </p>
+            <div class="grid gap-2 sm:max-w-xs">
+                <Label for="transcription_preset">Service</Label>
+                <NativeSelect
+                    id="transcription_preset"
+                    :model-value="transcriptionPreset"
+                    @update:model-value="pickTranscriptionPreset"
+                >
+                    <option
+                        v-for="preset in transcriptionPresets"
+                        :key="preset.value"
+                        :value="preset.value"
+                    >
+                        {{ preset.label }}
+                    </option>
+                </NativeSelect>
+            </div>
             <div class="grid gap-2">
                 <Label for="transcription_base_url">Address (base URL)</Label>
                 <Input
@@ -263,8 +327,26 @@ function testConnection(): void {
         <Card class="gap-4 p-5">
             <h2 class="text-lg/7 font-semibold">Voice</h2>
             <p class="text-sm text-muted-foreground">
-                Always OpenAI-compatible. Claude has no speech service.
+                Any service that offers the OpenAI-style text-to-speech API.
+                Pick one to fill in its address, or choose Other and type your
+                own.
             </p>
+            <div class="grid gap-2 sm:max-w-xs">
+                <Label for="speech_preset">Service</Label>
+                <NativeSelect
+                    id="speech_preset"
+                    :model-value="speechPreset"
+                    @update:model-value="pickSpeechPreset"
+                >
+                    <option
+                        v-for="preset in speechPresets"
+                        :key="preset.value"
+                        :value="preset.value"
+                    >
+                        {{ preset.label }}
+                    </option>
+                </NativeSelect>
+            </div>
             <div class="grid gap-2">
                 <Label for="speech_base_url">Address (base URL)</Label>
                 <Input

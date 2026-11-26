@@ -1,11 +1,51 @@
 <script setup lang="ts">
-import { Link, router } from '@inertiajs/vue3';
-import AppLogoIcon from '@/components/AppLogoIcon.vue';
-import ToastHost from '@/components/ToastHost.vue';
-import { Button } from '@/components/ui/button';
+import { router, usePage } from '@inertiajs/vue3';
+import { Shield } from '@lucide/vue';
+import { computed } from 'vue';
+import AppSidebarShell from '@/components/AppSidebarShell.vue';
+import { logout, dashboard } from '@/routes/platform';
 import { edit as aiEdit } from '@/routes/platform/ai';
-import { index } from '@/routes/platform/companies';
-import { logout } from '@/routes/platform';
+import { index as companiesIndex } from '@/routes/platform/companies';
+import type { NavItem } from '@/types';
+
+const page = usePage();
+const admin = computed(() => page.props.platformAdmin);
+
+const path = (url: string): string => url.split('?')[0];
+
+// The platform has three sections. Active means the current URL is the section or inside it.
+const navigation = computed<NavItem[]>(() => {
+    const current = path(page.url);
+    const overview = dashboard().url;
+    const companies = companiesIndex().url;
+    const ai = aiEdit().url;
+
+    return [
+        {
+            label: 'Overview',
+            href: overview,
+            icon: 'LayoutDashboard',
+            active: current === overview,
+        },
+        {
+            label: 'Companies',
+            href: companies,
+            icon: 'Building2',
+            active:
+                current === companies || current.startsWith(`${companies}/`),
+        },
+        {
+            label: 'AI settings',
+            href: ai,
+            icon: 'Sparkles',
+            active: current === ai,
+        },
+    ];
+});
+
+const pageTitle = computed(
+    () => navigation.value.find((item) => item.active)?.label ?? 'Platform',
+);
 
 function signOut(): void {
     router.post(logout().url);
@@ -13,32 +53,18 @@ function signOut(): void {
 </script>
 
 <template>
-    <div class="min-h-svh bg-background">
-        <header class="border-b bg-card">
-            <div
-                class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-3"
-            >
-                <Link
-                    :href="index().url"
-                    class="flex items-center gap-2 font-semibold"
-                >
-                    <AppLogoIcon class="size-6" />
-                    BusinessPulse Platform
-                </Link>
-                <nav class="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" as-child
-                        ><Link :href="index().url">Companies</Link></Button
-                    >
-                    <Button variant="ghost" size="sm" as-child
-                        ><Link :href="aiEdit().url">AI settings</Link></Button
-                    >
-                    <Button variant="outline" size="sm" @click="signOut"
-                        >Sign out</Button
-                    >
-                </nav>
-            </div>
-        </header>
-        <main class="mx-auto max-w-5xl p-6"><slot /></main>
-    </div>
-    <ToastHost />
+    <AppSidebarShell
+        :brand-href="dashboard().url"
+        brand-name="BusinessPulse"
+        brand-subtitle="Platform admin"
+        :brand-icon="Shield"
+        :navigation="navigation"
+        breadcrumb-root="Platform"
+        :page-title="pageTitle"
+        :user-name="admin?.name"
+        :user-subtitle="admin?.email"
+        @sign-out="signOut"
+    >
+        <slot />
+    </AppSidebarShell>
 </template>

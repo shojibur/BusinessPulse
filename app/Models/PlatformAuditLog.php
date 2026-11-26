@@ -25,6 +25,12 @@ class PlatformAuditLog extends Model
         return ['properties' => 'array', 'created_at' => 'datetime'];
     }
 
+    /** @return BelongsTo<Company, $this> */
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
     /** @return BelongsTo<PlatformAdmin, $this> */
     public function admin(): BelongsTo
     {

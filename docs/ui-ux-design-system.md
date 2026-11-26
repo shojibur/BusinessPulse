@@ -62,3 +62,7 @@ Semantic landmarks, visible focus ring, keyboard-navigable dialogs, `aria-live` 
 
 ## 10. Toasts and notifications
 Toasts for transient confirmations (3–5 seconds). Persistent in-app notifications in the bell for urgent issues and task assignment, with mark-as-read and a link to the subject.
+
+## Application shell (sidebar)
+
+One shared shell (`AppSidebarShell.vue`) serves the company app and the platform panel. Desktop (769px and up): a dark sidebar that is 248px wide and collapses to a 64px icon rail with tooltips; the toggle is in the header and `Ctrl/Cmd + B` also toggles it (ignored while typing). The choice is stored in the browser (`bp.sidebar.collapsed`); on a first visit it starts collapsed below 1281px and expanded above. Phones (768px and below): the sidebar is a slide-out menu. The signed-in user (avatar initials, name, and role and department or email) is at the bottom left with a Sign out menu. The width change is a 200ms transition.

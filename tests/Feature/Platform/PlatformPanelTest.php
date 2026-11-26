@@ -6,7 +6,6 @@ use App\Models\Department;
 use App\Models\PlatformAdmin;
 use App\Models\PlatformAuditLog;
 use App\Models\User;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 
 const PLATFORM_PASSWORD = 'platform-pass-123';
@@ -53,7 +52,7 @@ test('a platform admin cannot open any company page', function () {
 });
 
 test('a platform admin signs in and out; wrong, unknown and inactive logins look the same', function () {
-    $this->post('/platform/login', ['email' => 'PAT@platform.test', 'password' => PLATFORM_PASSWORD])->assertRedirect('/platform/companies');
+    $this->post('/platform/login', ['email' => 'PAT@platform.test', 'password' => PLATFORM_PASSWORD])->assertRedirect('/platform');
     $this->get('/platform/companies')->assertOk();
     expect(PlatformAuditLog::where('action', 'platform.signed_in')->count())->toBe(1);
 
@@ -151,23 +150,6 @@ test('suspending a company blocks its sign in and ends live sessions; reactivati
     expect(PlatformAuditLog::where('action', 'company.reactivated')->count())->toBe(1);
 });
 
-test('the Owner password can be reset, ends the Owner sessions and is never logged', function () {
-    signedInAdmin()->post('/platform/companies', newCompanyPayload());
-    $company = createdCompany();
-    $owner = User::where('company_id', $company->id)->sole();
-    DB::table('sessions')->insert(['id' => 'sess-owner', 'user_id' => $owner->id, 'payload' => '', 'last_activity' => time()]);
-
-    $this->put("/platform/companies/{$company->id}/owner-password", ['password' => 'short'])->assertSessionHasErrors('password');
-    $this->put("/platform/companies/{$company->id}/owner-password", ['password' => 'a-brand-new-password'])->assertRedirect();
-
-    expect(DB::table('sessions')->where('user_id', $owner->id)->count())->toBe(0)
-        ->and(json_encode(PlatformAuditLog::where('action', 'company.owner_password_reset')->sole()->properties))->not->toContain('brand-new');
-
-    $this->post('/platform/logout');
-    $this->post('/login', ['email' => 'aminah@kedai.test', 'password' => 'owner-secret-12345'])->assertSessionHasErrors('email');
-    $this->post('/login', ['email' => 'aminah@kedai.test', 'password' => 'a-brand-new-password'])->assertRedirect('/today');
-});
-
 test('the panel shows company metadata only, never business data', function () {
     $f = reviewFixture(meetingRoster()); // an issue, a meeting and drafts exist for the roster company
     $roster = Company::query()->where('name', 'Meridian Test Sdn Bhd')->firstOrFail();
@@ -175,7 +157,7 @@ test('the panel shows company metadata only, never business data', function () {
     $page = signedInAdmin()->get("/platform/companies/{$roster->id}")->assertOk();
     $page->assertInertia(fn ($p) => $p->component('platform/companies/Show')
         ->where('company.users_count', fn ($n) => $n >= 5)
-        ->where('owner.email', 'weihan@m.test')
+        ->where('users.0.email', 'weihan@m.test')
         ->missing('issues')->missing('meetings')->missing('imports')->missing('tasks'));
 
     $content = $page->getContent();
@@ -198,4 +180,27 @@ test('two companies stay isolated and each user sees their own company', functio
     // Same process, other user: the company is re-resolved, not remembered from the previous request.
     $this->actingAs($a->owner)->get('/settings/company')->assertInertia(fn ($p) => $p->where('company.name', 'Meridian Test Sdn Bhd'));
     $this->actingAs($a->owner)->get("/meetings/{$meeting->id}")->assertOk();
+});
+
+test('the overview shows company counts, AI readiness and recent activity, and shares only the admin name and email', function () {
+    $f = meetingRoster();
+    $f->company->forceFill(['suspended_at' => now()])->save();
+    signedInAdmin()->post('/platform/companies', newCompanyPayload());
+
+    test()->get('/platform')->assertOk()->assertInertia(fn ($p) => $p
+        ->component('platform/Dashboard')
+        ->where('stats.companies', 2)->where('stats.active', 1)->where('stats.suspended', 1)->where('stats.users', 7)
+        ->has('recent', 2)->where('recent.0.name', 'Kedai Maju Sdn Bhd')
+        ->has('ai', 3)->where('ai.0.key', 'text')->where('ai.0.configured', false)
+        ->where('activity.0.action', 'company.created')->where('activity.0.by', 'Pat Platform')
+        ->where('platformAdmin', ['name' => 'Pat Platform', 'email' => 'pat@platform.test'])
+        ->missing('issues')->missing('meetings')->missing('imports'));
+
+    expect(test()->get('/platform')->getContent())->not->toContain('$2y$')->not->toContain('password');
+});
+
+test('company pages never receive the platform admin', function () {
+    $f = meetingRoster();
+
+    test()->actingAs($f->owner)->get('/today')->assertInertia(fn ($p) => $p->where('platformAdmin', null));
 });

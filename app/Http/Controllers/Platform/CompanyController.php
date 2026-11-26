@@ -3,11 +3,9 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Actions\Platform\CreateCompany;
-use App\Actions\Platform\ResetOwnerPassword;
 use App\Actions\Platform\SetCompanySuspension;
 use App\Enums\Role;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Platform\ResetOwnerPasswordRequest;
 use App\Http\Requests\Platform\StoreCompanyRequest;
 use App\Models\Company;
 use App\Models\PlatformAuditLog;
@@ -74,7 +72,6 @@ class CompanyController extends Controller
     public function show(Company $company): Response
     {
         $company->loadCount(['users', 'departments']);
-        $owner = User::query()->where('company_id', $company->id)->where('role', Role::Owner->value)->orderBy('id')->first(['name', 'email', 'is_active']);
         $department = $company->salesDepartment();
 
         return Inertia::render('platform/companies/Show', [
@@ -91,7 +88,23 @@ class CompanyController extends Controller
                 'departments_count' => $company->departments_count,
                 'branches' => $department?->expectedBranches() ?? [],
             ],
-            'owner' => $owner === null ? null : ['name' => $owner->name, 'email' => $owner->email, 'is_active' => $owner->is_active],
+            'users' => User::query()->with(['department:id,name', 'manager:id,name'])->where('company_id', $company->id)
+                ->orderByRaw("case role when 'owner' then 0 when 'manager' then 1 else 2 end")->orderBy('name')->get()
+                ->map(fn (User $user) => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role->value,
+                    'job_title' => $user->job_title,
+                    'is_active' => $user->is_active,
+                    'department_id' => $user->department_id,
+                    'department' => $user->department?->name,
+                    'manager_id' => $user->manager_id,
+                    'manager' => $user->manager?->name,
+                ])->all(),
+            'departments' => $company->departments()->orderBy('name')->get(['id', 'name'])->map(fn ($d) => ['id' => $d->id, 'name' => $d->name])->all(),
+            'managers' => User::query()->where('company_id', $company->id)->where('role', Role::Manager->value)->where('is_active', true)->orderBy('name')
+                ->get(['id', 'name', 'department_id'])->map(fn ($m) => ['id' => $m->id, 'name' => $m->name, 'department_id' => $m->department_id])->all(),
             'activity' => PlatformAuditLog::query()->with('admin:id,name')->where('company_id', $company->id)
                 ->orderByDesc('id')->limit(15)->get()->map(fn (PlatformAuditLog $log) => [
                     'id' => $log->id,
@@ -114,16 +127,6 @@ class CompanyController extends Controller
     {
         $action->handle($request->user(), $company, false);
         Flash::success("\"{$company->name}\" is active again.");
-
-        return back();
-    }
-
-    public function resetOwnerPassword(ResetOwnerPasswordRequest $request, Company $company, ResetOwnerPassword $action): RedirectResponse
-    {
-        $owner = $action->handle($request->user(), $company, $request->string('password')->toString());
-        abort_if($owner === null, 404);
-
-        Flash::success('The Owner password was changed and their open sessions were ended.');
 
         return back();
     }

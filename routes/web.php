@@ -22,6 +22,8 @@ use App\Http\Controllers\OutcomeController;
 use App\Http\Controllers\Platform\AiSettingsController as PlatformAiSettingsController;
 use App\Http\Controllers\Platform\AuthController as PlatformAuthController;
 use App\Http\Controllers\Platform\CompanyController as PlatformCompanyController;
+use App\Http\Controllers\Platform\CompanyUserController as PlatformCompanyUserController;
+use App\Http\Controllers\Platform\DashboardController as PlatformDashboardController;
 use App\Http\Controllers\RefreshIntelligenceController;
 use App\Http\Controllers\TaskCommentController;
 use App\Http\Controllers\TaskController;
@@ -126,7 +128,7 @@ Route::prefix('platform')->name('platform.')->group(function () {
 
     Route::middleware('platform')->group(function () {
         Route::post('logout', [PlatformAuthController::class, 'destroy'])->name('logout');
-        Route::redirect('/', '/platform/companies');
+        Route::get('/', PlatformDashboardController::class)->name('dashboard');
         // Site-wide AI settings (S11).
         Route::get('ai', [PlatformAiSettingsController::class, 'edit'])->name('ai.edit');
         Route::put('ai', [PlatformAiSettingsController::class, 'update'])->name('ai.update');
@@ -137,6 +139,13 @@ Route::prefix('platform')->name('platform.')->group(function () {
         Route::get('companies/{company}', [PlatformCompanyController::class, 'show'])->name('companies.show');
         Route::post('companies/{company}/suspend', [PlatformCompanyController::class, 'suspend'])->name('companies.suspend');
         Route::post('companies/{company}/reactivate', [PlatformCompanyController::class, 'reactivate'])->name('companies.reactivate');
-        Route::put('companies/{company}/owner-password', [PlatformCompanyController::class, 'resetOwnerPassword'])->name('companies.owner-password');
+        // A company's users. Scoped bindings: a user of another company is a 404.
+        Route::scopeBindings()->group(function () {
+            Route::post('companies/{company}/users', [PlatformCompanyUserController::class, 'store'])->name('companies.users.store');
+            Route::put('companies/{company}/users/{user}', [PlatformCompanyUserController::class, 'update'])->name('companies.users.update');
+            Route::post('companies/{company}/users/{user}/deactivate', [PlatformCompanyUserController::class, 'deactivate'])->name('companies.users.deactivate');
+            Route::post('companies/{company}/users/{user}/reactivate', [PlatformCompanyUserController::class, 'reactivate'])->name('companies.users.reactivate');
+            Route::put('companies/{company}/users/{user}/password', [PlatformCompanyUserController::class, 'password'])->name('companies.users.password');
+        });
     });
 });

@@ -54,7 +54,7 @@ class AuthController extends Controller
         $request->session()->regenerate();
         $audit->record($guard->user(), 'platform.signed_in', null, ['ip' => $request->ip()]);
 
-        return redirect()->route('platform.companies.index');
+        return redirect()->route('platform.dashboard');
     }
 
     public function destroy(Request $request): RedirectResponse

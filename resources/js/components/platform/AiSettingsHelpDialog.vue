@@ -48,11 +48,11 @@ defineProps<{ claudeModels: string[] }>();
                         <li><strong>Voice</strong> reads the brief aloud.</li>
                     </ul>
                     <p class="mt-2 text-muted-foreground">
-                        Claude answers text only. It has no transcription or
-                        voice service, so those two always use an
-                        OpenAI-compatible provider. You can use Claude for text
-                        and OpenAI for transcription and voice at the same time,
-                        each with its own key.
+                        Each job has its own service and key, so you can mix
+                        them: for example Claude for text, and OpenAI or Groq
+                        for transcription. Transcription and voice work with any
+                        service that offers the OpenAI-style audio API. Claude
+                        is used for text only.
                     </p>
                 </section>
 

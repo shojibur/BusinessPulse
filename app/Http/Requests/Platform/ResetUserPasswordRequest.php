@@ -4,7 +4,7 @@ namespace App\Http\Requests\Platform;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class ResetOwnerPasswordRequest extends FormRequest
+class ResetUserPasswordRequest extends FormRequest
 {
     public function authorize(): bool
     {

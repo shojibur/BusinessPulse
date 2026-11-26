@@ -22,7 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Signed-in users who open the login page go to Today.
         $middleware->redirectUsersTo(fn ($request) => $request->is('platform', 'platform/*')
-            ? route('platform.companies.index')
+            ? route('platform.dashboard')
             : route($request->user()?->isStaff() ? 'tasks.mine' : 'today'));
         $middleware->redirectGuestsTo(fn ($request) => $request->is('platform', 'platform/*') ? route('platform.login') : route('login'));
 

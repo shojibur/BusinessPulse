@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
 import {
+    Building2,
     Circle,
     FileText,
     LayoutDashboard,
     ListChecks,
     Mic,
     Settings,
+    Sparkles,
     TrendingUp,
     TriangleAlert,
     Upload,
@@ -22,10 +24,10 @@ import type { NavItem } from '@/types';
 withDefaults(
     defineProps<{
         items: NavItem[];
-        /** `responsive` collapses to an icon rail at 1280px and below; `full` always shows labels. */
-        mode?: 'responsive' | 'full';
+        /** Icon-only rail: labels are hidden (kept for screen readers) and shown in a tooltip. */
+        collapsed?: boolean;
     }>(),
-    { mode: 'responsive' },
+    { collapsed: false },
 );
 
 // Lucide icons named by config/navigation.php.
@@ -38,24 +40,24 @@ const icons: Record<string, Component> = {
     ListChecks,
     TrendingUp,
     Settings,
+    Building2,
+    Sparkles,
 };
 </script>
 
 <template>
     <ul class="flex flex-col gap-1">
         <li v-for="item in items" :key="item.href">
-            <Tooltip :disabled="mode === 'full'">
+            <Tooltip :disabled="!collapsed">
                 <TooltipTrigger as-child>
                     <Link
                         :href="item.href"
                         :aria-current="item.active ? 'page' : undefined"
-                        class="flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium text-sidebar-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                        class="flex h-10 items-center gap-3 rounded-md text-sm font-medium text-sidebar-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                         :class="[
+                            collapsed ? 'justify-center px-0' : 'px-3',
                             item.active &&
                                 'bg-sidebar-accent text-sidebar-accent-foreground',
-                            // Icon rail is the base; the full sidebar (above 1280px) restores labels.
-                            mode === 'responsive' &&
-                                'justify-center px-0 min-[1281px]:justify-start min-[1281px]:px-3',
                         ]"
                     >
                         <component
@@ -64,17 +66,12 @@ const icons: Record<string, Component> = {
                             :class="item.active && 'text-sidebar-ring'"
                             aria-hidden="true"
                         />
-                        <span
-                            :class="
-                                mode === 'responsive' &&
-                                'sr-only min-[1281px]:not-sr-only'
-                            "
-                        >
+                        <span :class="collapsed && 'sr-only'">
                             {{ item.label }}
                         </span>
                     </Link>
                 </TooltipTrigger>
-                <TooltipContent side="right" class="min-[1281px]:hidden">
+                <TooltipContent side="right">
                     {{ item.label }}
                 </TooltipContent>
             </Tooltip>

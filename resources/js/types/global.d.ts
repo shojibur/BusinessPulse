@@ -23,6 +23,8 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             company: CompanyProfile | null;
+            /** The signed-in platform admin (S10); null on every company page. */
+            platformAdmin: { name: string; email: string } | null;
             navigation: NavItem[];
             flash: FlashMessage | null;
             notifications: NotificationsShared | null;
