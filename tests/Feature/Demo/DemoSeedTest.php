@@ -8,6 +8,7 @@ use App\Models\Meeting;
 use App\Models\RuleEvaluation;
 use App\Models\SalesRecord;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -53,6 +54,8 @@ test('extra data stops the seed and points to demo:reset', function () {
 
 test('the populated seed imports week 8 through the real pipeline: open high issue, urgent notifications and a draft meeting, no AI data', function () {
     $this->artisan('demo:seed', ['--populated' => true])->expectsOutputToContain('populated')->assertExitCode(0);
+    // Seeding must never tell running queue workers to stop (a dev worker has no supervisor to restart it).
+    expect(Cache::get('illuminate:queue:restart'))->toBeNull();
 
     $decline = Issue::whereHas('rule', fn ($q) => $q->where('key', 'weekly_revenue_decline'))->sole();
     $evaluation = RuleEvaluation::whereHas('rule', fn ($q) => $q->where('key', 'weekly_revenue_decline'))->orderByDesc('id')->first();

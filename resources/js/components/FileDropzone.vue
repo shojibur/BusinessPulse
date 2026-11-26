@@ -31,16 +31,24 @@ function drop(event: DragEvent): void {
 
 <template>
     <div
-        class="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors"
+        class="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors"
         :class="[
-            dragging ? 'border-primary bg-accent' : 'border-input bg-surface',
+            dragging
+                ? 'border-primary bg-accent'
+                : file
+                  ? 'border-primary/40 bg-primary/5'
+                  : 'border-input bg-card hover:border-primary/40',
             invalid && 'border-severity-high',
         ]"
         @dragover.prevent="dragging = true"
         @dragleave="dragging = false"
         @drop.prevent="drop"
     >
-        <FileUp class="size-8 text-muted-foreground" aria-hidden="true" />
+        <span
+            class="flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary-text"
+        >
+            <FileUp class="size-7" aria-hidden="true" />
+        </span>
 
         <p v-if="file" class="text-sm font-medium break-all">
             {{ file.name }}
@@ -48,9 +56,12 @@ function drop(event: DragEvent): void {
                 ({{ formatBytes(file.size) }})
             </span>
         </p>
-        <p v-else class="text-sm text-muted-foreground">
-            Drag a CSV file here, or choose one.
-        </p>
+        <template v-else>
+            <p class="text-base font-semibold">Drop your CSV file here</p>
+            <p class="text-sm text-muted-foreground">
+                or choose it from your computer
+            </p>
+        </template>
 
         <!-- A real file input keeps the control keyboard and screen reader operable. -->
         <input

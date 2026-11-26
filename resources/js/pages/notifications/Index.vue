@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { BellOff } from '@lucide/vue';
+import { Bell, BellOff, CheckCheck } from '@lucide/vue';
 import EmptyState from '@/components/EmptyState.vue';
 import PageHeader from '@/components/PageHeader.vue';
 import SeverityBadge from '@/components/SeverityBadge.vue';
@@ -26,6 +26,7 @@ defineProps<{
             variant="outline"
             @click="router.post(readAll().url, {}, { preserveScroll: true })"
         >
+            <CheckCheck aria-hidden="true" />
             Mark all as read
         </Button>
     </PageHeader>
@@ -34,47 +35,67 @@ defineProps<{
         <EmptyState :icon="BellOff" message="You have no notifications." />
     </Card>
 
-    <ul v-else class="space-y-3">
-        <li v-for="item in notifications" :key="item.id">
-            <Card class="gap-2 p-4" :class="item.read ? 'opacity-70' : ''">
-                <div class="flex flex-wrap items-center gap-2">
-                    <SeverityBadge
-                        v-if="
-                            item.severity === 'high' ||
-                            item.severity === 'medium' ||
-                            item.severity === 'low'
-                        "
-                        :severity="item.severity"
-                    />
-                    <span
-                        v-if="!item.read"
-                        class="text-xs font-medium text-primary-text"
+    <Card v-else class="gap-0 p-0">
+        <ul class="divide-y">
+            <li
+                v-for="item in notifications"
+                :key="item.id"
+                class="flex items-start gap-4 px-5 py-4"
+                :class="item.read ? '' : 'bg-primary/5'"
+            >
+                <span
+                    class="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg"
+                    :class="
+                        item.read
+                            ? 'bg-muted text-muted-foreground'
+                            : 'bg-primary/10 text-primary-text'
+                    "
+                >
+                    <Bell class="size-4" aria-hidden="true" />
+                </span>
+                <div class="min-w-0 flex-1 space-y-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <SeverityBadge
+                            v-if="
+                                item.severity === 'high' ||
+                                item.severity === 'medium' ||
+                                item.severity === 'low'
+                            "
+                            :severity="item.severity"
+                        />
+                        <span
+                            v-if="!item.read"
+                            class="text-xs font-medium text-primary-text"
+                        >
+                            Unread
+                        </span>
+                    </div>
+                    <p class="text-sm font-medium">
+                        <Link
+                            v-if="item.url"
+                            :href="item.url"
+                            class="touch-target text-primary-text hover:underline"
+                        >
+                            {{ item.title }}
+                        </Link>
+                        <template v-else>{{ item.title }}</template>
+                    </p>
+                    <p
+                        v-if="item.summary"
+                        class="text-sm text-muted-foreground"
                     >
-                        Unread
-                    </span>
+                        {{ item.summary }}
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                        {{ item.department ?? '' }} ·
+                        {{ formatDateTime(item.created_at) }}
+                    </p>
                 </div>
-                <p class="font-medium">
-                    <Link
-                        v-if="item.url"
-                        :href="item.url"
-                        class="touch-target text-primary-text hover:underline"
-                    >
-                        {{ item.title }}
-                    </Link>
-                    <template v-else>{{ item.title }}</template>
-                </p>
-                <p v-if="item.summary" class="text-sm text-muted-foreground">
-                    {{ item.summary }}
-                </p>
-                <p class="text-xs text-muted-foreground">
-                    {{ item.department ?? '' }} ·
-                    {{ formatDateTime(item.created_at) }}
-                </p>
                 <Button
                     v-if="!item.read"
                     size="sm"
                     variant="outline"
-                    class="w-fit"
+                    class="shrink-0"
                     @click="
                         router.post(
                             read(item.id).url,
@@ -85,9 +106,9 @@ defineProps<{
                 >
                     Mark as read
                 </Button>
-            </Card>
-        </li>
-    </ul>
+            </li>
+        </ul>
+    </Card>
 
     <nav
         v-if="pagination.last_page > 1"

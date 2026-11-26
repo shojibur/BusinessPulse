@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { FileText } from '@lucide/vue';
+import { ChevronRight, FileText } from '@lucide/vue';
 import { ref } from 'vue';
+import AiUnavailableNotice from '@/components/AiUnavailableNotice.vue';
 import BriefSourceBadge from '@/components/BriefSourceBadge.vue';
 import EmptyState from '@/components/EmptyState.vue';
 import PageHeader from '@/components/PageHeader.vue';
@@ -10,9 +11,13 @@ import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
 import { show, store } from '@/routes/briefs';
-import type { BriefRow, Pagination } from '@/types';
+import type { AiAvailability, BriefRow, Pagination } from '@/types';
 
-defineProps<{ briefs: BriefRow[]; pagination: Pagination }>();
+defineProps<{
+    briefs: BriefRow[];
+    pagination: Pagination;
+    ai: AiAvailability;
+}>();
 
 const generating = ref(false);
 const error = ref<string | null>(null);
@@ -47,6 +52,8 @@ function generate(): void {
         </Button>
     </PageHeader>
 
+    <AiUnavailableNotice v-if="!ai.text" class="mb-4" />
+
     <p v-if="error" class="mb-4 text-sm text-destructive" role="alert">
         {{ error }}
     </p>
@@ -62,29 +69,46 @@ function generate(): void {
         </EmptyState>
     </Card>
 
-    <div v-else class="space-y-3">
-        <Card v-for="brief in briefs" :key="brief.id" class="p-4">
-            <div class="flex flex-wrap items-center gap-2">
-                <BriefSourceBadge
-                    :status="brief.status"
-                    :source="brief.source"
-                />
-                <span class="text-xs text-muted-foreground">{{
-                    formatDateTime(brief.generated_at ?? brief.created_at)
-                }}</span>
-            </div>
-            <Link
-                :href="show(brief.id).url"
-                class="touch-target mt-2 block font-medium text-primary-text hover:underline"
-            >
-                {{
-                    brief.headline ??
-                    'Brief' +
-                        (brief.status === 'failed'
-                            ? ' (failed)'
-                            : ' is being prepared')
-                }}
-            </Link>
+    <div v-else class="space-y-4">
+        <Card class="gap-0 p-0">
+            <ul class="divide-y">
+                <li v-for="brief in briefs" :key="brief.id">
+                    <Link
+                        :href="show(brief.id).url"
+                        class="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                    >
+                        <span
+                            class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary-text"
+                        >
+                            <FileText class="size-5" aria-hidden="true" />
+                        </span>
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate text-sm font-medium">
+                                {{
+                                    brief.headline ??
+                                    'Brief' +
+                                        (brief.status === 'failed'
+                                            ? ' (failed)'
+                                            : ' is being prepared')
+                                }}
+                            </span>
+                            <span class="block text-xs text-muted-foreground">{{
+                                formatDateTime(
+                                    brief.generated_at ?? brief.created_at,
+                                )
+                            }}</span>
+                        </span>
+                        <BriefSourceBadge
+                            :status="brief.status"
+                            :source="brief.source"
+                        />
+                        <ChevronRight
+                            class="size-4 shrink-0 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                    </Link>
+                </li>
+            </ul>
         </Card>
 
         <nav

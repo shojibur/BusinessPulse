@@ -22,8 +22,14 @@ function describe(week: WeekStateView): { label: string; tone: StatusTone } {
 </script>
 
 <template>
-    <ul class="divide-y rounded-lg border bg-surface">
-        <li v-for="week in weeks" :key="week.week_start" class="space-y-2 p-4">
+    <ul
+        class="divide-y overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+    >
+        <li
+            v-for="week in weeks"
+            :key="week.week_start"
+            class="space-y-2.5 px-5 py-4"
+        >
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <p class="text-sm font-medium">
                     Week of
@@ -32,6 +38,24 @@ function describe(week: WeekStateView): { label: string; tone: StatusTone } {
                 <StatusBadge
                     :label="describe(week).label"
                     :tone="describe(week).tone"
+                />
+            </div>
+
+            <div
+                v-if="week.coverage_pct !== null"
+                class="h-1.5 overflow-hidden rounded-full bg-muted"
+                aria-hidden="true"
+            >
+                <div
+                    class="h-full rounded-full"
+                    :class="
+                        Number(week.coverage_pct) >= 100
+                            ? 'bg-success'
+                            : 'bg-severity-medium'
+                    "
+                    :style="{
+                        width: `${Math.min(100, Number(week.coverage_pct))}%`,
+                    }"
                 />
             </div>
 

@@ -14,7 +14,6 @@ use App\Models\SalesRecord;
 use App\Models\User;
 use Database\Seeders\DemoIdentitySeeder;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -86,8 +85,6 @@ class DemoSeeder
         } finally {
             config(['queue.default' => $previousQueue]);
         }
-
-        Cache::forever('illuminate:queue:restart', time()); // workers pick up the fresh state
 
         return $this->summary(Company::query()->where('is_demo', true)->firstOrFail(), false, $populated);
     }

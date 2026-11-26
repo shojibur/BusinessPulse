@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { CalendarDays, TriangleAlert } from '@lucide/vue';
+import SectionHeader from '@/components/SectionHeader.vue';
+import { Card } from '@/components/ui/card';
 import { Link, useForm } from '@inertiajs/vue3';
 import { computed, watch } from 'vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -71,42 +74,75 @@ function submit(): void {
 </script>
 
 <template>
-    <form class="max-w-2xl space-y-5" novalidate @submit.prevent="submit">
-        <div class="grid gap-1.5">
-            <Label for="title">Title</Label>
-            <Input
-                id="title"
-                v-model="form.title"
-                maxlength="150"
-                required
-                :aria-invalid="!!form.errors.title"
-            />
-            <p
-                v-if="form.errors.title"
-                class="text-sm text-destructive"
-                role="alert"
-            >
-                {{ form.errors.title }}
-            </p>
-        </div>
+    <form class="max-w-3xl space-y-6" novalidate @submit.prevent="submit">
+        <Card class="gap-5 p-6">
+            <SectionHeader title="Meeting details" :icon="CalendarDays" />
 
-        <div class="grid gap-1.5">
-            <Label for="meeting_date">Meeting date</Label>
-            <Input
-                id="meeting_date"
-                v-model="form.meeting_date"
-                type="date"
-                required
-                :disabled="meeting?.dateLocked"
-                :aria-invalid="!!form.errors.meeting_date"
-            />
-            <p
-                v-if="form.errors.meeting_date"
-                class="text-sm text-destructive"
-                role="alert"
-            >
-                {{ form.errors.meeting_date }}
-            </p>
+            <div class="grid gap-1.5">
+                <Label for="title">Title</Label>
+                <Input
+                    id="title"
+                    v-model="form.title"
+                    maxlength="150"
+                    required
+                    :aria-invalid="!!form.errors.title"
+                />
+                <p
+                    v-if="form.errors.title"
+                    class="text-sm text-destructive"
+                    role="alert"
+                >
+                    {{ form.errors.title }}
+                </p>
+            </div>
+
+            <div class="grid gap-5 sm:grid-cols-2">
+                <div class="grid content-start gap-1.5">
+                    <Label for="meeting_date">Meeting date</Label>
+                    <Input
+                        id="meeting_date"
+                        v-model="form.meeting_date"
+                        type="date"
+                        required
+                        :disabled="meeting?.dateLocked"
+                        :aria-invalid="!!form.errors.meeting_date"
+                    />
+                    <p
+                        v-if="form.errors.meeting_date"
+                        class="text-sm text-destructive"
+                        role="alert"
+                    >
+                        {{ form.errors.meeting_date }}
+                    </p>
+                </div>
+
+                <div
+                    v-if="!singleDepartment && !editing"
+                    class="grid content-start gap-1.5"
+                >
+                    <Label for="department_id">Department</Label>
+                    <NativeSelect
+                        id="department_id"
+                        v-model="form.department_id"
+                    >
+                        <option
+                            v-for="department in departments"
+                            :key="department.id"
+                            :value="department.id"
+                        >
+                            {{ department.name }}
+                        </option>
+                    </NativeSelect>
+                    <p
+                        v-if="form.errors.department_id"
+                        class="text-sm text-destructive"
+                        role="alert"
+                    >
+                        {{ form.errors.department_id }}
+                    </p>
+                </div>
+            </div>
+
             <Alert v-if="futureDate" role="status"
                 ><AlertDescription
                     >This date is in the future.</AlertDescription
@@ -119,59 +155,44 @@ function submit(): void {
                     date.</AlertDescription
                 >
             </Alert>
-        </div>
+        </Card>
 
-        <div v-if="!singleDepartment && !editing" class="grid gap-1.5">
-            <Label for="department_id">Department</Label>
-            <NativeSelect id="department_id" v-model="form.department_id">
-                <option
-                    v-for="department in departments"
-                    :key="department.id"
-                    :value="department.id"
+        <Card class="gap-4 p-6">
+            <SectionHeader
+                title="Linked issues"
+                description="Choose up to 10 issues this meeting is about."
+                :icon="TriangleAlert"
+            />
+            <fieldset class="grid gap-2">
+                <legend class="sr-only">Linked issues (up to 10)</legend>
+                <p
+                    v-if="availableIssues.length === 0"
+                    class="text-sm text-muted-foreground"
                 >
-                    {{ department.name }}
-                </option>
-            </NativeSelect>
-            <p
-                v-if="form.errors.department_id"
-                class="text-sm text-destructive"
-                role="alert"
-            >
-                {{ form.errors.department_id }}
-            </p>
-        </div>
-
-        <fieldset class="grid gap-2">
-            <legend class="text-sm font-medium">
-                Linked issues (up to 10)
-            </legend>
-            <p
-                v-if="availableIssues.length === 0"
-                class="text-sm text-muted-foreground"
-            >
-                There are no issues in this department to link.
-            </p>
-            <label
-                v-for="issue in availableIssues"
-                :key="issue.id"
-                class="flex items-start gap-2 text-sm"
-            >
-                <input
-                    v-model="form.issue_ids"
-                    type="checkbox"
-                    :value="issue.id"
-                    class="mt-1 size-4"
-                />
-                <span>{{ issue.title }}</span>
-            </label>
-            <p
-                v-if="form.errors.issue_ids || form.errors['issue_ids.0']"
-                class="text-sm text-destructive"
-                role="alert"
-            >
-                {{ form.errors.issue_ids ?? form.errors['issue_ids.0'] }}
-            </p>
-        </fieldset>
+                    There are no issues in this department to link.
+                </p>
+                <label
+                    v-for="issue in availableIssues"
+                    :key="issue.id"
+                    class="flex items-start gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/40 has-[:checked]:border-primary/50 has-[:checked]:bg-primary/5"
+                >
+                    <input
+                        v-model="form.issue_ids"
+                        type="checkbox"
+                        :value="issue.id"
+                        class="mt-0.5 size-4"
+                    />
+                    <span>{{ issue.title }}</span>
+                </label>
+                <p
+                    v-if="form.errors.issue_ids || form.errors['issue_ids.0']"
+                    class="text-sm text-destructive"
+                    role="alert"
+                >
+                    {{ form.errors.issue_ids ?? form.errors['issue_ids.0'] }}
+                </p>
+            </fieldset>
+        </Card>
 
         <div class="flex gap-2">
             <Button type="submit" :disabled="form.processing">

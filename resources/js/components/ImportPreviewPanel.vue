@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
-import { Info } from '@lucide/vue';
-import KpiCard from '@/components/KpiCard.vue';
+import { CalendarDays, Info } from '@lucide/vue';
+import MetricTile from '@/components/MetricTile.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import WeekStateList from '@/components/WeekStateList.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { formatDate, formatDateRange, formatNumber } from '@/lib/format';
@@ -44,25 +45,25 @@ defineProps<{ preview: ImportPreview }>();
             </AlertDescription>
         </Alert>
 
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
-            <KpiCard
+        <div class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+            <MetricTile
                 label="Total rows"
                 :value="formatNumber(preview.counts.total)"
             />
-            <KpiCard label="New" :value="formatNumber(preview.counts.new)" />
-            <KpiCard
+            <MetricTile label="New" :value="formatNumber(preview.counts.new)" />
+            <MetricTile
                 label="Corrected"
                 :value="formatNumber(preview.counts.corrected)"
             />
-            <KpiCard
+            <MetricTile
                 label="Unchanged"
                 :value="formatNumber(preview.counts.unchanged)"
             />
-            <KpiCard
+            <MetricTile
                 label="Invalid"
                 :value="formatNumber(preview.counts.invalid)"
             />
-            <KpiCard
+            <MetricTile
                 label="Valid"
                 :value="formatNumber(preview.counts.valid)"
             />
@@ -70,22 +71,29 @@ defineProps<{ preview: ImportPreview }>();
 
         <p
             v-if="preview.counts.valid === 0"
-            class="rounded-lg border bg-surface p-4 text-sm font-medium"
+            class="rounded-xl border border-l-4 border-l-severity-high bg-card p-4 text-sm font-medium"
             role="status"
         >
             Nothing can be imported: no row passed validation.
         </p>
 
-        <dl v-else class="grid gap-3 text-sm sm:grid-cols-2">
+        <dl
+            v-else
+            class="grid gap-4 rounded-xl border bg-card p-5 text-sm sm:grid-cols-2"
+        >
             <div>
-                <dt class="text-muted-foreground">Date range of valid rows</dt>
+                <dt class="text-xs text-muted-foreground">
+                    Date range of valid rows
+                </dt>
                 <dd class="font-medium">
                     {{ formatDate(preview.min_date) }} to
                     {{ formatDate(preview.max_date) }}
                 </dd>
             </div>
             <div>
-                <dt class="text-muted-foreground">Branches in the file</dt>
+                <dt class="text-xs text-muted-foreground">
+                    Branches in the file
+                </dt>
                 <dd class="font-medium">{{ preview.branches.join(', ') }}</dd>
             </div>
         </dl>
@@ -100,13 +108,11 @@ defineProps<{ preview: ImportPreview }>();
         </p>
 
         <section v-if="preview.weeks.length > 0" class="space-y-3">
-            <h3 class="text-lg/7 font-semibold">
-                Reporting weeks in this file
-            </h3>
-            <p class="text-sm text-muted-foreground">
-                Incomplete weeks stay incomplete. Missing data is never treated
-                as zero.
-            </p>
+            <SectionHeader
+                title="Reporting weeks in this file"
+                description="Incomplete weeks stay incomplete. Missing data is never treated as zero."
+                :icon="CalendarDays"
+            />
             <WeekStateList :weeks="preview.weeks" />
 
             <p class="text-sm" role="status">

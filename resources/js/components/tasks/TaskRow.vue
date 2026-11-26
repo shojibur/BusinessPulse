@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { Link } from '@inertiajs/vue3';
+import { CalendarDays, UserRound } from '@lucide/vue';
+import { computed } from 'vue';
 import OverdueBadge from '@/components/tasks/OverdueBadge.vue';
 import StatusActions from '@/components/tasks/StatusActions.vue';
 import TaskStatusBadge from '@/components/tasks/TaskStatusBadge.vue';
@@ -7,15 +9,24 @@ import { Card } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
 import type { TaskRowData } from '@/types';
 
-defineProps<{ task: TaskRowData; showActions?: boolean }>();
+const props = defineProps<{ task: TaskRowData; showActions?: boolean }>();
+
+// A coloured edge: overdue is red, finished work is green, everything else neutral.
+const edge = computed(() =>
+    props.task.daysOverdue !== null && props.task.daysOverdue > 0
+        ? 'border-l-severity-high'
+        : props.task.status === 'completed'
+          ? 'border-l-success'
+          : 'border-l-slate-300',
+);
 </script>
 
 <template>
-    <Card class="gap-2 p-4">
+    <Card class="gap-3 border-l-4 p-4" :class="edge">
         <div class="flex flex-wrap items-start justify-between gap-2">
             <Link
                 :href="task.url"
-                class="touch-target font-medium text-primary-text hover:underline"
+                class="touch-target text-sm/5 font-semibold text-foreground hover:text-primary-text hover:underline"
                 >{{ task.title }}</Link
             >
             <div class="flex flex-wrap items-center gap-2">
@@ -26,8 +37,17 @@ defineProps<{ task: TaskRowData; showActions?: boolean }>();
                 />
             </div>
         </div>
-        <p class="text-sm text-muted-foreground">
-            Due {{ formatDate(task.dueDate) }} · {{ task.assignee.name }}
+        <p
+            class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+        >
+            <span class="inline-flex items-center gap-1.5">
+                <CalendarDays class="size-3.5" aria-hidden="true" />
+                Due {{ formatDate(task.dueDate) }}
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+                <UserRound class="size-3.5" aria-hidden="true" />
+                {{ task.assignee.name }}
+            </span>
         </p>
         <StatusActions
             v-if="showActions"

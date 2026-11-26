@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
-import { ListChecks } from '@lucide/vue';
+import { CircleAlert, ListChecks } from '@lucide/vue';
 import EmptyState from '@/components/EmptyState.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import TaskRow from '@/components/tasks/TaskRow.vue';
 import { Card } from '@/components/ui/card';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -51,48 +53,58 @@ const empty = () =>
 
     <div class="space-y-6">
         <div class="grid gap-4 sm:grid-cols-2" aria-label="Task summary">
-            <Card class="gap-1 p-4"
-                ><p class="text-xs text-muted-foreground">Open</p>
-                <p class="text-[28px]/9 font-semibold tabular-nums">
-                    {{ summary.open }}
-                </p></Card
-            >
-            <Card class="gap-1 p-4"
-                ><p class="text-xs text-muted-foreground">Overdue</p>
-                <p class="text-[28px]/9 font-semibold tabular-nums">
-                    {{ summary.overdue }}
-                </p></Card
-            >
+            <MetricTile
+                label="Open tasks"
+                :value="String(summary.open)"
+                caption="Assigned to you and not finished"
+                :icon="ListChecks"
+            />
+            <MetricTile
+                label="Overdue"
+                :value="String(summary.overdue)"
+                :caption="
+                    summary.overdue > 0
+                        ? 'Past their due date'
+                        : 'Nothing is late'
+                "
+                :icon="CircleAlert"
+                :tone="summary.overdue > 0 ? 'danger' : 'success'"
+            />
         </div>
 
-        <div class="flex flex-wrap items-end gap-4">
-            <div class="grid gap-1">
-                <label for="mine-status" class="text-sm font-medium"
-                    >Status</label
-                >
-                <NativeSelect
-                    id="mine-status"
-                    v-model="status"
-                    class="min-w-44"
-                    @update:model-value="apply"
-                >
-                    <option value="">All statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="in_progress">In progress</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="completed">Completed</option>
-                </NativeSelect>
+        <Card class="gap-4 p-5">
+            <SectionHeader title="Filter" />
+            <div class="flex flex-wrap items-end gap-4">
+                <div class="grid gap-1">
+                    <label
+                        for="mine-status"
+                        class="text-xs font-medium text-muted-foreground"
+                        >Status</label
+                    >
+                    <NativeSelect
+                        id="mine-status"
+                        v-model="status"
+                        class="min-w-44"
+                        @update:model-value="apply"
+                    >
+                        <option value="">All statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In progress</option>
+                        <option value="blocked">Blocked</option>
+                        <option value="completed">Completed</option>
+                    </NativeSelect>
+                </div>
+                <label class="flex items-center gap-2 pb-2 text-sm">
+                    <input
+                        v-model="showCancelled"
+                        type="checkbox"
+                        class="size-4"
+                        @change="apply"
+                    />
+                    Show cancelled
+                </label>
             </div>
-            <label class="flex items-center gap-2 pb-2 text-sm">
-                <input
-                    v-model="showCancelled"
-                    type="checkbox"
-                    class="size-4"
-                    @change="apply"
-                />
-                Show cancelled
-            </label>
-        </div>
+        </Card>
 
         <Card v-if="empty()"
             ><EmptyState :icon="ListChecks" message="No tasks assigned to you."
@@ -104,9 +116,7 @@ const empty = () =>
                 aria-labelledby="overdue-heading"
                 class="space-y-3"
             >
-                <h2 id="overdue-heading" class="text-lg/7 font-semibold">
-                    Overdue
-                </h2>
+                <SectionHeader id="overdue-heading" title="Overdue" />
                 <TaskRow
                     v-for="task in sections.overdue"
                     :key="task.id"
@@ -119,7 +129,7 @@ const empty = () =>
                 aria-labelledby="open-heading"
                 class="space-y-3"
             >
-                <h2 id="open-heading" class="text-lg/7 font-semibold">Open</h2>
+                <SectionHeader id="open-heading" title="Open" />
                 <TaskRow
                     v-for="task in sections.open"
                     :key="task.id"
@@ -132,9 +142,7 @@ const empty = () =>
                 aria-labelledby="done-heading"
                 class="space-y-3"
             >
-                <h2 id="done-heading" class="text-lg/7 font-semibold">
-                    Completed
-                </h2>
+                <SectionHeader id="done-heading" title="Completed" />
                 <TaskRow
                     v-for="task in sections.completed"
                     :key="task.id"
@@ -146,9 +154,7 @@ const empty = () =>
                 aria-labelledby="cancelled-heading"
                 class="space-y-3"
             >
-                <h2 id="cancelled-heading" class="text-lg/7 font-semibold">
-                    Cancelled
-                </h2>
+                <SectionHeader id="cancelled-heading" title="Cancelled" />
                 <TaskRow
                     v-for="task in sections.cancelled"
                     :key="task.id"

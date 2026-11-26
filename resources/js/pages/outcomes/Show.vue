@@ -1,19 +1,33 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3';
-import { Info } from '@lucide/vue';
+import {
+    CalendarDays,
+    Flag,
+    Gauge,
+    History,
+    Info,
+    ListChecks,
+    ShieldCheck,
+    TrendingUp,
+} from '@lucide/vue';
 import ComparabilityChecks from '@/components/outcomes/ComparabilityChecks.vue';
 import FeedbackControl from '@/components/outcomes/FeedbackControl.vue';
 import OutcomeComparisonChart from '@/components/outcomes/OutcomeComparisonChart.vue';
 import OutcomeResultBadge from '@/components/outcomes/OutcomeResultBadge.vue';
 import PhaseBadge from '@/components/outcomes/PhaseBadge.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
+import TimelineList from '@/components/TimelineList.vue';
+import type { TimelineItem } from '@/components/TimelineList.vue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { computed } from 'vue';
 import { formatDate, formatDateRange } from '@/lib/format';
 import type { OutcomeDetail, OutcomeLink } from '@/types';
 
-defineProps<{
+const props = defineProps<{
     outcome: OutcomeDetail;
     chart: {
         categories: string[];
@@ -52,6 +66,25 @@ defineProps<{
     };
     urls: { saveNote: string | null; submitFeedback: string; index: string };
 }>();
+
+// The comparison result sets the tone of the headline change tile.
+const resultTone = computed<'danger' | 'success' | 'neutral'>(() =>
+    props.outcome.result === 'improved'
+        ? 'success'
+        : props.outcome.result === 'worsened'
+          ? 'danger'
+          : 'neutral',
+);
+
+const historyItems = computed<TimelineItem[]>(() =>
+    props.statusHistory.map((h, i) => ({
+        key: i,
+        title: `${h.from} → ${h.to}`,
+        meta: `${h.atLabel} · ${h.byName}`,
+        detail: h.reason ? `Reason: ${h.reason}` : undefined,
+        tone: 'info' as const,
+    })),
+);
 </script>
 
 <template>
@@ -70,9 +103,18 @@ defineProps<{
     </PageHeader>
 
     <div class="space-y-6">
-        <Card class="gap-3 p-4">
+        <Card
+            class="gap-3 border-l-4 p-5"
+            :class="{
+                'border-l-success': outcome.result === 'improved',
+                'border-l-severity-high': outcome.result === 'worsened',
+                'border-l-slate-300':
+                    outcome.result !== 'improved' &&
+                    outcome.result !== 'worsened',
+            }"
+        >
             <div class="flex flex-wrap items-center gap-2">
-                <h2 class="text-lg/7 font-semibold">
+                <h2 class="text-base/6 font-semibold">
                     {{ outcome.issue.title }}
                 </h2>
                 <OutcomeResultBadge
@@ -84,7 +126,7 @@ defineProps<{
                     :used-for-verification="outcome.phase.usedForVerification"
                 />
             </div>
-            <p class="text-sm text-muted-foreground">
+            <p class="text-xs text-muted-foreground">
                 {{ outcome.departmentName }} · {{ outcome.ruleName }} · issue is
                 {{ outcome.issue.statusLabel }} · evaluated
                 {{ outcome.evaluatedAtLabel }}
@@ -112,67 +154,62 @@ defineProps<{
             >
         </Alert>
 
-        <section v-else class="space-y-3" aria-labelledby="values-heading">
-            <h2 id="values-heading" class="text-lg/7 font-semibold">
-                {{ outcome.outcomeMetricLabel }}
-            </h2>
-            <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Card class="gap-1 p-4"
-                    ><dt class="text-xs text-muted-foreground">
-                        At detection ({{
-                            formatDateRange(
-                                outcome.baselinePeriod.start,
-                                outcome.baselinePeriod.end,
-                            )
-                        }})
-                    </dt>
-                    <dd class="text-xl font-semibold tabular-nums">
-                        {{ outcome.values.baselineLabel }}
-                    </dd></Card
-                >
-                <Card class="gap-1 p-4"
-                    ><dt class="text-xs text-muted-foreground">
-                        Compared period ({{
-                            formatDateRange(
-                                outcome.followupPeriod.start,
-                                outcome.followupPeriod.end,
-                            )
-                        }})
-                    </dt>
-                    <dd class="text-xl font-semibold tabular-nums">
-                        {{ outcome.values.followupLabel }}
-                    </dd></Card
-                >
-                <Card
+        <section v-else class="space-y-4" aria-labelledby="values-heading">
+            <SectionHeader
+                id="values-heading"
+                :title="outcome.outcomeMetricLabel"
+                description="Observed change between the two periods."
+                :icon="Gauge"
+            />
+            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <MetricTile
+                    label="At detection"
+                    :value="outcome.values.baselineLabel ?? '—'"
+                    :caption="
+                        formatDateRange(
+                            outcome.baselinePeriod.start,
+                            outcome.baselinePeriod.end,
+                        )
+                    "
+                    :icon="CalendarDays"
+                />
+                <MetricTile
+                    label="Compared period"
+                    :value="outcome.values.followupLabel ?? '—'"
+                    :caption="
+                        formatDateRange(
+                            outcome.followupPeriod.start,
+                            outcome.followupPeriod.end,
+                        )
+                    "
+                    :icon="CalendarDays"
+                />
+                <MetricTile
                     v-if="
                         outcome.values.referenceLabel && outcome.referencePeriod
                     "
-                    class="gap-1 p-4"
-                    ><dt class="text-xs text-muted-foreground">
-                        Week before the decline ({{
-                            formatDateRange(
-                                outcome.referencePeriod.start,
-                                outcome.referencePeriod.end,
-                            )
-                        }})
-                    </dt>
-                    <dd class="text-xl font-semibold tabular-nums">
-                        {{ outcome.values.referenceLabel }}
-                    </dd></Card
-                >
-                <Card class="gap-1 p-4"
-                    ><dt class="text-xs text-muted-foreground">
-                        Change from detection
-                    </dt>
-                    <dd class="text-xl font-semibold tabular-nums">
-                        {{ outcome.values.changeLabels.join(' · ') }}
-                    </dd></Card
-                >
-            </dl>
-            <p v-if="outcome.values.recoveredSharePct" class="text-sm">
-                Recovered to {{ outcome.values.recoveredSharePct }}% of the
-                pre-decline week.
-            </p>
+                    label="Week before the decline"
+                    :value="outcome.values.referenceLabel"
+                    :caption="
+                        formatDateRange(
+                            outcome.referencePeriod.start,
+                            outcome.referencePeriod.end,
+                        )
+                    "
+                    :icon="Flag"
+                />
+                <MetricTile
+                    label="Change from detection"
+                    :value="outcome.values.changeLabels.join(' · ')"
+                    :caption="
+                        outcome.values.recoveredSharePct
+                            ? `Recovered to ${outcome.values.recoveredSharePct}% of the pre-decline week`
+                            : undefined
+                    "
+                    :icon="TrendingUp"
+                    :tone="resultTone"
+                />
+            </div>
             <p class="text-sm">
                 {{ outcome.condition.text
                 }}<template v-if="outcome.condition.limitLabel">
@@ -186,6 +223,14 @@ defineProps<{
                     resolve or reopen the issue.</span
                 >
             </p>
+            <Card v-if="chart" class="p-5">
+                <OutcomeComparisonChart
+                    :categories="chart.categories"
+                    :values="chart.values"
+                    :unit="chart.unit"
+                    :metric-label="chart.metricLabel"
+                />
+            </Card>
             <p
                 v-if="outcome.weeklyChangeEvidence"
                 class="text-xs text-muted-foreground"
@@ -195,128 +240,136 @@ defineProps<{
                 {{ outcome.weeklyChangeEvidence.followupPct }}% in the compared
                 period. It is not an outcome measure.
             </p>
-            <Card v-if="chart" class="p-4">
-                <OutcomeComparisonChart
-                    :categories="chart.categories"
-                    :values="chart.values"
-                    :unit="chart.unit"
-                    :metric-label="chart.metricLabel"
-                />
-            </Card>
         </section>
 
-        <section class="space-y-3" aria-labelledby="checks-heading">
-            <h2 id="checks-heading" class="text-lg/7 font-semibold">
-                Comparability checks
-            </h2>
-            <Card class="p-4"
-                ><ComparabilityChecks :checks="outcome.checks"
-            /></Card>
-            <p
-                v-if="outcome.evidence.coverage"
-                class="text-xs text-muted-foreground"
-            >
-                Follow-up week: {{ outcome.evidence.coverage.status }},
-                {{ outcome.evidence.coverage.presentBranchDays }} of
-                {{ outcome.evidence.coverage.expectedBranchDays }} branch-days
-                present. Threshold at detection:
-                {{ outcome.evidence.thresholdUsed }}%. Change bands: ±{{
-                    outcome.evidence.band
-                }}.
-            </p>
-        </section>
-
-        <Card v-if="outcome.manualNote" class="gap-1 p-4 text-sm">
-            <p class="font-medium">Note</p>
-            <p class="whitespace-pre-wrap">{{ outcome.manualNote.text }}</p>
-            <p class="text-xs text-muted-foreground">
-                {{ outcome.manualNote.byName }} ·
-                {{ outcome.manualNote.atLabel }}
-            </p>
-        </Card>
-
-        <Card class="p-4">
-            <FeedbackControl
-                :submit-url="urls.submitFeedback"
-                :mine="feedback.mine"
-                :counts="feedback.counts"
-                label="Was this outcome useful?"
-            />
-            <ul
-                v-if="feedback.votes?.length"
-                class="mt-3 space-y-1 text-xs text-muted-foreground"
-            >
-                <li v-for="(v, i) in feedback.votes" :key="i">
-                    {{ v.userName }}: {{ v.useful ? 'useful' : 'not useful'
-                    }}<template v-if="v.note"> — {{ v.note }}</template> ({{
-                        v.atLabel
-                    }})
-                </li>
-            </ul>
-        </Card>
-
-        <section
-            v-if="tasks.length"
-            class="space-y-2"
-            aria-labelledby="out-tasks-heading"
-        >
-            <h2 id="out-tasks-heading" class="text-lg/7 font-semibold">
-                Linked tasks
-            </h2>
-            <Card class="gap-0 p-0">
-                <ul class="divide-y text-sm">
-                    <li
-                        v-for="t in tasks"
-                        :key="t.id"
-                        class="flex flex-wrap justify-between gap-2 px-6 py-3"
+        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div class="min-w-0 space-y-6">
+                <section class="space-y-3" aria-labelledby="checks-heading">
+                    <SectionHeader
+                        id="checks-heading"
+                        title="Comparability checks"
+                        description="The comparison is only used when these pass."
+                        :icon="ShieldCheck"
+                    />
+                    <Card class="p-5"
+                        ><ComparabilityChecks :checks="outcome.checks"
+                    /></Card>
+                    <p
+                        v-if="outcome.evidence.coverage"
+                        class="text-xs text-muted-foreground"
                     >
-                        <Link
-                            v-if="t.url"
-                            :href="t.url"
-                            class="text-primary-text hover:underline"
-                            >{{ t.title }}</Link
-                        >
-                        <span class="text-muted-foreground"
-                            >{{ t.assigneeName }} · {{ t.statusLabel }}</span
-                        >
-                    </li>
-                </ul>
-            </Card>
-        </section>
+                        Follow-up week: {{ outcome.evidence.coverage.status }},
+                        {{ outcome.evidence.coverage.presentBranchDays }} of
+                        {{ outcome.evidence.coverage.expectedBranchDays }}
+                        branch-days present. Threshold at detection:
+                        {{ outcome.evidence.thresholdUsed }}%. Change bands: ±{{
+                            outcome.evidence.band
+                        }}.
+                    </p>
+                </section>
 
-        <section
-            v-if="statusHistory.length"
-            class="space-y-2"
-            aria-labelledby="hist-heading"
-        >
-            <h2 id="hist-heading" class="text-lg/7 font-semibold">
-                Issue status changes from outcomes
-            </h2>
-            <ul class="space-y-1 text-sm">
-                <li v-for="(h, i) in statusHistory" :key="i">
-                    {{ h.atLabel }}: {{ h.from }} → {{ h.to }} ({{
-                        h.byName
-                    }})<template v-if="h.reason"> — {{ h.reason }}</template>
-                </li>
-            </ul>
-        </section>
+                <section
+                    v-if="tasks.length"
+                    class="space-y-3"
+                    aria-labelledby="out-tasks-heading"
+                >
+                    <SectionHeader
+                        id="out-tasks-heading"
+                        title="Linked tasks"
+                        :icon="ListChecks"
+                    />
+                    <Card class="gap-0 overflow-hidden p-0">
+                        <ul class="divide-y text-sm">
+                            <li
+                                v-for="t in tasks"
+                                :key="t.id"
+                                class="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5"
+                            >
+                                <Link
+                                    v-if="t.url"
+                                    :href="t.url"
+                                    class="font-medium text-primary-text hover:underline"
+                                    >{{ t.title }}</Link
+                                >
+                                <span class="text-xs text-muted-foreground"
+                                    >{{ t.assigneeName }} ·
+                                    {{ t.statusLabel }}</span
+                                >
+                            </li>
+                        </ul>
+                    </Card>
+                </section>
+            </div>
 
-        <section
-            v-if="otherOutcomes.length"
-            class="space-y-2"
-            aria-labelledby="others-heading"
-        >
-            <h2 id="others-heading" class="text-lg/7 font-semibold">
-                Other outcomes for this issue
-            </h2>
-            <ul class="space-y-1 text-sm">
-                <li v-for="o in otherOutcomes" :key="o.id">
-                    <Link :href="o.url" class="text-primary-text underline">{{
-                        o.evaluatedAtLabel
-                    }}</Link>
-                    · {{ o.resultLabel }} · {{ o.phaseLabel }}
-                </li>
-            </ul>
-        </section>
+            <aside class="min-w-0 space-y-6">
+                <Card v-if="outcome.manualNote" class="gap-1 p-5 text-sm">
+                    <SectionHeader title="Note" />
+                    <p class="whitespace-pre-wrap">
+                        {{ outcome.manualNote.text }}
+                    </p>
+                    <p class="text-xs text-muted-foreground">
+                        {{ outcome.manualNote.byName }} ·
+                        {{ outcome.manualNote.atLabel }}
+                    </p>
+                </Card>
+
+                <Card class="p-5">
+                    <FeedbackControl
+                        :submit-url="urls.submitFeedback"
+                        :mine="feedback.mine"
+                        :counts="feedback.counts"
+                        label="Was this outcome useful?"
+                    />
+                    <ul
+                        v-if="feedback.votes?.length"
+                        class="mt-3 space-y-1 text-xs text-muted-foreground"
+                    >
+                        <li v-for="(v, i) in feedback.votes" :key="i">
+                            {{ v.userName }}:
+                            {{ v.useful ? 'useful' : 'not useful'
+                            }}<template v-if="v.note"> — {{ v.note }}</template>
+                            ({{ v.atLabel }})
+                        </li>
+                    </ul>
+                </Card>
+
+                <Card
+                    v-if="statusHistory.length"
+                    class="gap-4 p-5"
+                    aria-labelledby="hist-heading"
+                >
+                    <SectionHeader
+                        id="hist-heading"
+                        title="Issue status changes"
+                        :icon="History"
+                    />
+                    <TimelineList :items="historyItems" />
+                </Card>
+
+                <Card
+                    v-if="otherOutcomes.length"
+                    class="gap-3 p-5"
+                    aria-labelledby="others-heading"
+                >
+                    <SectionHeader
+                        id="others-heading"
+                        title="Other outcomes"
+                        description="For the same issue."
+                    />
+                    <ul class="space-y-2 text-sm">
+                        <li v-for="o in otherOutcomes" :key="o.id">
+                            <Link
+                                :href="o.url"
+                                class="text-primary-text underline-offset-2 hover:underline"
+                                >{{ o.evaluatedAtLabel }}</Link
+                            >
+                            <span class="text-xs text-muted-foreground">
+                                · {{ o.resultLabel }} · {{ o.phaseLabel }}</span
+                            >
+                        </li>
+                    </ul>
+                </Card>
+            </aside>
+        </div>
     </div>
 </template>

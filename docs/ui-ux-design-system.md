@@ -66,3 +66,18 @@ Toasts for transient confirmations (3–5 seconds). Persistent in-app notificati
 ## Application shell (sidebar)
 
 One shared shell (`AppSidebarShell.vue`) serves the company app and the platform panel. Desktop (769px and up): a dark sidebar that is 248px wide and collapses to a 64px icon rail with tooltips; the toggle is in the header and `Ctrl/Cmd + B` also toggles it (ignored while typing). The choice is stored in the browser (`bp.sidebar.collapsed`); on a first visit it starts collapsed below 1281px and expanded above. Phones (768px and below): the sidebar is a slide-out menu. The signed-in user (avatar initials, name, and role and department or email) is at the bottom left with a Sign out menu. The width change is a 200ms transition.
+
+## Visual language v2 (rules for every page)
+
+Goal: a business owner understands the page in five seconds. Presentation only: never change props, routes, permissions or behavior while restyling.
+
+1. **Numbers first.** Put the headline figures at the top as `MetricTile`s (4 across on wide screens, 2 on tablets, 1 on phones): label, one big number, one short caption, a tinted icon, tone for good, warning or bad.
+2. **One short line per section.** Use `SectionHeader` for every section title (optional icon tile, optional one-line description of at most about 90 characters, actions in its slot). Long disclaimers become small footnotes at the bottom of the card or are cut. No paragraph under a heading.
+3. **Detail pages are two columns on wide screens**: the evidence and the work on the left, and a 360px side column on the right with the primary actions, key facts, feedback and history (`grid xl:grid-cols-[minmax(0,1fr)_360px]`). Single column below xl, actions still reachable.
+4. **Lists** are rows inside a `Card class="gap-0 p-0"` with `divide-y`: a leading icon or initials tile, the main text in `font-medium`, secondary text in `text-xs text-muted-foreground`, then status badges and a chevron. Rows are links with a hover tint. Use the shared `Table` (quiet uppercase header band, 14px cells) for true tables of comparable columns.
+5. **Cards**: `Card` with `p-5`, soft border and shadow (already global). A coloured left edge (`border-l-4`) marks severity or result: red for high or breached, amber for medium, green for good, slate for neutral.
+6. **Timelines** (`TimelineList`, `TraceTimeline`) for history. Never a bare list of dates.
+7. **Empty states** use `EmptyState` with a relevant icon and one friendly sentence, plus the next action when there is one.
+8. **Spacing**: sections `space-y-6`, grids `gap-4`, page header `mb-6`. Text sizes: page title 24px, section title 16px, body 14px, secondary 12px. Numbers use `tabular-nums`.
+9. **Colour**: teal is the brand and the only accent; severity colours only for real severity. Status always has text or an icon, never colour alone (accessibility rule is unchanged).
+10. **Copy**: plain, short, friendly. Say what the number means, not how it was computed.

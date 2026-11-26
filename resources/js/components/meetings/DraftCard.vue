@@ -98,7 +98,7 @@ function doReject(reason: string): void {
 </script>
 
 <template>
-    <Card class="gap-4 p-4">
+    <Card class="gap-4 border-l-4 border-l-severity-medium p-5">
         <div class="flex flex-wrap items-center gap-2">
             <StatusBadge label="AI generated, review before use" tone="info" />
             <StatusBadge

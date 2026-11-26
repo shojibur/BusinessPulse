@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { FileUp } from '@lucide/vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { useForm } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import { Button } from '@/components/ui/button';
@@ -41,10 +43,16 @@ function submit(): void {
 </script>
 
 <template>
-    <Card class="gap-4 p-4">
-        <h3 class="text-base font-semibold">Upload a recording</h3>
+    <Card class="gap-4 p-5">
+        <SectionHeader
+            title="Upload a recording"
+            description="We transcribe it and propose tasks from it."
+            :icon="FileUp"
+        />
         <form class="space-y-4" novalidate @submit.prevent="submit">
-            <label class="flex items-start gap-2 text-sm">
+            <label
+                class="flex items-start gap-3 rounded-lg border bg-muted/30 p-3 text-sm"
+            >
                 <input
                     v-model="form.recording_consent"
                     type="checkbox"

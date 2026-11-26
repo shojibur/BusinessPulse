@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ListChecks } from '@lucide/vue';
+import { CircleAlert, ListChecks } from '@lucide/vue';
 import { ref } from 'vue';
 import EmptyState from '@/components/EmptyState.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import OverdueBadge from '@/components/tasks/OverdueBadge.vue';
 import TaskRow from '@/components/tasks/TaskRow.vue';
 import TaskStatusBadge from '@/components/tasks/TaskStatusBadge.vue';
@@ -82,69 +84,92 @@ const filtered = (): boolean =>
     </PageHeader>
 
     <div class="space-y-6">
-        <p class="text-sm text-muted-foreground" role="status">
-            <span class="font-medium text-foreground tabular-nums">{{
-                summary.open
-            }}</span>
-            open ·
-            <span class="font-medium text-foreground tabular-nums">{{
-                summary.overdue
-            }}</span>
-            overdue
-        </p>
-
-        <div class="flex flex-wrap items-end gap-3">
-            <div class="grid gap-1">
-                <label for="task-status" class="text-sm font-medium"
-                    >Status</label
-                >
-                <NativeSelect
-                    id="task-status"
-                    v-model="status"
-                    class="min-w-44"
-                    @update:model-value="apply"
-                >
-                    <option value="">All statuses</option>
-                    <option value="open">All open</option>
-                    <option
-                        v-for="option in options.statuses"
-                        :key="option.value"
-                        :value="option.value"
-                    >
-                        {{ option.label }}
-                    </option>
-                </NativeSelect>
-            </div>
-            <div class="grid gap-1">
-                <label for="task-assignee" class="text-sm font-medium"
-                    >Employee</label
-                >
-                <NativeSelect
-                    id="task-assignee"
-                    v-model="assignee"
-                    class="min-w-48"
-                    @update:model-value="apply"
-                >
-                    <option value="">Everyone</option>
-                    <option
-                        v-for="person in options.assignees"
-                        :key="person.id"
-                        :value="String(person.id)"
-                    >
-                        {{ person.name }}
-                    </option>
-                </NativeSelect>
-            </div>
-            <label class="flex items-center gap-2 pb-2 text-sm">
-                <input
-                    v-model="overdue"
-                    type="checkbox"
-                    class="size-4"
-                    @change="apply"
-                />
-                Overdue only
-            </label>
+        <div class="grid gap-4 sm:grid-cols-2" role="status">
+            <MetricTile
+                label="Open tasks"
+                :value="String(summary.open)"
+                caption="Across the people you can see"
+                :icon="ListChecks"
+            />
+            <MetricTile
+                label="Overdue"
+                :value="String(summary.overdue)"
+                :caption="
+                    summary.overdue > 0
+                        ? 'Past their due date'
+                        : 'Nothing is late'
+                "
+                :icon="CircleAlert"
+                :tone="summary.overdue > 0 ? 'danger' : 'success'"
+            />
         </div>
+
+        <Card class="gap-4 p-5">
+            <SectionHeader title="Filter" />
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="grid gap-1">
+                    <label
+                        for="task-status"
+                        class="text-xs font-medium text-muted-foreground"
+                        >Status</label
+                    >
+                    <NativeSelect
+                        id="task-status"
+                        v-model="status"
+                        class="min-w-44"
+                        @update:model-value="apply"
+                    >
+                        <option value="">All statuses</option>
+                        <option value="open">All open</option>
+                        <option
+                            v-for="option in options.statuses"
+                            :key="option.value"
+                            :value="option.value"
+                        >
+                            {{ option.label }}
+                        </option>
+                    </NativeSelect>
+                </div>
+                <div class="grid gap-1">
+                    <label
+                        for="task-assignee"
+                        class="text-xs font-medium text-muted-foreground"
+                        >Employee</label
+                    >
+                    <NativeSelect
+                        id="task-assignee"
+                        v-model="assignee"
+                        class="min-w-48"
+                        @update:model-value="apply"
+                    >
+                        <option value="">Everyone</option>
+                        <option
+                            v-for="person in options.assignees"
+                            :key="person.id"
+                            :value="String(person.id)"
+                        >
+                            {{ person.name }}
+                        </option>
+                    </NativeSelect>
+                </div>
+                <label class="flex items-center gap-2 pb-2 text-sm">
+                    <input
+                        v-model="overdue"
+                        type="checkbox"
+                        class="size-4"
+                        @change="apply"
+                    />
+                    Overdue only
+                </label>
+                <Button
+                    v-if="filtered()"
+                    variant="ghost"
+                    size="sm"
+                    @click="clear"
+                    >Clear filters</Button
+                >
+            </div>
+        </Card>
 
         <Card v-if="tasks.length === 0">
             <EmptyState
@@ -162,7 +187,7 @@ const filtered = (): boolean =>
         </Card>
 
         <template v-else>
-            <Card class="hidden gap-0 p-0 md:block">
+            <Card class="hidden gap-0 overflow-hidden p-0 md:block">
                 <Table>
                     <TableHeader>
                         <TableRow>

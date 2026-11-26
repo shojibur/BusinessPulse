@@ -13,6 +13,7 @@ import ConfirmDialog from '@/components/platform/ConfirmDialog.vue';
 import CompanyUserDialog from '@/components/platform/CompanyUserDialog.vue';
 import ResetPasswordDialog from '@/components/platform/ResetPasswordDialog.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -314,7 +315,7 @@ function activate(user: PlatformUserRow): void {
     </Card>
 
     <Card class="mt-6 gap-3 p-5">
-        <h2 class="text-base font-semibold">Platform activity</h2>
+        <SectionHeader title="Platform activity" />
         <p v-if="activity.length === 0" class="text-sm text-muted-foreground">
             No platform actions yet.
         </p>

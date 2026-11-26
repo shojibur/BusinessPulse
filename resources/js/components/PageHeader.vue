@@ -9,7 +9,7 @@ defineProps<PageHeaderProps>();
         class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
     >
         <div class="min-w-0">
-            <h1 class="text-2xl/8 font-semibold text-foreground">
+            <h1 class="text-2xl/8 font-semibold tracking-tight text-foreground">
                 {{ title }}
             </h1>
             <p v-if="description" class="mt-1 text-sm text-muted-foreground">

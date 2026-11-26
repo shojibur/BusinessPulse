@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { FileText } from '@lucide/vue';
+import EmptyState from '@/components/EmptyState.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { useForm } from '@inertiajs/vue3';
 import { Info } from '@lucide/vue';
 import { ref } from 'vue';
@@ -37,10 +40,12 @@ function save(): void {
 
 <template>
     <section class="space-y-4" aria-labelledby="transcript-heading">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="transcript-heading" class="text-lg/7 font-semibold">
-                Transcript
-            </h2>
+        <SectionHeader
+            id="transcript-heading"
+            title="Transcript"
+            description="What was said. Review it before relying on the tasks."
+            :icon="FileText"
+        >
             <div class="flex flex-wrap items-center gap-2">
                 <StatusBadge
                     v-if="meeting.transcriptSource"
@@ -57,7 +62,7 @@ function save(): void {
                     tone="info"
                 />
             </div>
-        </div>
+        </SectionHeader>
 
         <Alert v-if="meeting.transcriptChangedSinceExtraction" role="status">
             <Info aria-hidden="true" />
@@ -67,11 +72,14 @@ function save(): void {
             >
         </Alert>
 
-        <Card v-if="!transcript" class="p-6 text-sm text-muted-foreground"
-            >There is no transcript yet.</Card
-        >
+        <Card v-if="!transcript">
+            <EmptyState
+                :icon="FileText"
+                message="There is no transcript yet."
+            />
+        </Card>
 
-        <Card v-else-if="!editing" class="gap-3 p-4">
+        <Card v-else-if="!editing" class="gap-4 p-6">
             <!-- Plain text only: escaped by Vue, never rendered as HTML. -->
             <p class="text-sm/6 whitespace-pre-wrap">{{ transcript }}</p>
             <div v-if="meeting.can.editTranscript">

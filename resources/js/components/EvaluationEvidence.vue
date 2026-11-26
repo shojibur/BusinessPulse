@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import StatusBadge from '@/components/StatusBadge.vue';
+import { Card } from '@/components/ui/card';
 import { formatDate, formatMoney, formatTimestamp } from '@/lib/format';
 import type { EvaluationView, StatusTone } from '@/types';
 
@@ -71,12 +72,21 @@ const thresholdText = computed(() => {
         ? `Drop of more than ${e.threshold}%`
         : `Below ${e.threshold}%`;
 });
+
+// A coloured edge shows the result at a glance.
+const accent = computed(() =>
+    props.evaluation.result === 'breached'
+        ? 'border-l-severity-high'
+        : props.evaluation.result === 'not_breached'
+          ? 'border-l-success'
+          : 'border-l-slate-300',
+);
 </script>
 
 <template>
-    <section class="space-y-3 rounded-lg border bg-surface p-4">
+    <Card class="gap-4 border-l-4 p-5" :class="accent">
         <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-base/6 font-semibold">{{ heading }}</h3>
+            <h3 class="text-sm/5 font-semibold">{{ heading }}</h3>
             <StatusBadge :label="resultLabel" :tone="resultTone" />
         </div>
 
@@ -86,16 +96,16 @@ const thresholdText = computed(() => {
             {{ formatDate(evaluation.last_due_date) }}.
         </p>
 
-        <dl class="grid gap-3 text-sm sm:grid-cols-2">
+        <dl class="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
             <div>
-                <dt class="text-muted-foreground">
+                <dt class="text-xs text-muted-foreground">
                     {{
                         evaluation.metric_name === 'weekly_change_pct'
                             ? 'Observed change'
                             : metric.label
                     }}
                 </dt>
-                <dd class="text-lg font-semibold tabular-nums">
+                <dd class="text-xl/7 font-semibold tabular-nums">
                     {{
                         evaluation.difference_pct === null
                             ? '—'
@@ -104,34 +114,38 @@ const thresholdText = computed(() => {
                 </dd>
             </div>
             <div>
-                <dt class="text-muted-foreground">Rule</dt>
+                <dt class="text-xs text-muted-foreground">Rule</dt>
                 <dd class="font-medium">{{ thresholdText }}</dd>
             </div>
             <div>
-                <dt class="text-muted-foreground">{{ metric.current }}</dt>
+                <dt class="text-xs text-muted-foreground">
+                    {{ metric.current }}
+                </dt>
                 <dd class="font-medium tabular-nums">
                     {{ value(evaluation.current_value) }}
                 </dd>
             </div>
             <div>
-                <dt class="text-muted-foreground">{{ metric.comparison }}</dt>
+                <dt class="text-xs text-muted-foreground">
+                    {{ metric.comparison }}
+                </dt>
                 <dd class="font-medium tabular-nums">
                     {{ value(evaluation.comparison_value) }}
                 </dd>
             </div>
             <div v-if="evaluation.difference_value !== null && metric.money">
-                <dt class="text-muted-foreground">Difference</dt>
+                <dt class="text-xs text-muted-foreground">Difference</dt>
                 <dd class="font-medium tabular-nums">
                     {{ formatMoney(evaluation.difference_value) }}
                 </dd>
             </div>
-            <div>
-                <dt class="text-muted-foreground">Period</dt>
+            <div class="sm:col-span-2">
+                <dt class="text-xs text-muted-foreground">Period</dt>
                 <dd class="font-medium">
                     {{ formatDate(evaluation.period_start) }} to
                     {{ formatDate(evaluation.period_end) }}
                     <template v-if="evaluation.comparison_start">
-                        <span class="text-muted-foreground">
+                        <span class="font-normal text-muted-foreground">
                             compared with
                         </span>
                         {{ formatDate(evaluation.comparison_start) }} to
@@ -146,7 +160,7 @@ const thresholdText = computed(() => {
                 evaluation.metric_name !== 'coverage_pct' &&
                 evaluation.coverage.expected_due_branch_days !== null
             "
-            class="text-sm text-muted-foreground tabular-nums"
+            class="rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground tabular-nums"
         >
             Branch coverage of the period:
             {{ evaluation.coverage.present_due_branch_days }} of
@@ -183,5 +197,5 @@ const thresholdText = computed(() => {
                     : 'none'
             }}.
         </p>
-    </section>
+    </Card>
 </template>

@@ -68,7 +68,9 @@ function submit(): void {
             </Button>
         </div>
 
-        <p class="text-center text-sm text-muted-foreground">
+        <p
+            class="rounded-lg bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground"
+        >
             Forgot your password? Ask your Owner to reset it.
         </p>
     </form>

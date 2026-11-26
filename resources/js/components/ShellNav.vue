@@ -53,7 +53,7 @@ const icons: Record<string, Component> = {
                     <Link
                         :href="item.href"
                         :aria-current="item.active ? 'page' : undefined"
-                        class="flex h-10 items-center gap-3 rounded-md text-sm font-medium text-sidebar-foreground outline-none hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                        class="relative flex h-10 items-center gap-3 rounded-lg text-sm font-medium text-sidebar-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                         :class="[
                             collapsed ? 'justify-center px-0' : 'px-3',
                             item.active &&
@@ -64,6 +64,11 @@ const icons: Record<string, Component> = {
                             :is="icons[item.icon] ?? Circle"
                             class="size-5 shrink-0"
                             :class="item.active && 'text-sidebar-ring'"
+                            aria-hidden="true"
+                        />
+                        <span
+                            v-if="item.active"
+                            class="absolute inset-y-2 left-0 w-0.5 rounded-full bg-sidebar-ring"
                             aria-hidden="true"
                         />
                         <span :class="collapsed && 'sr-only'">

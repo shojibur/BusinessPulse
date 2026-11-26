@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3';
+import {
+    FileQuestion,
+    LockKeyhole,
+    ServerCrash,
+    TimerReset,
+} from '@lucide/vue';
 import { computed } from 'vue';
+import type { Component } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
@@ -37,16 +44,37 @@ const message = computed(() => messages[props.status] ?? messages[500]);
 function reload(): void {
     window.location.reload();
 }
+
+// One icon per kind of error, so the page is friendly at a glance.
+const icon = computed<Component>(
+    () =>
+        ({
+            403: LockKeyhole,
+            404: FileQuestion,
+            419: TimerReset,
+        })[props.status] ?? ServerCrash,
+);
 </script>
 
 <template>
     <Head :title="message.title" />
 
-    <Card class="mx-auto max-w-lg items-center gap-4 px-6 py-12 text-center">
-        <p class="text-sm font-medium text-muted-foreground tabular-nums">
+    <Card
+        class="mx-auto mt-12 max-w-lg items-center gap-4 px-6 py-14 text-center"
+    >
+        <span
+            class="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary-text"
+        >
+            <component :is="icon" class="size-7" aria-hidden="true" />
+        </span>
+        <p
+            class="text-xs font-medium tracking-wide text-muted-foreground uppercase tabular-nums"
+        >
             Error {{ status }}
         </p>
-        <h1 class="text-2xl/8 font-semibold">{{ message.title }}</h1>
+        <h1 class="text-2xl/8 font-semibold tracking-tight">
+            {{ message.title }}
+        </h1>
         <p class="max-w-sm text-sm text-muted-foreground">
             {{ message.explanation }}
         </p>

@@ -3,6 +3,7 @@ import { Head, router, useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import AiSettingsHelpDialog from '@/components/platform/AiSettingsHelpDialog.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -129,7 +130,7 @@ function testConnection(): void {
     </PageHeader>
 
     <Card class="mb-6 gap-2 p-5">
-        <h2 class="text-lg/7 font-semibold">Status</h2>
+        <SectionHeader title="Status" />
         <ul class="divide-y text-sm">
             <li
                 v-for="row in [
@@ -162,7 +163,7 @@ function testConnection(): void {
 
     <form class="space-y-6" novalidate @submit.prevent="save">
         <Card class="gap-4 p-5">
-            <h2 class="text-lg/7 font-semibold">Text</h2>
+            <SectionHeader title="Text" />
             <div class="grid gap-2 sm:max-w-xs">
                 <Label for="text_provider">Provider</Label>
                 <NativeSelect id="text_provider" v-model="form.text_provider">
@@ -241,7 +242,7 @@ function testConnection(): void {
         </Card>
 
         <Card class="gap-4 p-5">
-            <h2 class="text-lg/7 font-semibold">Transcription</h2>
+            <SectionHeader title="Transcription" />
             <p class="text-sm text-muted-foreground">
                 Any service that offers the OpenAI-style speech-to-text API.
                 Pick one to fill in its address, or choose Other and type your
@@ -325,7 +326,7 @@ function testConnection(): void {
         </Card>
 
         <Card class="gap-4 p-5">
-            <h2 class="text-lg/7 font-semibold">Voice</h2>
+            <SectionHeader title="Voice" />
             <p class="text-sm text-muted-foreground">
                 Any service that offers the OpenAI-style text-to-speech API.
                 Pick one to fill in its address, or choose Other and type your

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
+import { Building2 } from '@lucide/vue';
 import { computed } from 'vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Card } from '@/components/ui/card';
 import type { CompanySettings } from '@/types';
@@ -52,19 +54,24 @@ const rows = computed(() => {
     <Head title="Company settings" />
 
     <Card class="gap-0 p-0">
-        <div class="flex items-center justify-between border-b px-6 py-4">
-            <h2 class="text-lg/7 font-semibold">Company</h2>
-            <StatusBadge
-                v-if="company.is_demo"
-                label="Demo company"
-                tone="info"
-            />
+        <div class="border-b px-6 py-5">
+            <SectionHeader
+                title="Company"
+                description="How your business is set up in BusinessPulse."
+                :icon="Building2"
+            >
+                <StatusBadge
+                    v-if="company.is_demo"
+                    label="Demo company"
+                    tone="info"
+                />
+            </SectionHeader>
         </div>
         <dl class="divide-y">
             <div
                 v-for="row in rows"
                 :key="row.label"
-                class="grid gap-1 px-6 py-3 sm:grid-cols-3 sm:gap-4"
+                class="grid gap-1 px-6 py-4 sm:grid-cols-3 sm:gap-4"
             >
                 <dt class="text-sm text-muted-foreground">{{ row.label }}</dt>
                 <dd class="text-sm font-medium sm:col-span-2">
@@ -72,7 +79,7 @@ const rows = computed(() => {
                 </dd>
             </div>
         </dl>
-        <p class="border-t px-6 py-3 text-xs text-muted-foreground">
+        <p class="border-t bg-muted/30 px-6 py-3 text-xs text-muted-foreground">
             These settings are read-only in this version.
         </p>
     </Card>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ListChecks } from '@lucide/vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { Link } from '@inertiajs/vue3';
 import { Info } from '@lucide/vue';
 import { computed } from 'vue';
@@ -41,16 +43,14 @@ const summary = computed(
 
 <template>
     <section class="space-y-4" aria-labelledby="drafts-heading">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="drafts-heading" class="text-lg/7 font-semibold">
-                Proposed tasks
-            </h2>
+        <SectionHeader
+            id="drafts-heading"
+            title="Proposed tasks"
+            :description="`Proposals only: nobody is notified until a person approves a draft. ${summary}.`"
+            :icon="ListChecks"
+        >
             <StatusBadge label="AI generated, review before use" tone="info" />
-        </div>
-        <p class="text-sm text-muted-foreground">
-            These are proposals, not assigned tasks. Nobody is notified and
-            nothing is assigned until a person approves a draft. {{ summary }}.
-        </p>
+        </SectionHeader>
 
         <template v-if="review">
             <Alert v-if="review.transcriptChangedSinceExtraction" role="status">
@@ -84,9 +84,7 @@ const summary = computed(
                 class="space-y-3"
                 aria-labelledby="history-heading"
             >
-                <h3 id="history-heading" class="text-base font-semibold">
-                    Reviewed
-                </h3>
+                <SectionHeader id="history-heading" title="Reviewed" />
                 <ul class="space-y-2">
                     <li v-for="draft in review.history" :key="draft.id">
                         <Card class="gap-1 p-3 text-sm">

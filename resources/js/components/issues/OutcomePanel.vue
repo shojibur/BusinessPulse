@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SectionHeader from '@/components/SectionHeader.vue';
+import { TrendingUp } from '@lucide/vue';
 import { Link } from '@inertiajs/vue3';
 import ChangeFigures from '@/components/outcomes/ChangeFigures.vue';
 import OutcomeResultBadge from '@/components/outcomes/OutcomeResultBadge.vue';
@@ -11,19 +13,22 @@ defineProps<{ outcomes: OutcomePanelData | null }>();
 
 <template>
     <section class="space-y-3" aria-labelledby="outcome-heading">
-        <h2 id="outcome-heading" class="text-lg/7 font-semibold">
-            {{ outcomes?.heading ?? 'Observed change after actions' }}
-        </h2>
-        <p class="text-sm text-muted-foreground">
-            {{
-                outcomes?.standingSentence ??
-                'This shows what changed after actions were taken. It does not show that the actions caused the change.'
-            }}
-        </p>
-        <Card v-if="outcomes === null" class="p-4 text-sm text-muted-foreground"
-            >No outcome has been recorded for this issue yet.</Card
-        >
-        <Card v-else class="gap-2 p-4 text-sm">
+        <SectionHeader
+            id="outcome-heading"
+            :title="outcomes?.heading ?? 'Observed change after actions'"
+            description="What changed after actions were taken. Observed change, not proof of cause."
+            :icon="TrendingUp"
+        />
+        <Card v-if="outcomes === null" class="gap-1 px-6 py-8 text-center">
+            <TrendingUp
+                class="mx-auto size-6 text-muted-foreground"
+                aria-hidden="true"
+            />
+            <p class="text-sm text-muted-foreground">
+                No outcome has been recorded for this issue yet.
+            </p>
+        </Card>
+        <Card v-else class="gap-3 p-5 text-sm">
             <div class="flex flex-wrap items-center gap-2">
                 <OutcomeResultBadge
                     :result="outcomes.latest.result"
@@ -48,12 +53,12 @@ defineProps<{ outcomes: OutcomePanelData | null }>();
             </p>
             <Link
                 :href="outcomes.latest.url"
-                class="text-primary-text underline"
+                class="w-fit text-primary-text underline-offset-2 hover:underline"
                 >Open the comparison</Link
             >
             <ul
                 v-if="outcomes.earlier.length"
-                class="mt-1 space-y-1 text-xs text-muted-foreground"
+                class="space-y-1 border-t pt-3 text-xs text-muted-foreground"
             >
                 <li v-for="o in outcomes.earlier" :key="o.id">
                     <Link :href="o.url" class="underline">{{

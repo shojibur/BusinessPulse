@@ -23,7 +23,9 @@ defineProps<{ errors: ImportErrorRow[]; pagination: Pagination }>();
     />
 
     <div v-else class="space-y-3">
-        <div class="overflow-x-auto rounded-lg border bg-surface">
+        <div
+            class="overflow-x-auto rounded-xl border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+        >
             <Table>
                 <TableHeader>
                     <TableRow>

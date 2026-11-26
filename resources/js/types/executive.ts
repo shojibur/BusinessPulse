@@ -110,8 +110,12 @@ export type BriefView = {
     created_at: string;
     generated_at: string | null;
     notice: string | null;
+    /** Queued or writing for over 45 seconds: the background worker is probably not running. */
+    stalled: boolean;
     items: BriefItemView[];
 };
+
+export type AiAvailability = { text: boolean };
 
 export type AudioView = {
     status: 'none' | 'queued' | 'generating' | 'ready' | 'failed';

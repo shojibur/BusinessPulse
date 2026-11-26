@@ -47,6 +47,7 @@ class BriefController extends Controller
                 'created_at' => $brief->created_at->setTimezone($timezone)->toIso8601String(),
                 'generated_at' => $brief->generated_at?->setTimezone($timezone)->toIso8601String(),
             ])->values(),
+            'ai' => ['text' => OpenAiClient::textConfigured()],
             'pagination' => [
                 'current_page' => $briefs->currentPage(),
                 'last_page' => $briefs->lastPage(),
@@ -86,10 +87,13 @@ class BriefController extends Controller
                 'created_at' => $brief->created_at->setTimezone($timezone)->toIso8601String(),
                 'generated_at' => $brief->generated_at?->setTimezone($timezone)->toIso8601String(),
                 'notice' => $this->notice($brief),
+                // Queued or writing for over 45 seconds: the background worker is probably not running.
+                'stalled' => in_array($brief->status, [BriefStatus::Queued, BriefStatus::Generating], true) && $brief->updated_at->lt(now()->subSeconds(45)),
                 'items' => array_map(fn (array $item) => $item + [
                     'issue_url' => in_array($item['issue_id'], $visibleIssueIds, true) ? route('issues.show', $item['issue_id']) : null,
                 ], $blocks['items']),
             ],
+            'ai' => ['text' => OpenAiClient::textConfigured()],
             'audio' => [
                 'status' => $brief->audio_status->value,
                 'configured' => OpenAiClient::speechConfigured(),

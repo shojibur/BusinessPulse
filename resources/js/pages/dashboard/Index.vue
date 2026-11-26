@@ -1,18 +1,25 @@
 <script setup lang="ts">
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import {
+    Banknote,
     CircleAlert,
     Clock,
     FileText,
     LayoutDashboard,
+    ListChecks,
+    OctagonAlert,
+    Target,
+    TrendingDown,
+    TrendingUp,
     TriangleAlert,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import EChart from '@/components/EChart.vue';
 import EmptyState from '@/components/EmptyState.vue';
 import InsufficientDataNotice from '@/components/InsufficientDataNotice.vue';
-import KpiCard from '@/components/KpiCard.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -32,7 +39,7 @@ import {
 import { index as importsIndex } from '@/routes/imports';
 import { index as tasksIndex } from '@/routes/tasks';
 import { index as issuesIndex } from '@/routes/issues';
-import type { DashboardData, DashboardFigure, KpiChange } from '@/types';
+import type { DashboardData, DashboardFigure } from '@/types';
 import BriefSourceBadge from '@/components/BriefSourceBadge.vue';
 
 const props = defineProps<{
@@ -64,20 +71,31 @@ const period = (figure: DashboardFigure): string =>
 const value = (figure: DashboardFigure): string =>
     figure.available ? figure.display : '—';
 
-const changeProp = computed<KpiChange | undefined>(() => {
+// The change figure, as a short caption and a tone (down is bad, up is good).
+const change = computed(() => {
     const figure = props.data?.change;
 
     if (!figure?.available) {
-        return undefined;
+        return { caption: undefined, tone: 'neutral' as const, down: false };
     }
 
     const n = Number(figure.value);
 
     return {
-        direction: n > 0 ? 'up' : n < 0 ? 'down' : 'flat',
-        text: `${n > 0 ? '+' : ''}${figure.value}% vs previous week`,
+        caption: `${n > 0 ? '+' : ''}${figure.value}% vs previous week`,
+        tone:
+            n < 0
+                ? ('danger' as const)
+                : n > 0
+                  ? ('success' as const)
+                  : ('neutral' as const),
+        down: n < 0,
     };
 });
+
+const firstName = computed(
+    () => usePage().props.auth.user?.name.split(' ')[0] ?? '',
+);
 
 const notices = computed(() => {
     const seen = new Set<string>();
@@ -164,7 +182,9 @@ const chartTable = computed(() => ({
     <PageHeader
         title="Today"
         :description="
-            data ? `${data.departmentName} · business overview` : undefined
+            data
+                ? `${firstName ? `Hello, ${firstName}. ` : ''}${data.departmentName} · business overview`
+                : undefined
         "
     >
         <Button
@@ -197,6 +217,7 @@ const chartTable = computed(() => ({
             {{ error }}
         </p>
 
+        <!-- Slim notices: only when something needs attention. -->
         <Alert v-if="data.freshness.behind" role="status">
             <Clock aria-hidden="true" />
             <AlertTitle>{{ data.freshness.message }}</AlertTitle>
@@ -232,22 +253,22 @@ const chartTable = computed(() => ({
             <AlertDescription>{{ data.coverageNotice }}</AlertDescription>
         </Alert>
 
-        <section
-            aria-label="Key figures"
-            class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        >
-            <KpiCard
+        <!-- The money: the three figures an owner checks first. -->
+        <section aria-label="Key figures" class="grid gap-4 sm:grid-cols-3">
+            <MetricTile
                 label="Revenue"
                 :value="value(data.revenue)"
                 :caption="period(data.revenue)"
+                :icon="Banknote"
             />
-            <KpiCard
+            <MetricTile
                 label="Weekly change"
                 :value="value(data.change)"
-                :change="changeProp"
-                :caption="period(data.change)"
+                :caption="change.caption ?? period(data.change)"
+                :icon="change.down ? TrendingDown : TrendingUp"
+                :tone="change.tone"
             />
-            <KpiCard
+            <MetricTile
                 label="Target achievement"
                 :value="value(data.targetAchievement)"
                 :caption="
@@ -255,15 +276,25 @@ const chartTable = computed(() => ({
                         ? `Target ${data.targetAchievement.target}`
                         : period(data.targetAchievement)
                 "
+                :icon="Target"
             />
+        </section>
+
+        <!-- What needs doing: each tile opens the matching list. -->
+        <section
+            aria-label="Issues and tasks"
+            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        >
             <Link
                 :href="issuesIndex({ query: { status: 'open_issues' } }).url"
-                class="block rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-                <KpiCard
+                <MetricTile
                     label="Open issues"
                     :value="String(data.openIssueCount)"
                     caption="View all open issues"
+                    :icon="TriangleAlert"
+                    :tone="data.openIssueCount > 0 ? 'warning' : 'success'"
                 />
             </Link>
             <Link
@@ -272,32 +303,40 @@ const chartTable = computed(() => ({
                         query: { status: 'open_issues', severity: 'high' },
                     }).url
                 "
-                class="block rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-                <KpiCard
+                <MetricTile
                     label="High priority"
                     :value="String(data.highPriorityIssueCount)"
                     caption="View high-priority issues"
+                    :icon="OctagonAlert"
+                    :tone="
+                        data.highPriorityIssueCount > 0 ? 'danger' : 'success'
+                    "
                 />
             </Link>
             <Link
                 :href="tasksIndex({ query: { status: 'open' } }).url"
-                class="block rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-                <KpiCard
+                <MetricTile
                     label="Open tasks"
                     :value="String(data.taskCounts.open)"
                     caption="View open tasks"
+                    :icon="ListChecks"
+                    tone="info"
                 />
             </Link>
             <Link
                 :href="tasksIndex({ query: { overdue: 1 } }).url"
-                class="block rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                class="block rounded-xl transition-transform hover:-translate-y-0.5 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             >
-                <KpiCard
+                <MetricTile
                     label="Overdue tasks"
                     :value="String(data.taskCounts.overdue)"
                     caption="View overdue tasks"
+                    :icon="Clock"
+                    :tone="data.taskCounts.overdue > 0 ? 'danger' : 'success'"
                 />
             </Link>
         </section>
@@ -308,46 +347,53 @@ const chartTable = computed(() => ({
             :message="message"
         />
 
-        <Card class="space-y-3 p-4">
-            <h2 class="text-base font-semibold">Revenue vs target by week</h2>
-            <EChart
-                :option="chartOption"
-                ariaLabel="Weekly revenue compared with target for the most recent closed weeks"
-                :table-data="chartTable"
-                :is-empty="series.length === 0"
-                empty-message="No closed week with sales data yet. Upload sales data in Data Imports."
-            />
-        </Card>
+        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <Card class="gap-4 p-5">
+                <SectionHeader
+                    title="Revenue vs target by week"
+                    description="The most recent closed weeks."
+                    :icon="TrendingUp"
+                />
+                <EChart
+                    :option="chartOption"
+                    ariaLabel="Weekly revenue compared with target for the most recent closed weeks"
+                    :table-data="chartTable"
+                    :is-empty="series.length === 0"
+                    empty-message="No closed week with sales data yet. Upload sales data in Data Imports."
+                />
+            </Card>
 
-        <Card class="space-y-3 p-4">
-            <div class="flex items-center justify-between gap-2">
-                <h2 class="text-base font-semibold">Latest brief</h2>
-                <Link
-                    :href="briefsIndex().url"
-                    class="text-sm text-primary-text hover:underline"
-                    >All briefs</Link
-                >
-            </div>
-            <template v-if="data.latestBrief">
-                <div class="flex flex-wrap items-center gap-2">
-                    <BriefSourceBadge
-                        status="completed"
-                        :source="data.latestBrief.source"
-                    />
-                    <span class="text-xs text-muted-foreground">{{
-                        formatDateTime(data.latestBrief.generated_at)
-                    }}</span>
-                </div>
-                <p class="text-sm">{{ data.latestBrief.headline }}</p>
-                <Button variant="outline" as-child>
-                    <Link :href="briefShow(data.latestBrief.id).url"
-                        >Open brief</Link
+            <Card class="gap-4 p-5">
+                <SectionHeader title="Latest brief" :icon="FileText">
+                    <Link
+                        :href="briefsIndex().url"
+                        class="text-sm text-primary-text hover:underline"
+                        >All briefs</Link
                     >
-                </Button>
-            </template>
-            <p v-else class="text-sm text-muted-foreground">
-                No brief has been generated yet.
-            </p>
-        </Card>
+                </SectionHeader>
+                <template v-if="data.latestBrief">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <BriefSourceBadge
+                            status="completed"
+                            :source="data.latestBrief.source"
+                        />
+                        <span class="text-xs text-muted-foreground">{{
+                            formatDateTime(data.latestBrief.generated_at)
+                        }}</span>
+                    </div>
+                    <p class="text-sm/6 font-medium">
+                        {{ data.latestBrief.headline }}
+                    </p>
+                    <Button variant="outline" as-child>
+                        <Link :href="briefShow(data.latestBrief.id).url"
+                            >Open brief</Link
+                        >
+                    </Button>
+                </template>
+                <p v-else class="text-sm text-muted-foreground">
+                    No brief has been generated yet.
+                </p>
+            </Card>
+        </div>
     </div>
 </template>

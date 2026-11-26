@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { CircleAlert, RefreshCw, ShieldCheck } from '@lucide/vue';
-import { onBeforeUnmount, ref, watch } from 'vue';
+import {
+    ChevronLeft,
+    CircleAlert,
+    CircleCheck,
+    CircleX,
+    ClipboardList,
+    ListChecks,
+    Mic,
+    RefreshCw,
+    ShieldCheck,
+} from '@lucide/vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import EmptyState from '@/components/EmptyState.vue';
 import DeleteRecordingDialog from '@/components/meetings/DeleteRecordingDialog.vue';
 import ManualTranscriptForm from '@/components/meetings/ManualTranscriptForm.vue';
@@ -9,7 +19,9 @@ import MeetingStatusBadge from '@/components/meetings/MeetingStatusBadge.vue';
 import RecordingUploadCard from '@/components/meetings/RecordingUploadCard.vue';
 import TaskDraftsTab from '@/components/meetings/TaskDraftsTab.vue';
 import TranscriptPanel from '@/components/meetings/TranscriptPanel.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import StatusBadge from '@/components/StatusBadge.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -86,6 +98,11 @@ function retryStage(): void {
     );
 }
 
+// Open on the tab that matters most right now.
+const defaultTab = computed(() =>
+    props.meeting.status === 'ready_for_review' ? 'drafts' : 'transcript',
+);
+
 const processingText: Record<string, string> = {
     uploaded: 'Recording received. Waiting to start transcription…',
     transcribing: 'Transcribing the recording…',
@@ -109,20 +126,25 @@ const processingText: Record<string, string> = {
             <Link :href="edit(meeting.id).url">Edit details</Link>
         </Button>
         <Button variant="outline" as-child
-            ><Link :href="index().url">All meetings</Link></Button
+            ><Link :href="index().url">
+                <ChevronLeft aria-hidden="true" />
+                All meetings
+            </Link></Button
         >
     </PageHeader>
 
     <div class="space-y-6">
-        <p
+        <Card
             v-if="processingText[meeting.status]"
-            class="flex items-center gap-2 text-sm"
+            class="flex-row items-center gap-3 p-4"
             role="status"
             aria-live="polite"
         >
             <Spinner />
-            {{ processingText[meeting.status] }}
-        </p>
+            <p class="text-sm font-medium">
+                {{ processingText[meeting.status] }}
+            </p>
+        </Card>
         <p v-else class="sr-only" role="status" aria-live="polite">
             {{ meeting.statusLabel }}
         </p>
@@ -167,25 +189,140 @@ const processingText: Record<string, string> = {
             </AlertDescription>
         </Alert>
 
-        <Tabs default-value="overview">
-            <TabsList class="max-w-full overflow-x-auto">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="transcript">Transcript</TabsTrigger>
-                <TabsTrigger value="decisions">Decisions</TabsTrigger>
-                <TabsTrigger value="drafts">Task drafts</TabsTrigger>
-            </TabsList>
+        <!-- The headline numbers first. -->
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricTile
+                label="Decisions"
+                :value="String(meeting.decisions.length)"
+                caption="Found in the discussion"
+                :icon="ClipboardList"
+                tone="info"
+            />
+            <MetricTile
+                label="Pending drafts"
+                :value="String(meeting.draftCounts.pending)"
+                caption="Waiting for your review"
+                :icon="ListChecks"
+                :tone="meeting.draftCounts.pending > 0 ? 'warning' : 'neutral'"
+            />
+            <MetricTile
+                label="Approved tasks"
+                :value="String(meeting.draftCounts.approved)"
+                caption="Assigned to people"
+                :icon="CircleCheck"
+                :tone="meeting.draftCounts.approved > 0 ? 'success' : 'neutral'"
+            />
+            <MetricTile
+                label="Rejected"
+                :value="String(meeting.draftCounts.rejected)"
+                caption="Kept in the history"
+                :icon="CircleX"
+            />
+        </div>
 
-            <TabsContent value="overview" class="mt-4 space-y-6">
-                <Card class="gap-0 p-0">
-                    <dl
-                        class="grid divide-y text-sm sm:grid-cols-2 sm:divide-y-0"
-                    >
-                        <div class="px-6 py-3">
-                            <dt class="text-muted-foreground">Created by</dt>
+        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <!-- Main column: the transcript, decisions and proposed tasks. -->
+            <div class="min-w-0">
+                <Tabs :default-value="defaultTab">
+                    <TabsList class="max-w-full overflow-x-auto">
+                        <TabsTrigger value="drafts">Task drafts</TabsTrigger>
+                        <TabsTrigger value="decisions">Decisions</TabsTrigger>
+                        <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="drafts" class="mt-4">
+                        <div v-if="meeting.can.reExtract" class="mb-4">
+                            <Button
+                                variant="outline"
+                                :disabled="retrying"
+                                @click="reExtract"
+                            >
+                                <Spinner v-if="retrying" />
+                                <RefreshCw v-else aria-hidden="true" />
+                                Re-extract tasks from the current transcript
+                            </Button>
+                        </div>
+                        <TaskDraftsTab
+                            :drafts="taskDrafts"
+                            :counts="meeting.draftCounts"
+                            :review="draftReview"
+                        />
+                    </TabsContent>
+
+                    <TabsContent value="decisions" class="mt-4">
+                        <section
+                            class="space-y-4"
+                            aria-labelledby="decisions-heading"
+                        >
+                            <SectionHeader
+                                id="decisions-heading"
+                                title="Decisions"
+                                description="What the meeting agreed. Check each quote against the transcript."
+                                :icon="ClipboardList"
+                            >
+                                <StatusBadge
+                                    label="AI generated, review before use"
+                                    tone="info"
+                                />
+                            </SectionHeader>
+                            <Alert v-if="meeting.discardedNotice" role="status">
+                                <AlertDescription>{{
+                                    meeting.discardedNotice
+                                }}</AlertDescription>
+                            </Alert>
+                            <Card v-if="meeting.decisions.length === 0">
+                                <EmptyState
+                                    :icon="ClipboardList"
+                                    message="No decisions were found in this meeting."
+                                />
+                            </Card>
+                            <ul v-else class="space-y-3">
+                                <li
+                                    v-for="(decision, i) in meeting.decisions"
+                                    :key="i"
+                                >
+                                    <Card
+                                        class="gap-2 border-l-4 border-l-info p-5"
+                                    >
+                                        <p class="font-medium">
+                                            {{ decision.summary }}
+                                        </p>
+                                        <blockquote
+                                            class="rounded-md bg-muted/50 p-3 text-sm text-muted-foreground"
+                                        >
+                                            {{ decision.excerpt }}
+                                        </blockquote>
+                                    </Card>
+                                </li>
+                            </ul>
+                        </section>
+                    </TabsContent>
+
+                    <TabsContent value="transcript" class="mt-4">
+                        <TranscriptPanel
+                            :meeting="meeting"
+                            :transcript="transcript"
+                            :limits="limits"
+                        />
+                    </TabsContent>
+                </Tabs>
+            </div>
+
+            <!-- Side column: the facts and the recording. -->
+            <aside class="min-w-0 space-y-6">
+                <Card class="gap-4 p-5">
+                    <SectionHeader title="Details" />
+                    <dl class="grid gap-4 text-sm">
+                        <div>
+                            <dt class="text-xs text-muted-foreground">
+                                Created by
+                            </dt>
                             <dd class="font-medium">{{ meeting.createdBy }}</dd>
                         </div>
-                        <div class="px-6 py-3">
-                            <dt class="text-muted-foreground">Linked issues</dt>
+                        <div>
+                            <dt class="text-xs text-muted-foreground">
+                                Linked issues
+                            </dt>
                             <dd
                                 v-if="meeting.linkedIssues.length"
                                 class="font-medium"
@@ -194,7 +331,7 @@ const processingText: Record<string, string> = {
                                     v-for="issue in meeting.linkedIssues"
                                     :key="issue.id"
                                     :href="issue.url"
-                                    class="block text-primary-text underline"
+                                    class="block text-primary-text underline-offset-2 hover:underline"
                                     >{{ issue.title }}</Link
                                 >
                             </dd>
@@ -204,13 +341,20 @@ const processingText: Record<string, string> = {
                 </Card>
 
                 <section aria-labelledby="recording-heading" class="space-y-3">
-                    <h2 id="recording-heading" class="text-lg/7 font-semibold">
-                        Recording
-                    </h2>
-                    <Card v-if="meeting.recording.present" class="gap-3 p-4">
-                        <p class="text-sm">
-                            {{ meeting.recording.originalName }} ·
-                            {{ formatBytes(meeting.recording.sizeBytes) }}
+                    <SectionHeader
+                        id="recording-heading"
+                        title="Recording"
+                        :icon="Mic"
+                    />
+                    <Card v-if="meeting.recording.present" class="gap-3 p-5">
+                        <p class="text-sm font-medium break-all">
+                            {{ meeting.recording.originalName }}
+                            <span class="font-normal text-muted-foreground"
+                                >·
+                                {{
+                                    formatBytes(meeting.recording.sizeBytes)
+                                }}</span
+                            >
                         </p>
                         <p class="text-xs text-muted-foreground">
                             Uploaded
@@ -246,7 +390,7 @@ const processingText: Record<string, string> = {
                     </Card>
                     <Card
                         v-else-if="meeting.recording.deletedAt"
-                        class="p-4 text-sm text-muted-foreground"
+                        class="p-5 text-sm text-muted-foreground"
                     >
                         Recording deleted on
                         {{ formatDateTime(meeting.recording.deletedAt) }}. The
@@ -254,6 +398,7 @@ const processingText: Record<string, string> = {
                     </Card>
                     <Card v-else
                         ><EmptyState
+                            :icon="Mic"
                             message="No recording was uploaded for this meeting."
                     /></Card>
 
@@ -283,77 +428,7 @@ const processingText: Record<string, string> = {
                         transcript and drafts are kept.
                     </AlertDescription>
                 </Alert>
-            </TabsContent>
-
-            <TabsContent value="transcript" class="mt-4">
-                <TranscriptPanel
-                    :meeting="meeting"
-                    :transcript="transcript"
-                    :limits="limits"
-                />
-            </TabsContent>
-
-            <TabsContent value="decisions" class="mt-4">
-                <section class="space-y-4" aria-labelledby="decisions-heading">
-                    <div
-                        class="flex flex-wrap items-center justify-between gap-2"
-                    >
-                        <h2
-                            id="decisions-heading"
-                            class="text-lg/7 font-semibold"
-                        >
-                            Decisions
-                        </h2>
-                        <StatusBadge
-                            label="AI generated, review before use"
-                            tone="info"
-                        />
-                    </div>
-                    <Alert v-if="meeting.discardedNotice" role="status">
-                        <AlertDescription>{{
-                            meeting.discardedNotice
-                        }}</AlertDescription>
-                    </Alert>
-                    <Card v-if="meeting.decisions.length === 0">
-                        <EmptyState
-                            message="No decisions were found in this meeting."
-                        />
-                    </Card>
-                    <ul v-else class="space-y-3">
-                        <li v-for="(decision, i) in meeting.decisions" :key="i">
-                            <Card class="gap-2 p-4">
-                                <p class="font-medium">
-                                    {{ decision.summary }}
-                                </p>
-                                <blockquote
-                                    class="border-l-2 pl-3 text-sm text-muted-foreground"
-                                >
-                                    {{ decision.excerpt }}
-                                </blockquote>
-                            </Card>
-                        </li>
-                    </ul>
-                </section>
-            </TabsContent>
-
-            <TabsContent value="drafts" class="mt-4">
-                <div v-if="meeting.can.reExtract" class="mb-4">
-                    <Button
-                        variant="outline"
-                        :disabled="retrying"
-                        @click="reExtract"
-                    >
-                        <Spinner v-if="retrying" />
-                        <RefreshCw v-else aria-hidden="true" />
-                        Re-extract tasks from the current transcript
-                    </Button>
-                </div>
-                <TaskDraftsTab
-                    :drafts="taskDrafts"
-                    :counts="meeting.draftCounts"
-                    :review="draftReview"
-                />
-            </TabsContent>
-        </Tabs>
+            </aside>
+        </div>
     </div>
 </template>

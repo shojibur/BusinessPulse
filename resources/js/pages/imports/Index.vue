@@ -1,24 +1,17 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { FileSpreadsheet, Upload } from '@lucide/vue';
+import { ChevronRight, FileSpreadsheet, Upload } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import EmptyState from '@/components/EmptyState.vue';
 import ErrorState from '@/components/ErrorState.vue';
 import FreshnessBanner from '@/components/FreshnessBanner.vue';
 import ImportStatusBadge from '@/components/ImportStatusBadge.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
 import { usePolling } from '@/composables/usePolling';
 import { formatDate, formatDateTime, formatNumber } from '@/lib/format';
 import { create, index, show } from '@/routes/imports';
@@ -107,164 +100,163 @@ const range = (item: ImportSummary): string =>
             {{ announcement }}
         </div>
 
-        <div class="flex flex-wrap items-end gap-3">
-            <div class="grid gap-1">
-                <label for="status-filter" class="text-sm font-medium">
-                    Status
-                </label>
-                <NativeSelect
-                    id="status-filter"
-                    v-model="status"
-                    class="min-w-48"
-                    @update:model-value="applyFilter"
-                >
-                    <option value="">All statuses</option>
-                    <option
-                        v-for="option in statuses"
-                        :key="option.value"
-                        :value="option.value"
-                    >
-                        {{ option.label }}
-                    </option>
-                </NativeSelect>
-            </div>
-        </div>
-
         <ErrorState
             v-if="failed"
             message="The list could not be refreshed."
             @retry="retry"
         />
 
-        <Card v-if="loading" class="gap-3 p-4" aria-busy="true">
-            <Skeleton v-for="n in 4" :key="n" class="h-10 w-full" />
-            <span class="sr-only">Loading imports</span>
-        </Card>
-
-        <Card v-else-if="imports.length === 0">
-            <EmptyState
-                v-if="filtered"
-                :icon="FileSpreadsheet"
-                message="No imports have this status."
+        <Card class="gap-0 p-0">
+            <div
+                class="flex flex-wrap items-end justify-between gap-3 border-b px-5 py-4"
             >
-                <Button variant="outline" @click="clearFilter">
-                    Clear filter
-                </Button>
-            </EmptyState>
-            <EmptyState
-                v-else
-                :icon="FileSpreadsheet"
-                message="No sales data has been imported yet."
-            >
-                <Button as-child>
-                    <Link :href="create().url">Upload sales data</Link>
-                </Button>
-            </EmptyState>
-        </Card>
+                <SectionHeader
+                    title="All imports"
+                    :description="`${pagination.total} in total`"
+                    :icon="FileSpreadsheet"
+                />
+                <div class="grid gap-1">
+                    <label
+                        for="status-filter"
+                        class="text-xs font-medium text-muted-foreground"
+                    >
+                        Status
+                    </label>
+                    <NativeSelect
+                        id="status-filter"
+                        v-model="status"
+                        class="min-w-48"
+                        @update:model-value="applyFilter"
+                    >
+                        <option value="">All statuses</option>
+                        <option
+                            v-for="option in statuses"
+                            :key="option.value"
+                            :value="option.value"
+                        >
+                            {{ option.label }}
+                        </option>
+                    </NativeSelect>
+                </div>
+            </div>
 
-        <template v-else>
-            <!-- Table from 768px, stacked cards below. -->
-            <Card class="hidden gap-0 p-0 md:block">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Status</TableHead>
-                            <TableHead>File</TableHead>
-                            <TableHead>Date range</TableHead>
-                            <TableHead class="text-right">Rows</TableHead>
-                            <TableHead class="text-right">Invalid</TableHead>
-                            <TableHead>Uploaded by</TableHead>
-                            <TableHead>Uploaded</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        <TableRow v-for="item in imports" :key="item.id">
-                            <TableCell>
-                                <ImportStatusBadge
-                                    :status="item.status"
-                                    :label="item.status_label"
-                                />
-                            </TableCell>
-                            <TableCell class="max-w-xs break-all">
-                                <Link
-                                    :href="show(item.id).url"
-                                    class="touch-target font-medium text-primary-text hover:underline"
-                                >
-                                    {{ item.original_filename }}
-                                </Link>
-                            </TableCell>
-                            <TableCell>{{ range(item) }}</TableCell>
-                            <TableCell class="text-right tabular-nums">
-                                {{ formatNumber(item.total_rows) }}
-                            </TableCell>
-                            <TableCell class="text-right tabular-nums">
-                                {{ formatNumber(item.invalid_rows) }}
-                            </TableCell>
-                            <TableCell>{{ item.uploader ?? '—' }}</TableCell>
-                            <TableCell>
-                                {{ formatDateTime(item.uploaded_at) }}
-                            </TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-            </Card>
+            <div v-if="loading" class="space-y-3 p-5" aria-busy="true">
+                <Skeleton v-for="n in 4" :key="n" class="h-14 w-full" />
+                <span class="sr-only">Loading imports</span>
+            </div>
 
-            <ul class="space-y-3 md:hidden">
+            <template v-else-if="imports.length === 0">
+                <EmptyState
+                    v-if="filtered"
+                    :icon="FileSpreadsheet"
+                    message="No imports have this status."
+                >
+                    <Button variant="outline" @click="clearFilter">
+                        Clear filter
+                    </Button>
+                </EmptyState>
+                <EmptyState
+                    v-else
+                    :icon="FileSpreadsheet"
+                    message="No sales data has been imported yet."
+                >
+                    <Button as-child>
+                        <Link :href="create().url">Upload sales data</Link>
+                    </Button>
+                </EmptyState>
+            </template>
+
+            <ul v-else class="divide-y">
                 <li v-for="item in imports" :key="item.id">
-                    <Card class="gap-2 p-4">
-                        <div class="flex items-start justify-between gap-2">
-                            <Link
-                                :href="show(item.id).url"
-                                class="touch-target font-medium break-all text-primary-text hover:underline"
+                    <Link
+                        :href="show(item.id).url"
+                        class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 transition-colors outline-none hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+                    >
+                        <span
+                            class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary-text"
+                        >
+                            <FileSpreadsheet
+                                class="size-5"
+                                aria-hidden="true"
+                            />
+                        </span>
+                        <span class="min-w-0 flex-1 basis-60">
+                            <span
+                                class="block text-sm font-medium break-all text-foreground"
                             >
                                 {{ item.original_filename }}
-                            </Link>
-                            <ImportStatusBadge
-                                :status="item.status"
-                                :label="item.status_label"
-                            />
-                        </div>
-                        <p class="text-sm text-muted-foreground">
-                            {{ range(item) }}
-                        </p>
-                        <p class="text-sm tabular-nums">
-                            {{ formatNumber(item.total_rows) }} rows,
-                            {{ formatNumber(item.invalid_rows) }} invalid
-                        </p>
-                        <p class="text-xs text-muted-foreground">
-                            {{ item.uploader ?? '—' }} ·
-                            {{ formatDateTime(item.uploaded_at) }}
-                        </p>
-                    </Card>
+                            </span>
+                            <span class="block text-xs text-muted-foreground">
+                                {{ range(item) }} · {{ item.uploader ?? '—' }} ·
+                                {{ formatDateTime(item.uploaded_at) }}
+                            </span>
+                        </span>
+                        <span
+                            class="flex items-center gap-5 text-sm tabular-nums"
+                        >
+                            <span class="text-right">
+                                <span class="block font-semibold">{{
+                                    formatNumber(item.total_rows)
+                                }}</span>
+                                <span
+                                    class="block text-xs text-muted-foreground"
+                                    >rows</span
+                                >
+                            </span>
+                            <span class="text-right">
+                                <span
+                                    class="block font-semibold"
+                                    :class="
+                                        item.invalid_rows > 0
+                                            ? 'text-severity-medium'
+                                            : ''
+                                    "
+                                    >{{ formatNumber(item.invalid_rows) }}</span
+                                >
+                                <span
+                                    class="block text-xs text-muted-foreground"
+                                    >invalid</span
+                                >
+                            </span>
+                        </span>
+                        <ImportStatusBadge
+                            :status="item.status"
+                            :label="item.status_label"
+                        />
+                        <ChevronRight
+                            class="size-4 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                    </Link>
                 </li>
             </ul>
+        </Card>
 
-            <nav
-                v-if="pagination.last_page > 1"
-                aria-label="Import pages"
-                class="flex items-center justify-between text-sm"
-            >
-                <span class="text-muted-foreground tabular-nums">
-                    Page {{ pagination.current_page }} of
-                    {{ pagination.last_page }}
-                </span>
-                <span class="flex gap-4">
-                    <Link
-                        v-if="pagination.prev_url"
-                        :href="pagination.prev_url"
-                        class="touch-target font-medium text-primary-text hover:underline"
-                    >
-                        Previous
-                    </Link>
-                    <Link
-                        v-if="pagination.next_url"
-                        :href="pagination.next_url"
-                        class="touch-target font-medium text-primary-text hover:underline"
-                    >
-                        Next
-                    </Link>
-                </span>
-            </nav>
-        </template>
+        <nav
+            v-if="pagination.last_page > 1"
+            aria-label="Import pages"
+            class="flex items-center justify-between text-sm"
+        >
+            <span class="text-muted-foreground tabular-nums">
+                Page {{ pagination.current_page }} of
+                {{ pagination.last_page }}
+            </span>
+            <span class="flex gap-4">
+                <Link
+                    v-if="pagination.prev_url"
+                    :href="pagination.prev_url"
+                    class="touch-target font-medium text-primary-text hover:underline"
+                >
+                    Previous
+                </Link>
+                <Link
+                    v-if="pagination.next_url"
+                    :href="pagination.next_url"
+                    class="touch-target font-medium text-primary-text hover:underline"
+                >
+                    Next
+                </Link>
+            </span>
+        </nav>
     </div>
 </template>

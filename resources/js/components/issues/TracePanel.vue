@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SectionHeader from '@/components/SectionHeader.vue';
+import { Route } from '@lucide/vue';
 import { Deferred } from '@inertiajs/vue3';
 import TraceTimeline from '@/components/activity/TraceTimeline.vue';
 import { Card } from '@/components/ui/card';
@@ -10,15 +12,15 @@ defineProps<{ trace?: TracePanelData | null }>();
 
 <template>
     <section class="space-y-3" aria-labelledby="trace-heading">
-        <h2 id="trace-heading" class="text-lg/7 font-semibold">Trace</h2>
-        <p class="text-sm text-muted-foreground">
-            From imported sales data to the outcome, using the records and
-            activity that exist. Nothing is added for work done before activity
-            was recorded.
-        </p>
+        <SectionHeader
+            id="trace-heading"
+            title="Activity trace"
+            description="From imported data to the outcome."
+            :icon="Route"
+        />
         <Deferred data="trace">
             <template #fallback><Skeleton class="h-24 w-full" /></template>
-            <Card class="p-4"
+            <Card class="p-5"
                 ><TraceTimeline v-if="trace" :trace="trace"
             /></Card>
         </Deferred>

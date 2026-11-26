@@ -1,23 +1,24 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { RefreshCw, ShieldCheck } from '@lucide/vue';
-import { ref } from 'vue';
+import {
+    ChevronRight,
+    CircleAlert,
+    Layers,
+    RefreshCw,
+    ShieldCheck,
+    TriangleAlert,
+} from '@lucide/vue';
+import { computed, ref } from 'vue';
 import EmptyState from '@/components/EmptyState.vue';
 import IssueStatusBadge from '@/components/IssueStatusBadge.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import SeverityBadge from '@/components/SeverityBadge.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Spinner } from '@/components/ui/spinner';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
 import { formatDateTime } from '@/lib/format';
 import { index, refresh, show } from '@/routes/issues';
 import type { IssueRow, Pagination } from '@/types';
@@ -73,6 +74,17 @@ function refreshIntelligence(): void {
 
 const filtered = (): boolean =>
     props.filters.status !== 'open_issues' || props.filters.severity !== null;
+
+// Per-severity counts are only exact when everything fits on one page.
+const onePage = computed(() => props.pagination.last_page <= 1);
+const countOf = (severity: 'high' | 'medium' | 'low'): number =>
+    props.issues.filter((issue) => issue.severity === severity).length;
+
+const edge: Record<string, string> = {
+    high: 'border-l-severity-high',
+    medium: 'border-l-severity-medium',
+    low: 'border-l-slate-300',
+};
 </script>
 
 <template>
@@ -90,7 +102,44 @@ const filtered = (): boolean =>
     </PageHeader>
 
     <div class="space-y-6">
-        <p class="text-sm text-muted-foreground" role="status">
+        <div
+            v-if="hasAnyIssue"
+            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        >
+            <MetricTile
+                label="Issues in this view"
+                :value="String(pagination.total)"
+                :caption="
+                    lastEvaluatedAt
+                        ? `Evaluated ${formatDateTime(lastEvaluatedAt)}`
+                        : 'Not evaluated yet'
+                "
+                :icon="Layers"
+            />
+            <template v-if="onePage">
+                <MetricTile
+                    label="High severity"
+                    :value="String(countOf('high'))"
+                    caption="Needs attention first"
+                    :icon="CircleAlert"
+                    :tone="countOf('high') > 0 ? 'danger' : 'neutral'"
+                />
+                <MetricTile
+                    label="Medium severity"
+                    :value="String(countOf('medium'))"
+                    caption="Worth watching"
+                    :icon="TriangleAlert"
+                    :tone="countOf('medium') > 0 ? 'warning' : 'neutral'"
+                />
+                <MetricTile
+                    label="Low severity"
+                    :value="String(countOf('low'))"
+                    caption="For information"
+                    :icon="ShieldCheck"
+                />
+            </template>
+        </div>
+        <p v-else class="text-sm text-muted-foreground" role="status">
             Latest evaluation:
             <span class="font-medium text-foreground">
                 {{
@@ -101,43 +150,60 @@ const filtered = (): boolean =>
             </span>
         </p>
 
-        <div class="flex flex-wrap items-end gap-3">
-            <div class="grid gap-1">
-                <label for="status-filter" class="text-sm font-medium">
-                    Status
-                </label>
-                <NativeSelect
-                    id="status-filter"
-                    v-model="status"
-                    class="min-w-48"
-                    @update:model-value="applyFilters"
-                >
-                    <option
-                        v-for="option in statuses"
-                        :key="option.value"
-                        :value="option.value"
+        <Card class="gap-4 p-5">
+            <SectionHeader title="Filter" />
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="grid gap-1">
+                    <label
+                        for="status-filter"
+                        class="text-xs font-medium text-muted-foreground"
                     >
-                        {{ option.label }}
-                    </option>
-                </NativeSelect>
-            </div>
-            <div class="grid gap-1">
-                <label for="severity-filter" class="text-sm font-medium">
-                    Severity
-                </label>
-                <NativeSelect
-                    id="severity-filter"
-                    v-model="severity"
-                    class="min-w-40"
-                    @update:model-value="applyFilters"
+                        Status
+                    </label>
+                    <NativeSelect
+                        id="status-filter"
+                        v-model="status"
+                        class="min-w-48"
+                        @update:model-value="applyFilters"
+                    >
+                        <option
+                            v-for="option in statuses"
+                            :key="option.value"
+                            :value="option.value"
+                        >
+                            {{ option.label }}
+                        </option>
+                    </NativeSelect>
+                </div>
+                <div class="grid gap-1">
+                    <label
+                        for="severity-filter"
+                        class="text-xs font-medium text-muted-foreground"
+                    >
+                        Severity
+                    </label>
+                    <NativeSelect
+                        id="severity-filter"
+                        v-model="severity"
+                        class="min-w-40"
+                        @update:model-value="applyFilters"
+                    >
+                        <option value="">All severities</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </NativeSelect>
+                </div>
+                <Button
+                    v-if="filtered()"
+                    variant="ghost"
+                    size="sm"
+                    @click="clearFilters"
                 >
-                    <option value="">All severities</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                </NativeSelect>
+                    Clear filters
+                </Button>
             </div>
-        </div>
+        </Card>
 
         <Card v-if="issues.length === 0">
             <EmptyState
@@ -153,90 +219,53 @@ const filtered = (): boolean =>
         </Card>
 
         <template v-else>
-            <Card class="hidden gap-0 p-0 md:block">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Issue</TableHead>
-                            <TableHead>Severity</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Key figure</TableHead>
-                            <TableHead>First detected</TableHead>
-                            <TableHead>Last detected</TableHead>
-                            <TableHead class="text-right">Detections</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        <TableRow v-for="issue in issues" :key="issue.id">
-                            <TableCell>
-                                <Link
-                                    :href="show(issue.id).url"
-                                    class="touch-target font-medium text-primary-text hover:underline"
+            <Card class="gap-0 overflow-hidden p-0">
+                <ul class="divide-y">
+                    <li
+                        v-for="issue in issues"
+                        :key="issue.id"
+                        class="border-l-4 transition-colors hover:bg-muted/40"
+                        :class="edge[issue.severity]"
+                    >
+                        <Link
+                            :href="show(issue.id).url"
+                            class="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
+                        >
+                            <div class="min-w-0 flex-1 basis-64">
+                                <p
+                                    class="truncate text-sm/5 font-semibold text-foreground"
                                 >
                                     {{ issue.title }}
-                                </Link>
-                                <p class="text-xs text-muted-foreground">
-                                    {{ issue.department }}
                                 </p>
-                            </TableCell>
-                            <TableCell>
+                                <p class="text-xs/4 text-muted-foreground">
+                                    {{ issue.department }} · Detected
+                                    {{ issue.detection_count }}×, last
+                                    {{ formatDateTime(issue.last_detected_at) }}
+                                </p>
+                            </div>
+                            <div class="min-w-32 text-sm tabular-nums">
+                                <p class="text-xs text-muted-foreground">
+                                    {{ issue.key_figure.label }}
+                                </p>
+                                <p class="font-semibold">
+                                    {{ issue.key_figure.value ?? '—' }}
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-2">
                                 <SeverityBadge :severity="issue.severity" />
-                            </TableCell>
-                            <TableCell>
                                 <IssueStatusBadge
                                     :status="issue.status"
                                     :label="issue.status_label"
                                 />
-                            </TableCell>
-                            <TableCell class="tabular-nums">
-                                <span class="text-muted-foreground">
-                                    {{ issue.key_figure.label }}:
-                                </span>
-                                {{ issue.key_figure.value ?? '—' }}
-                            </TableCell>
-                            <TableCell>
-                                {{ formatDateTime(issue.first_detected_at) }}
-                            </TableCell>
-                            <TableCell>
-                                {{ formatDateTime(issue.last_detected_at) }}
-                            </TableCell>
-                            <TableCell class="text-right tabular-nums">
-                                {{ issue.detection_count }}
-                            </TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-            </Card>
-
-            <ul class="space-y-3 md:hidden">
-                <li v-for="issue in issues" :key="issue.id">
-                    <Card class="gap-2 p-4">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <SeverityBadge :severity="issue.severity" />
-                            <IssueStatusBadge
-                                :status="issue.status"
-                                :label="issue.status_label"
+                            </div>
+                            <ChevronRight
+                                class="hidden size-4 text-muted-foreground sm:block"
+                                aria-hidden="true"
                             />
-                        </div>
-                        <Link
-                            :href="show(issue.id).url"
-                            class="touch-target text-base font-semibold text-primary-text hover:underline"
-                        >
-                            {{ issue.title }}
                         </Link>
-                        <p class="text-sm tabular-nums">
-                            {{ issue.key_figure.label }}:
-                            <span class="font-medium">
-                                {{ issue.key_figure.value ?? '—' }}
-                            </span>
-                        </p>
-                        <p class="text-xs text-muted-foreground">
-                            Detected {{ issue.detection_count }}×, last
-                            {{ formatDateTime(issue.last_detected_at) }}
-                        </p>
-                    </Card>
-                </li>
-            </ul>
+                    </li>
+                </ul>
+            </Card>
 
             <nav
                 v-if="pagination.last_page > 1"

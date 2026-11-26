@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Info, RefreshCw } from '@lucide/vue';
+import {
+    Info,
+    ListChecks,
+    RefreshCw,
+    TriangleAlert,
+    Volume2,
+} from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import AiUnavailableNotice from '@/components/AiUnavailableNotice.vue';
 import AudioPlayer from '@/components/AudioPlayer.vue';
 import BriefSourceBadge from '@/components/BriefSourceBadge.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import SeverityBadge from '@/components/SeverityBadge.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -13,15 +21,26 @@ import { Spinner } from '@/components/ui/spinner';
 import { formatDateRange, formatDateTime } from '@/lib/format';
 import { index, retry } from '@/routes/briefs';
 import { store as audioStore } from '@/routes/briefs/audio';
-import type { AudioView, BriefView } from '@/types';
+import type { AiAvailability, AudioView, BriefView } from '@/types';
 
-const props = defineProps<{ brief: BriefView; audio: AudioView }>();
+const props = defineProps<{
+    brief: BriefView;
+    audio: AudioView;
+    ai: AiAvailability;
+}>();
 
 const inProgress = computed(
     () =>
         props.brief.status === 'queued' || props.brief.status === 'generating',
 );
 const retrying = ref(false);
+
+// A coloured left edge shows how serious each finding is.
+const severityEdge: Record<string, string> = {
+    high: 'border-l-severity-high',
+    medium: 'border-l-severity-medium',
+    low: 'border-l-slate-300',
+};
 
 // Poll every 3 seconds while the brief is being generated.
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -36,7 +55,7 @@ watch(
 
         if (active) {
             timer = setInterval(
-                () => router.reload({ only: ['brief', 'audio'] }),
+                () => router.reload({ only: ['brief', 'audio', 'ai'] }),
                 3000,
             );
         }
@@ -83,7 +102,9 @@ const coverageLabel = computed(
     </PageHeader>
 
     <div class="space-y-6">
-        <Card v-if="inProgress" class="p-6" aria-busy="true">
+        <AiUnavailableNotice v-if="!ai.text" />
+
+        <Card v-if="inProgress" class="space-y-4 p-6" aria-busy="true">
             <p class="flex items-center gap-2 text-sm" role="status">
                 <Spinner />
                 {{
@@ -92,6 +113,15 @@ const coverageLabel = computed(
                         : 'Writing your brief…'
                 }}
             </p>
+            <Alert v-if="brief.stalled" variant="destructive" role="alert">
+                <TriangleAlert aria-hidden="true" />
+                <AlertTitle>This is taking longer than expected</AlertTitle>
+                <AlertDescription>
+                    Briefs are written by a background worker, and it does not
+                    seem to be running. Ask your administrator to start it (the
+                    queue worker), then reload this page.
+                </AlertDescription>
+            </Alert>
         </Card>
 
         <Alert
@@ -112,8 +142,11 @@ const coverageLabel = computed(
         </Alert>
 
         <template v-else>
-            <Card class="space-y-3 p-6">
-                <h2 class="text-lg font-semibold">{{ brief.headline }}</h2>
+            <!-- The headline: the one sentence an owner needs. -->
+            <Card class="gap-3 border-l-4 border-l-primary p-6">
+                <h2 class="text-xl/7 font-semibold tracking-tight">
+                    {{ brief.headline }}
+                </h2>
                 <p class="text-xs text-muted-foreground">
                     {{ coverageLabel }} · Generated
                     {{ formatDateTime(brief.generated_at) }} ·
@@ -127,56 +160,71 @@ const coverageLabel = computed(
                 <AlertDescription>{{ brief.limitation }}</AlertDescription>
             </Alert>
 
-            <section
-                v-if="brief.items.length"
-                aria-labelledby="findings-heading"
-                class="space-y-3"
+            <div
+                class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
             >
-                <h2 id="findings-heading" class="text-base font-semibold">
-                    Findings
-                </h2>
-                <Card
-                    v-for="item in brief.items"
-                    :key="item.position"
-                    class="space-y-2 p-4"
+                <section
+                    v-if="brief.items.length"
+                    aria-labelledby="findings-heading"
+                    class="min-w-0 space-y-3"
                 >
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-sm font-medium text-muted-foreground"
-                            >{{ item.position }}.</span
-                        >
-                        <SeverityBadge :severity="item.severity" />
-                        <span class="text-xs text-muted-foreground">{{
-                            item.period_label
-                        }}</span>
-                    </div>
-                    <h3 class="font-medium">
-                        <Link
-                            v-if="item.issue_url"
-                            :href="item.issue_url"
-                            class="text-primary-text hover:underline"
-                            >{{ item.title }}</Link
-                        >
-                        <template v-else>{{ item.title }}</template>
-                    </h3>
-                    <p class="text-sm">{{ item.explanation }}</p>
-                    <p
-                        v-if="item.figures"
-                        class="text-sm text-muted-foreground tabular-nums"
+                    <SectionHeader
+                        id="findings-heading"
+                        title="Findings"
+                        description="The issues that need attention, most serious first."
+                        :icon="ListChecks"
+                    />
+                    <Card
+                        v-for="item in brief.items"
+                        :key="item.position"
+                        class="gap-2 border-l-4 p-5"
+                        :class="severityEdge[item.severity]"
                     >
-                        {{ item.figures }}
-                    </p>
-                    <p v-if="item.note" class="text-sm text-muted-foreground">
-                        {{ item.note }}
-                    </p>
-                </Card>
-            </section>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span
+                                class="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+                                >{{ item.position }}</span
+                            >
+                            <SeverityBadge :severity="item.severity" />
+                            <span class="text-xs text-muted-foreground">{{
+                                item.period_label
+                            }}</span>
+                        </div>
+                        <h3 class="font-medium">
+                            <Link
+                                v-if="item.issue_url"
+                                :href="item.issue_url"
+                                class="text-primary-text hover:underline"
+                                >{{ item.title }}</Link
+                            >
+                            <template v-else>{{ item.title }}</template>
+                        </h3>
+                        <p class="text-sm">{{ item.explanation }}</p>
+                        <p
+                            v-if="item.figures"
+                            class="w-fit rounded-md bg-muted/60 px-3 py-1.5 text-sm text-muted-foreground tabular-nums"
+                        >
+                            {{ item.figures }}
+                        </p>
+                        <p
+                            v-if="item.note"
+                            class="text-sm text-muted-foreground"
+                        >
+                            {{ item.note }}
+                        </p>
+                    </Card>
+                </section>
 
-            <Card class="p-4">
-                <AudioPlayer
-                    :audio="audio"
-                    :request-url="audioStore(brief.id).url"
-                />
-            </Card>
+                <aside class="min-w-0 space-y-6">
+                    <Card class="gap-4 p-5">
+                        <SectionHeader title="Listen" :icon="Volume2" />
+                        <AudioPlayer
+                            :audio="audio"
+                            :request-url="audioStore(brief.id).url"
+                        />
+                    </Card>
+                </aside>
+            </div>
         </template>
     </div>
 </template>

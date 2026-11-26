@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -52,7 +53,7 @@ function submit(): void {
 
     <form class="max-w-2xl space-y-6" novalidate @submit.prevent="submit">
         <Card class="gap-4 p-5">
-            <h2 class="text-lg/7 font-semibold">Company</h2>
+            <SectionHeader title="Company" />
             <div class="grid gap-2">
                 <Label for="name">Company name</Label>
                 <Input id="name" v-model="form.name" v-focus required />
@@ -126,7 +127,7 @@ function submit(): void {
         </Card>
 
         <Card class="gap-4 p-5">
-            <h2 class="text-lg/7 font-semibold">First Owner</h2>
+            <SectionHeader title="First Owner" />
             <div class="grid gap-2">
                 <Label for="owner_name">Full name</Label>
                 <Input id="owner_name" v-model="form.owner_name" required />

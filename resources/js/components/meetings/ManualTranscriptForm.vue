@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { FileText } from '@lucide/vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { useForm } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -17,8 +19,12 @@ function submit(): void {
 </script>
 
 <template>
-    <Card id="manual-transcript" class="gap-4 p-4">
-        <h3 class="text-base font-semibold">Paste a transcript instead</h3>
+    <Card id="manual-transcript" class="gap-4 p-5">
+        <SectionHeader
+            title="Paste a transcript instead"
+            description="No recording? Paste the text and we propose tasks from it."
+            :icon="FileText"
+        />
         <form class="space-y-3" novalidate @submit.prevent="submit">
             <div class="grid gap-1.5">
                 <Label for="manual-transcript-text"

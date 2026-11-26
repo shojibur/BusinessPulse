@@ -1,10 +1,25 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Info, RefreshCw } from '@lucide/vue';
+import {
+    Banknote,
+    CalendarDays,
+    ChevronLeft,
+    Gauge,
+    History,
+    Info,
+    RefreshCw,
+    Target,
+    TrendingDown,
+    TrendingUp,
+} from '@lucide/vue';
 import { computed, ref } from 'vue';
 import EvaluationEvidence from '@/components/EvaluationEvidence.vue';
 import IssueStatusBadge from '@/components/IssueStatusBadge.vue';
+import MetricTile from '@/components/MetricTile.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
+import TimelineList from '@/components/TimelineList.vue';
+import type { TimelineItem } from '@/components/TimelineList.vue';
 import SeverityBadge from '@/components/SeverityBadge.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -16,7 +31,7 @@ import RelatedTasksPanel from '@/components/issues/RelatedTasksPanel.vue';
 import TracePanel from '@/components/issues/TracePanel.vue';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime, formatMoney } from '@/lib/format';
 import { index, show } from '@/routes/issues';
 import { acknowledge, monitoring, refresh, resolve } from '@/routes/issues';
 import type {
@@ -105,6 +120,160 @@ const triggerLabel = (trigger: string | null): string =>
         outcome_verified: 'Recovery verified',
         outcome_worsened: 'Outcome worsened',
     })[trigger ?? ''] ?? '';
+
+// The headline figures of the latest evaluation, for a business owner to read in a few seconds.
+type Tile = {
+    label: string;
+    value: string;
+    caption?: string;
+    icon: typeof Gauge;
+    tone: 'neutral' | 'danger' | 'success' | 'warning' | 'info';
+};
+
+const tiles = computed<Tile[]>(() => {
+    const e = props.latest;
+    const breached = e.result === 'breached';
+    const pct = e.difference_pct === null ? '—' : `${e.difference_pct}%`;
+    const period = `${formatDate(e.period_start)} to ${formatDate(e.period_end)}`;
+    const down = e.difference_pct !== null && e.difference_pct.startsWith('-');
+
+    if (e.metric_name === 'weekly_change_pct') {
+        return [
+            {
+                label: 'Observed change',
+                value: pct,
+                caption: 'Compared with the week before',
+                icon: down ? TrendingDown : TrendingUp,
+                tone: breached ? 'danger' : 'neutral',
+            },
+            {
+                label: 'Revenue, this week',
+                value: formatMoney(e.current_value),
+                caption: period,
+                icon: Banknote,
+                tone: 'neutral',
+            },
+            {
+                label: 'Revenue, week before',
+                value: formatMoney(e.comparison_value),
+                caption: e.comparison_start
+                    ? `${formatDate(e.comparison_start)} to ${formatDate(e.comparison_end)}`
+                    : undefined,
+                icon: CalendarDays,
+                tone: 'neutral',
+            },
+            {
+                label: 'Difference',
+                value: formatMoney(e.difference_value),
+                caption: `Seen ${props.issue.detection_count} time${props.issue.detection_count === 1 ? '' : 's'}`,
+                icon: Gauge,
+                tone: breached ? 'danger' : 'neutral',
+            },
+        ];
+    }
+
+    if (e.metric_name === 'target_achievement_pct') {
+        return [
+            {
+                label: 'Target achievement',
+                value: pct,
+                caption: 'Of the weekly sales target',
+                icon: Target,
+                tone: breached ? 'danger' : 'neutral',
+            },
+            {
+                label: 'Revenue',
+                value: formatMoney(e.current_value),
+                caption: period,
+                icon: Banknote,
+                tone: 'neutral',
+            },
+            {
+                label: 'Weekly target',
+                value: formatMoney(e.comparison_value),
+                icon: Target,
+                tone: 'neutral',
+            },
+            {
+                label: 'Shortfall',
+                value: formatMoney(e.difference_value),
+                caption: `Seen ${props.issue.detection_count} time${props.issue.detection_count === 1 ? '' : 's'}`,
+                icon: Gauge,
+                tone: breached ? 'danger' : 'neutral',
+            },
+        ];
+    }
+
+    const missing = e.coverage.missing.length;
+
+    return [
+        {
+            label: 'Coverage',
+            value: pct,
+            caption: 'Of the expected branch-days',
+            icon: Gauge,
+            tone: breached ? 'danger' : 'neutral',
+        },
+        {
+            label: 'Received',
+            value:
+                e.current_value === null
+                    ? '—'
+                    : String(parseInt(e.current_value, 10)),
+            caption: 'Due branch-days with data',
+            icon: Banknote,
+            tone: 'neutral',
+        },
+        {
+            label: 'Expected',
+            value:
+                e.comparison_value === null
+                    ? '—'
+                    : String(parseInt(e.comparison_value, 10)),
+            caption: 'Due branch-days',
+            icon: CalendarDays,
+            tone: 'neutral',
+        },
+        {
+            label: 'Missing',
+            value: String(missing),
+            caption: 'Branch-days without data',
+            icon: TrendingDown,
+            tone: missing > 0 ? 'danger' : 'success',
+        },
+    ];
+});
+
+const historyItems = computed<TimelineItem[]>(() =>
+    props.statusHistory.map((entry, position) => {
+        const title =
+            entry.from === entry.to
+                ? 'Detected again'
+                : entry.from === null
+                  ? 'First detected'
+                  : `${entry.from.replaceAll('_', ' ')} → ${entry.to.replaceAll('_', ' ')}`;
+        const tones: Record<string, TimelineItem['tone']> = {
+            open: 'danger',
+            acknowledged: 'warning',
+            action_in_progress: 'info',
+            monitoring: 'info',
+            resolved: 'success',
+        };
+
+        return {
+            key: position,
+            title: title.charAt(0).toUpperCase() + title.slice(1),
+            meta: [formatDateTime(entry.at), triggerLabel(entry.trigger)]
+                .filter(Boolean)
+                .join(' · '),
+            detail: entry.reason ? `Reason: ${entry.reason}` : undefined,
+            tone:
+                entry.from === entry.to
+                    ? 'neutral'
+                    : (tones[entry.to] ?? 'neutral'),
+        };
+    }),
+);
 </script>
 
 <template>
@@ -117,7 +286,10 @@ const triggerLabel = (trigger: string | null): string =>
         <SeverityBadge :severity="issue.severity" />
         <IssueStatusBadge :status="issue.status" :label="issue.status_label" />
         <Button variant="outline" as-child>
-            <Link :href="index().url">Back to issues</Link>
+            <Link :href="index().url">
+                <ChevronLeft aria-hidden="true" />
+                All issues
+            </Link>
         </Button>
     </PageHeader>
 
@@ -170,209 +342,218 @@ const triggerLabel = (trigger: string | null): string =>
             </AlertDescription>
         </Alert>
 
-        <Card class="gap-0 p-0">
-            <dl class="grid divide-y text-sm sm:grid-cols-2 sm:divide-y-0">
-                <div class="px-6 py-3">
-                    <dt class="text-muted-foreground">First detected</dt>
-                    <dd class="font-medium">
-                        {{ formatDateTime(issue.first_detected_at) }}
-                    </dd>
-                </div>
-                <div class="px-6 py-3">
-                    <dt class="text-muted-foreground">Last detected</dt>
-                    <dd class="font-medium">
-                        {{ formatDateTime(issue.last_detected_at) }}
-                    </dd>
-                </div>
-                <div class="px-6 py-3">
-                    <dt class="text-muted-foreground">Times detected</dt>
-                    <dd class="font-medium tabular-nums">
-                        {{ issue.detection_count }}
-                    </dd>
-                </div>
-                <div class="px-6 py-3">
-                    <dt class="text-muted-foreground">Action started</dt>
-                    <dd class="font-medium">
-                        {{ formatDateTime(issue.action_started_at) }}
-                    </dd>
-                </div>
-                <div class="px-6 py-3">
-                    <dt class="text-muted-foreground">Monitoring started</dt>
-                    <dd class="font-medium">
-                        {{ formatDateTime(issue.monitoring_started_at) }}
-                    </dd>
-                </div>
-                <div v-if="issue.recurrence_of" class="px-6 py-3">
-                    <dt class="text-muted-foreground">Recurrence of</dt>
-                    <dd class="font-medium">
-                        <Link
-                            :href="show(issue.recurrence_of.id).url"
-                            class="text-primary-text underline"
-                        >
-                            Earlier issue #{{ issue.recurrence_of.id }}
-                        </Link>
-                    </dd>
-                </div>
-                <div v-if="issue.resolved_at" class="px-6 py-3 sm:col-span-2">
-                    <dt class="text-muted-foreground">
-                        Resolved
-                        {{
-                            issue.resolution_type === 'manual'
-                                ? 'manually'
-                                : 'after verified recovery'
-                        }}
-                        on {{ formatDateTime(issue.resolved_at) }}
-                    </dt>
-                    <dd v-if="issue.resolution_note" class="font-medium">
-                        {{ issue.resolution_note }}
-                    </dd>
-                </div>
-            </dl>
-        </Card>
+        <!-- The headline figures first. -->
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricTile
+                v-for="tile in tiles"
+                :key="tile.label"
+                :label="tile.label"
+                :value="tile.value"
+                :caption="tile.caption"
+                :icon="tile.icon"
+                :tone="tile.tone"
+            />
+        </div>
 
-        <section class="space-y-3">
-            <h2 class="text-lg/7 font-semibold">Evidence</h2>
-            <p class="text-sm text-muted-foreground">
-                Every figure comes from a stored evaluation. Changes between
-                periods are observed changes; this page makes no claim about
-                their cause.
-            </p>
-            <div class="grid gap-4 lg:grid-cols-2">
-                <EvaluationEvidence
-                    :evaluation="baseline"
-                    heading="When it was first detected"
-                />
-                <EvaluationEvidence
-                    v-if="!sameEvaluation"
-                    :evaluation="latest"
-                    heading="Latest breached evaluation"
-                />
+        <div class="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <!-- Main column: the evidence and the work. -->
+            <div class="min-w-0 space-y-6">
+                <section class="space-y-3">
+                    <SectionHeader
+                        title="Evidence"
+                        description="Every figure comes from a stored evaluation. Changes are observed, not proven causes."
+                        :icon="Gauge"
+                    />
+                    <div class="grid gap-4 2xl:grid-cols-2">
+                        <EvaluationEvidence
+                            :evaluation="baseline"
+                            heading="When it was first detected"
+                        />
+                        <EvaluationEvidence
+                            v-if="!sameEvaluation"
+                            :evaluation="latest"
+                            heading="Latest breached evaluation"
+                        />
+                    </div>
+                </section>
+
+                <RelatedTasksPanel v-if="tasks" :tasks="tasks" />
+                <RelatedMeetingsPanel v-if="meetings" :meetings="meetings" />
+                <OutcomePanel :outcomes="outcomes ?? null" />
             </div>
-        </section>
 
-        <RelatedMeetingsPanel v-if="meetings" :meetings="meetings" />
-        <RelatedTasksPanel v-if="tasks" :tasks="tasks" />
-        <OutcomePanel :outcomes="outcomes ?? null" />
-        <FeedbackPanel v-if="feedback" :feedback="feedback" />
-        <TracePanel :trace="trace" />
+            <!-- Side column: what to do, the facts and the history. -->
+            <aside class="min-w-0 space-y-6">
+                <Card v-if="anyAction" class="gap-4 p-5">
+                    <SectionHeader title="Take action" />
+                    <div v-if="actions.acknowledge">
+                        <Button
+                            class="w-full"
+                            :disabled="busy"
+                            @click="post(acknowledge(issue.id).url)"
+                        >
+                            Acknowledge this issue
+                        </Button>
+                    </div>
 
-        <section v-if="anyAction" class="space-y-3">
-            <h2 class="text-lg/7 font-semibold">Actions</h2>
-            <Card class="gap-4 p-4">
-                <div v-if="actions.acknowledge">
-                    <Button
-                        :disabled="busy"
-                        @click="post(acknowledge(issue.id).url)"
+                    <form
+                        v-if="actions.monitoring"
+                        class="grid gap-2"
+                        novalidate
+                        @submit.prevent="
+                            post(monitoring(issue.id).url, {
+                                reason: monitoringReason,
+                            })
+                        "
                     >
-                        Acknowledge
-                    </Button>
-                </div>
+                        <Label for="monitoring-reason"
+                            >Start monitoring (reason required)</Label
+                        >
+                        <Textarea
+                            id="monitoring-reason"
+                            v-model="monitoringReason"
+                            rows="2"
+                        />
+                        <p
+                            v-if="errors.reason && errorFor === 'monitoring'"
+                            class="text-sm text-severity-high"
+                            role="alert"
+                        >
+                            {{ errors.reason }}
+                        </p>
+                        <Button
+                            type="submit"
+                            variant="outline"
+                            :disabled="busy"
+                        >
+                            Start monitoring
+                        </Button>
+                    </form>
 
-                <form
-                    v-if="actions.monitoring"
-                    class="grid gap-2"
-                    novalidate
-                    @submit.prevent="
-                        post(monitoring(issue.id).url, {
-                            reason: monitoringReason,
-                        })
-                    "
-                >
-                    <Label for="monitoring-reason"
-                        >Start monitoring (reason required)</Label
+                    <form
+                        v-if="actions.resolve"
+                        class="grid gap-2"
+                        novalidate
+                        @submit.prevent="
+                            post(
+                                resolve(issue.id).url,
+                                { reason: resolveReason },
+                                'resolve',
+                            )
+                        "
                     >
-                    <Textarea
-                        id="monitoring-reason"
-                        v-model="monitoringReason"
-                        rows="2"
-                    />
-                    <p
-                        v-if="errors.reason && errorFor === 'monitoring'"
-                        class="text-sm text-severity-high"
-                        role="alert"
-                    >
-                        {{ errors.reason }}
-                    </p>
-                    <Button
-                        type="submit"
-                        variant="outline"
-                        class="w-fit"
-                        :disabled="busy"
-                    >
-                        Start monitoring
-                    </Button>
-                </form>
+                        <Label for="resolve-reason"
+                            >Resolve manually (reason required)</Label
+                        >
+                        <Textarea
+                            id="resolve-reason"
+                            v-model="resolveReason"
+                            rows="2"
+                        />
+                        <p
+                            v-if="errors.reason && errorFor === 'resolve'"
+                            class="text-sm text-severity-high"
+                            role="alert"
+                        >
+                            {{ errors.reason }}
+                        </p>
+                        <Button
+                            type="submit"
+                            variant="outline"
+                            :disabled="busy"
+                        >
+                            Resolve issue
+                        </Button>
+                    </form>
+                </Card>
 
-                <form
-                    v-if="actions.resolve"
-                    class="grid gap-2"
-                    novalidate
-                    @submit.prevent="
-                        post(
-                            resolve(issue.id).url,
-                            { reason: resolveReason },
-                            'resolve',
-                        )
-                    "
-                >
-                    <Label for="resolve-reason"
-                        >Resolve manually (reason required)</Label
-                    >
-                    <Textarea
-                        id="resolve-reason"
-                        v-model="resolveReason"
-                        rows="2"
-                    />
-                    <p
-                        v-if="errors.reason && errorFor === 'resolve'"
-                        class="text-sm text-severity-high"
-                        role="alert"
-                    >
-                        {{ errors.reason }}
-                    </p>
-                    <Button
-                        type="submit"
-                        variant="outline"
-                        class="w-fit"
-                        :disabled="busy"
-                    >
-                        Resolve issue
-                    </Button>
-                </form>
-            </Card>
-        </section>
+                <Card class="gap-4 p-5">
+                    <SectionHeader title="Details" />
+                    <dl class="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
+                        <div>
+                            <dt class="text-xs text-muted-foreground">
+                                First detected
+                            </dt>
+                            <dd class="font-medium">
+                                {{ formatDateTime(issue.first_detected_at) }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs text-muted-foreground">
+                                Last detected
+                            </dt>
+                            <dd class="font-medium">
+                                {{ formatDateTime(issue.last_detected_at) }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs text-muted-foreground">
+                                Times detected
+                            </dt>
+                            <dd class="font-medium tabular-nums">
+                                {{ issue.detection_count }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs text-muted-foreground">
+                                Action started
+                            </dt>
+                            <dd class="font-medium">
+                                {{ formatDateTime(issue.action_started_at) }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs text-muted-foreground">
+                                Monitoring started
+                            </dt>
+                            <dd class="font-medium">
+                                {{
+                                    formatDateTime(issue.monitoring_started_at)
+                                }}
+                            </dd>
+                        </div>
+                        <div v-if="issue.recurrence_of">
+                            <dt class="text-xs text-muted-foreground">
+                                Recurrence of
+                            </dt>
+                            <dd class="font-medium">
+                                <Link
+                                    :href="show(issue.recurrence_of.id).url"
+                                    class="text-primary-text underline-offset-2 hover:underline"
+                                >
+                                    Earlier issue #{{ issue.recurrence_of.id }}
+                                </Link>
+                            </dd>
+                        </div>
+                        <div v-if="issue.resolved_at" class="col-span-2">
+                            <dt class="text-xs text-muted-foreground">
+                                Resolved
+                                {{
+                                    issue.resolution_type === 'manual'
+                                        ? 'manually'
+                                        : 'after verified recovery'
+                                }}
+                                on {{ formatDateTime(issue.resolved_at) }}
+                            </dt>
+                            <dd
+                                v-if="issue.resolution_note"
+                                class="font-medium"
+                            >
+                                {{ issue.resolution_note }}
+                            </dd>
+                        </div>
+                    </dl>
+                </Card>
 
-        <section class="space-y-3">
-            <h2 class="text-lg/7 font-semibold">Status timeline</h2>
-            <ol class="space-y-3 rounded-lg border bg-surface p-4 text-sm">
-                <li
-                    v-for="(entry, index) in statusHistory"
-                    :key="index"
-                    class="space-y-0.5"
-                >
-                    <p class="font-medium">
-                        <template v-if="entry.from === entry.to">
-                            Detected again
-                        </template>
-                        <template v-else-if="entry.from === null">
-                            First detected
-                        </template>
-                        <template v-else>
-                            {{ entry.from.replaceAll('_', ' ') }} →
-                            {{ entry.to.replaceAll('_', ' ') }}
-                        </template>
-                    </p>
-                    <p class="text-muted-foreground">
-                        {{ formatDateTime(entry.at) }}
-                        <template v-if="triggerLabel(entry.trigger)">
-                            · {{ triggerLabel(entry.trigger) }}
-                        </template>
-                    </p>
-                    <p v-if="entry.reason" class="text-foreground">
-                        Reason: {{ entry.reason }}
-                    </p>
-                </li>
-            </ol>
-        </section>
+                <FeedbackPanel v-if="feedback" :feedback="feedback" />
+
+                <Card class="gap-4 p-5">
+                    <SectionHeader title="Status history" :icon="History" />
+                    <TimelineList :items="historyItems" />
+                </Card>
+
+                <TracePanel :trace="trace" />
+            </aside>
+        </div>
     </div>
 </template>

@@ -1,21 +1,14 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
-import { Mic } from '@lucide/vue';
+import { ChevronRight, Mic, Plus } from '@lucide/vue';
 import { ref } from 'vue';
 import EmptyState from '@/components/EmptyState.vue';
 import MeetingStatusBadge from '@/components/meetings/MeetingStatusBadge.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import SectionHeader from '@/components/SectionHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { NativeSelect } from '@/components/ui/native-select';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
 import { formatDate } from '@/lib/format';
 import { create, index } from '@/routes/meetings';
 import type { MeetingListItem, MeetingStatusValue, Pagination } from '@/types';
@@ -57,56 +50,73 @@ const filtered = (): boolean =>
         description="Record what was decided, then review the tasks proposed from the discussion."
     >
         <Button v-if="can.create" as-child>
-            <Link :href="create().url">Create meeting</Link>
+            <Link :href="create().url">
+                <Plus aria-hidden="true" />
+                Create meeting
+            </Link>
         </Button>
     </PageHeader>
 
     <div class="space-y-6">
-        <div class="flex flex-wrap items-end gap-3">
-            <div class="grid gap-1">
-                <label for="status-filter" class="text-sm font-medium"
-                    >Status</label
-                >
-                <NativeSelect
-                    id="status-filter"
-                    v-model="status"
-                    class="min-w-48"
-                    @update:model-value="applyFilters"
-                >
-                    <option value="">All statuses</option>
-                    <option
-                        v-for="option in statusOptions"
-                        :key="option.value"
-                        :value="option.value"
-                    >
-                        {{ option.label }}
-                    </option>
-                </NativeSelect>
+        <Card class="gap-0 p-0">
+            <div
+                class="flex flex-wrap items-end justify-between gap-3 border-b px-5 py-4"
+            >
+                <SectionHeader
+                    title="All meetings"
+                    :description="`${pagination.total} in total`"
+                    :icon="Mic"
+                />
+                <div class="flex flex-wrap items-end gap-3">
+                    <div class="grid gap-1">
+                        <label
+                            for="status-filter"
+                            class="text-xs font-medium text-muted-foreground"
+                            >Status</label
+                        >
+                        <NativeSelect
+                            id="status-filter"
+                            v-model="status"
+                            class="min-w-44"
+                            @update:model-value="applyFilters"
+                        >
+                            <option value="">All statuses</option>
+                            <option
+                                v-for="option in statusOptions"
+                                :key="option.value"
+                                :value="option.value"
+                            >
+                                {{ option.label }}
+                            </option>
+                        </NativeSelect>
+                    </div>
+                    <div class="grid gap-1">
+                        <label
+                            for="issue-filter"
+                            class="text-xs font-medium text-muted-foreground"
+                            >Issue</label
+                        >
+                        <NativeSelect
+                            id="issue-filter"
+                            v-model="issue"
+                            class="min-w-56"
+                            @update:model-value="applyFilters"
+                        >
+                            <option value="">All issues</option>
+                            <option
+                                v-for="option in issueOptions"
+                                :key="option.id"
+                                :value="String(option.id)"
+                            >
+                                {{ option.title }}
+                            </option>
+                        </NativeSelect>
+                    </div>
+                </div>
             </div>
-            <div class="grid gap-1">
-                <label for="issue-filter" class="text-sm font-medium"
-                    >Issue</label
-                >
-                <NativeSelect
-                    id="issue-filter"
-                    v-model="issue"
-                    class="min-w-56"
-                    @update:model-value="applyFilters"
-                >
-                    <option value="">All issues</option>
-                    <option
-                        v-for="option in issueOptions"
-                        :key="option.id"
-                        :value="String(option.id)"
-                    >
-                        {{ option.title }}
-                    </option>
-                </NativeSelect>
-            </div>
-        </div>
 
-        <Card v-if="meetings.length === 0">
             <EmptyState
+                v-if="meetings.length === 0"
                 :icon="Mic"
                 :message="
                     filtered()
@@ -118,108 +128,90 @@ const filtered = (): boolean =>
                     ><Link :href="create().url">Create meeting</Link></Button
                 >
             </EmptyState>
-        </Card>
 
-        <template v-else>
-            <Card class="hidden gap-0 p-0 md:block">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Meeting</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead class="text-right">Issues</TableHead>
-                            <TableHead class="text-right"
-                                >Pending drafts</TableHead
-                            >
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        <TableRow v-for="meeting in meetings" :key="meeting.id">
-                            <TableCell>
-                                <Link
-                                    :href="meeting.url"
-                                    class="touch-target font-medium text-primary-text hover:underline"
-                                    >{{ meeting.title }}</Link
-                                >
-                                <p class="text-xs text-muted-foreground">
-                                    {{ meeting.department.name }}
-                                </p>
-                            </TableCell>
-                            <TableCell>{{
-                                formatDate(meeting.meetingDate)
-                            }}</TableCell>
-                            <TableCell
-                                ><MeetingStatusBadge
-                                    :status="meeting.status"
-                                    :label="meeting.statusLabel"
-                            /></TableCell>
-                            <TableCell class="text-right tabular-nums">{{
-                                meeting.issueCount
-                            }}</TableCell>
-                            <TableCell class="text-right tabular-nums">{{
-                                meeting.pendingDraftCount
-                            }}</TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-            </Card>
-
-            <ul class="space-y-3 md:hidden">
+            <ul v-else class="divide-y">
                 <li v-for="meeting in meetings" :key="meeting.id">
-                    <Card class="gap-2 p-4">
-                        <Link
-                            :href="meeting.url"
-                            class="touch-target font-medium text-primary-text hover:underline"
-                            >{{ meeting.title }}</Link
+                    <Link
+                        :href="meeting.url"
+                        class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 transition-colors outline-none hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+                    >
+                        <span
+                            class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary-text"
                         >
-                        <div
-                            class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+                            <Mic class="size-5" aria-hidden="true" />
+                        </span>
+                        <span class="min-w-0 flex-1 basis-56">
+                            <span
+                                class="block text-sm font-medium text-foreground"
+                                >{{ meeting.title }}</span
+                            >
+                            <span class="block text-xs text-muted-foreground">
+                                {{ meeting.department.name }} ·
+                                {{ formatDate(meeting.meetingDate) }}
+                            </span>
+                        </span>
+                        <span
+                            class="flex items-center gap-5 text-sm tabular-nums"
                         >
-                            <span>{{ formatDate(meeting.meetingDate) }}</span>
-                            <MeetingStatusBadge
-                                :status="meeting.status"
-                                :label="meeting.statusLabel"
-                            />
-                        </div>
-                        <p class="text-xs text-muted-foreground">
-                            {{ meeting.issueCount }} issue(s) ·
-                            {{ meeting.pendingDraftCount }} pending draft(s)
-                        </p>
-                    </Card>
+                            <span class="text-right">
+                                <span class="block font-semibold">{{
+                                    meeting.issueCount
+                                }}</span>
+                                <span
+                                    class="block text-xs text-muted-foreground"
+                                    >issues</span
+                                >
+                            </span>
+                            <span class="text-right">
+                                <span
+                                    class="block font-semibold"
+                                    :class="
+                                        meeting.pendingDraftCount > 0
+                                            ? 'text-severity-medium'
+                                            : ''
+                                    "
+                                    >{{ meeting.pendingDraftCount }}</span
+                                >
+                                <span
+                                    class="block text-xs text-muted-foreground"
+                                    >pending drafts</span
+                                >
+                            </span>
+                        </span>
+                        <MeetingStatusBadge
+                            :status="meeting.status"
+                            :label="meeting.statusLabel"
+                        />
+                        <ChevronRight
+                            class="size-4 text-muted-foreground"
+                            aria-hidden="true"
+                        />
+                    </Link>
                 </li>
             </ul>
+        </Card>
 
-            <nav
-                v-if="pagination.last_page > 1"
-                class="flex items-center justify-between"
-                aria-label="Meeting pages"
+        <nav
+            v-if="meetings.length > 0 && pagination.last_page > 1"
+            class="flex items-center justify-between"
+            aria-label="Meeting pages"
+        >
+            <Button variant="outline" :disabled="!pagination.prev_url" as-child>
+                <Link v-if="pagination.prev_url" :href="pagination.prev_url"
+                    >Previous</Link
+                >
+                <span v-else>Previous</span>
+            </Button>
+            <span class="text-sm text-muted-foreground"
+                >Page {{ pagination.current_page }} of
+                {{ pagination.last_page }}</span
             >
-                <Button
-                    variant="outline"
-                    :disabled="!pagination.prev_url"
-                    as-child
+            <Button variant="outline" :disabled="!pagination.next_url" as-child>
+                <Link v-if="pagination.next_url" :href="pagination.next_url"
+                    >Next</Link
                 >
-                    <Link v-if="pagination.prev_url" :href="pagination.prev_url"
-                        >Previous</Link
-                    >
-                    <span v-else>Previous</span>
-                </Button>
-                <span class="text-sm text-muted-foreground"
-                    >Page {{ pagination.current_page }} of
-                    {{ pagination.last_page }}</span
-                >
-                <Button
-                    variant="outline"
-                    :disabled="!pagination.next_url"
-                    as-child
-                >
-                    <Link v-if="pagination.next_url" :href="pagination.next_url"
-                        >Next</Link
-                    >
-                    <span v-else>Next</span>
-                </Button>
-            </nav>
-        </template>
+                <span v-else>Next</span>
+            </Button>
+        </nav>
     </div>
 </template>

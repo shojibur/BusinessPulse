@@ -20,7 +20,11 @@ function submit(): void {
     <Head title="Platform sign in" />
 
     <form class="flex flex-col gap-6" novalidate @submit.prevent="submit">
-        <p class="text-center text-sm font-medium">Platform admin sign in</p>
+        <p
+            class="rounded-lg bg-primary/10 px-3 py-2 text-center text-sm font-medium text-primary-text"
+        >
+            Platform admin sign in
+        </p>
         <div class="grid gap-4">
             <div class="grid gap-2">
                 <Label for="email">Email address</Label>
