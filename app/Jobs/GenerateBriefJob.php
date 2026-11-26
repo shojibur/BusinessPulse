@@ -36,7 +36,7 @@ class GenerateBriefJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public readonly int $briefId, public readonly int $companyId)
     {
-        $this->onQueue('ai');
+        $this->onQueue((string) config('ai.queue', 'default'));
         $this->afterCommit();
     }
 

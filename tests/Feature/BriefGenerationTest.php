@@ -133,8 +133,8 @@ test('the job queue settings follow the retry layering', function () {
     $job = new GenerateBriefJob(1, 1);
     $audio = new GenerateBriefAudioJob(1);
 
-    expect($job->queue)->toBe('ai')->and($job->tries)->toBe(3)->and($job->timeout)->toBe(90)->and($job->backoff())->toBe([10, 30, 60])
-        ->and($audio->queue)->toBe('ai')->and($audio->timeout)->toBe(90)->and($audio->tries)->toBe(3)->and($audio->backoff())->toBe([10, 30, 60])
+    expect($job->queue)->toBe('default')->and($job->tries)->toBe(3)->and($job->timeout)->toBe(90)->and($job->backoff())->toBe([10, 30, 60])
+        ->and($audio->queue)->toBe('default')->and($audio->timeout)->toBe(90)->and($audio->tries)->toBe(3)->and($audio->backoff())->toBe([10, 30, 60])
         ->and(config('queue.connections.database.retry_after'))->toBeGreaterThan(90);
 });
 

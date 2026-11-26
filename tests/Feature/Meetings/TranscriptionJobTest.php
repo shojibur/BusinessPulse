@@ -183,8 +183,8 @@ test('the job settings follow the retry layering', function () {
     $transcribe = new TranscribeMeetingJob(1);
     $extract = new ExtractMeetingTasksJob(1);
 
-    expect($transcribe->queue)->toBe('ai')->and($transcribe->tries)->toBe(3)->and($transcribe->timeout)->toBe(150)->and($transcribe->backoff())->toBe([10, 30, 60])
-        ->and($extract->queue)->toBe('ai')->and($extract->tries)->toBe(3)->and($extract->timeout)->toBe(90)->and($extract->backoff())->toBe([10, 30, 60])
+    expect($transcribe->queue)->toBe('default')->and($transcribe->tries)->toBe(3)->and($transcribe->timeout)->toBe(150)->and($transcribe->backoff())->toBe([10, 30, 60])
+        ->and($extract->queue)->toBe('default')->and($extract->tries)->toBe(3)->and($extract->timeout)->toBe(90)->and($extract->backoff())->toBe([10, 30, 60])
         ->and($transcribe)->toBeInstanceOf(ShouldBeUnique::class)
         ->and(config('queue.connections.database.retry_after'))->toBeGreaterThan(150)
         ->and(config('ai.timeouts.transcription'))->toBeLessThan($transcribe->timeout);

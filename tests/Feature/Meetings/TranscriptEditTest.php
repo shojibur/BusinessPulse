@@ -24,7 +24,7 @@ test('a manual transcript is validated, stored and extraction starts without ano
 
     $meeting->refresh();
     expect($meeting->status)->toBe(MeetingStatus::Transcribed)->and($meeting->transcript_source->value)->toBe('manual')->and($meeting->transcript)->toBe(demoTranscript());
-    Queue::assertPushedOn('ai', ExtractMeetingTasksJob::class);
+    Queue::assertPushedOn('default', ExtractMeetingTasksJob::class);
     Queue::assertPushed(ExtractMeetingTasksJob::class, 1);
 
     // A second manual submission is refused: the meeting is already past draft.

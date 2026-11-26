@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Requests\Auth\LoginRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -52,6 +53,15 @@ class AuthenticatedSessionController extends Controller
             Log::warning('Login failed', ['ip' => $request->ip()]);
 
             throw ValidationException::withMessages(['email' => self::FAILED_MESSAGE]);
+        }
+
+        // A suspended company cannot sign in (S10). Only reached with a valid password.
+        if ($request->user()->company?->isSuspended()) {
+            Auth::guard()->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            throw ValidationException::withMessages(['email' => EnsureUserIsActive::SUSPENDED_MESSAGE]);
         }
 
         RateLimiter::clear($key);

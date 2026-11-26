@@ -26,5 +26,9 @@ Likelihood and impact: low, medium, high. Status is set to `open`, `mitigated` o
 | R-17 | Authorization matrix manual run not yet executed | medium | high | Execute `docs/security-verification.md` on a scratch database; fix any FAIL | Engineering | open | none |
 | R-18 | Staff "Today" navigation item only redirects to My Tasks | high | low | By design per S02 and S07; revisit only if the client asks | Engineering | accepted | RF-03 |
 
+| R-19 | Many companies share one database and one disk; isolation relies on application-level `company_id` scoping, with no PostgreSQL row-level security and no independent penetration test of the multi-company case | medium | high | Policies and `visibleTo` scopes with 404 for other companies, tests with two companies (`Platform/PlatformPanelTest`), run the authorization matrix with two real companies before onboarding a real SME, consider row-level security in a later stage | Engineering | open | none |
+| R-20 | A platform admin account can reset any Owner's password, so its compromise exposes every company | low | high | 12-character minimum, login throttling, audit log of every platform action, no impersonation; add two-factor authentication before real SMEs | Owner | open | none |
+| R-21 | Per-company AI cost, rate limits, storage quotas and queue fairness do not exist; one busy company can slow the shared queue | medium | medium | Monitor usage; add per-company limits when the first SMEs are onboarded | Engineering | open | none |
+
 ## Review
 After the last rehearsal, set each status to `open`, `mitigated` or `accepted` and add a Readiness_Fix id to any risk that came from a failed verification step.

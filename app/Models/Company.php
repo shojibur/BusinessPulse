@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
- * The single business tenant of Stage 1.
+ * A business tenant. Stage 1 had one; S10 lets the platform admin create many (isolation is by company_id scoping).
  *
  * @property int $id
  * @property string $name
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $reporting_cutoff_lag_days
  * @property bool $is_demo
  * @property int $recording_retention_days
+ * @property Carbon|null $suspended_at
  */
 class Company extends Model
 {
@@ -34,6 +36,7 @@ class Company extends Model
             'reporting_cutoff_lag_days' => 'integer',
             'recording_retention_days' => 'integer',
             'is_demo' => 'boolean',
+            'suspended_at' => 'datetime',
         ];
     }
 
@@ -65,6 +68,11 @@ class Company extends Model
         return Attribute::make(
             get: fn (?string $value): string => substr($value ?? '12:00', 0, 5),
         );
+    }
+
+    public function isSuspended(): bool
+    {
+        return $this->suspended_at !== null;
     }
 
     /** @return HasMany<Department, $this> */

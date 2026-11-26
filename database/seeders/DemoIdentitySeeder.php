@@ -8,6 +8,7 @@ use App\Enums\RuleKey;
 use App\Models\BusinessRule;
 use App\Models\Company;
 use App\Models\Department;
+use App\Models\PlatformAdmin;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,8 @@ use Illuminate\Support\Facades\DB;
  */
 class DemoIdentitySeeder extends Seeder
 {
+    public const PLATFORM_ADMIN_EMAIL = 'admin@businesspulse.demo';
+
     public const COMPANY_NAME = 'Meridian Home Supplies Sdn Bhd';
 
     public function run(): void
@@ -66,6 +69,12 @@ class DemoIdentitySeeder extends Seeder
                 $this->user($company, $password, $email, $name, Role::Staff, $title, $sales, $manager);
             }
         });
+
+        // The platform admin of the demo (S10): signs in at /platform/login, separate from the six company users.
+        $admin = PlatformAdmin::firstOrNew(['email' => self::PLATFORM_ADMIN_EMAIL]);
+        $admin->fill(['name' => 'Platform Admin', 'password' => $password]);
+        $admin->is_active = true;
+        $admin->save();
 
         $this->say('info', 'Demo identity seeded: Meridian Home Supplies Sdn Bhd, Sales department and 6 users.');
     }

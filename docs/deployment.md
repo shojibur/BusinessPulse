@@ -3,7 +3,7 @@
 Stage 1 is a client demonstration, not a production-certified system. This document describes a single-server deployment of the demo or pilot build.
 
 ## Architecture
-Nginx -> PHP-FPM -> Laravel; PostgreSQL on the same server; the database queue worked by two Supervisor programs; cron runs the scheduler; HTTPS by Let's Encrypt. Private files live in `storage/app/private`, outside the web root.
+Nginx -> PHP-FPM -> Laravel; PostgreSQL on the same server; the database queue worked by one Supervisor program; cron runs the scheduler; HTTPS by Let's Encrypt. Private files live in `storage/app/private`, outside the web root.
 
 ## Server preparation
 Install Nginx, PHP 8.5-FPM (pdo_pgsql, bcmath, intl, mbstring, fileinfo), PostgreSQL, Composer, Node (build only), Supervisor, Certbot. Create a `deploy` user, the application database and a role with a strong password. Never reuse another project's database.
@@ -14,7 +14,7 @@ Install Nginx, PHP 8.5-FPM (pdo_pgsql, bcmath, intl, mbstring, fileinfo), Postgr
 ## PHP
 `upload_max_filesize = 20M` (recordings 20 MB, CSV 5 MB), `post_max_size = 25M`, `memory_limit = 256M`, `max_execution_time = 60`, OPcache on.
 
-## Supervisor (two programs)
+## Supervisor (one program)
 ```
 [program:bp-default]
 command=php artisan queue:work database --queue=default --tries=3 --timeout=180 --max-time=3600
@@ -24,16 +24,8 @@ autorestart=true
 stopwaitsecs=200
 stopasgroup=true
 killasgroup=true
-
-[program:bp-ai]
-command=php artisan queue:work database --queue=ai --tries=3 --timeout=180 --max-time=3600
-directory=/var/www/businesspulse
-user=deploy
-autorestart=true
-stopwaitsecs=200
-stopasgroup=true
-killasgroup=true
 ```
+All jobs, including the AI jobs, run on the single `default` queue (`AI_QUEUE=default`). To keep AI work from delaying imports later, set `AI_QUEUE=ai` and add a second program with `--queue=ai`.
 `DB_QUEUE_RETRY_AFTER=300` must stay above the longest job timeout (150 s) and the worker `--timeout` (180 s).
 
 ## Cron

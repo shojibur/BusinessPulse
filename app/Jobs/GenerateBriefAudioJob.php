@@ -33,7 +33,7 @@ class GenerateBriefAudioJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public readonly int $briefId)
     {
-        $this->onQueue('ai');
+        $this->onQueue((string) config('ai.queue', 'default'));
         $this->afterCommit();
     }
 

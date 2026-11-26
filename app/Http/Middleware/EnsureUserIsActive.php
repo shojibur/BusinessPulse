@@ -14,20 +14,25 @@ class EnsureUserIsActive
 {
     public const MESSAGE = 'Your account is inactive.';
 
+    public const SUSPENDED_MESSAGE = "This company's account is suspended.";
+
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
 
-        if ($user !== null && ! $user->is_active) {
+        $suspended = $user !== null && $user->company?->isSuspended();
+
+        if ($user !== null && (! $user->is_active || $suspended)) {
+            $message = $suspended ? self::SUSPENDED_MESSAGE : self::MESSAGE;
             Auth::guard()->logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
             if ($request->expectsJson()) {
-                return response()->json(['message' => self::MESSAGE], 401);
+                return response()->json(['message' => $message], 401);
             }
 
-            return redirect()->route('login')->withErrors(['email' => self::MESSAGE]);
+            return redirect()->route('login')->withErrors(['email' => $message]);
         }
 
         return $next($request);

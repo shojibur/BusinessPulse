@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\EnsureSectionAccess;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -20,10 +21,14 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Signed-in users who open the login page go to Today.
-        $middleware->redirectUsersTo(fn ($request) => route($request->user()?->isStaff() ? 'tasks.mine' : 'today'));
+        $middleware->redirectUsersTo(fn ($request) => $request->is('platform', 'platform/*')
+            ? route('platform.companies.index')
+            : route($request->user()?->isStaff() ? 'tasks.mine' : 'today'));
+        $middleware->redirectGuestsTo(fn ($request) => $request->is('platform', 'platform/*') ? route('platform.login') : route('login'));
 
         $middleware->alias([
             'active' => EnsureUserIsActive::class,
+            'platform' => EnsurePlatformAdmin::class,
             'section.access' => EnsureSectionAccess::class,
         ]);
 

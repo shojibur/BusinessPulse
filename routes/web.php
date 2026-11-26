@@ -19,6 +19,8 @@ use App\Http\Controllers\MeetingRecordingController;
 use App\Http\Controllers\MeetingTranscriptController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OutcomeController;
+use App\Http\Controllers\Platform\AuthController as PlatformAuthController;
+use App\Http\Controllers\Platform\CompanyController as PlatformCompanyController;
 use App\Http\Controllers\RefreshIntelligenceController;
 use App\Http\Controllers\TaskCommentController;
 use App\Http\Controllers\TaskController;
@@ -112,3 +114,24 @@ Route::middleware(['auth', 'active', 'section.access'])->group(function () {
 Route::match(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'], '{fallbackPlaceholder}', fn () => abort(404))
     ->where('fallbackPlaceholder', '.*')
     ->fallback();
+
+// Platform panel (S10): the people who run the platform manage companies here. A separate guard, login and session
+// key; company users cannot open these pages and platform admins cannot open any company page.
+Route::prefix('platform')->name('platform.')->group(function () {
+    Route::middleware('guest:platform')->group(function () {
+        Route::get('login', [PlatformAuthController::class, 'create'])->name('login');
+        Route::post('login', [PlatformAuthController::class, 'store'])->name('login.store');
+    });
+
+    Route::middleware('platform')->group(function () {
+        Route::post('logout', [PlatformAuthController::class, 'destroy'])->name('logout');
+        Route::redirect('/', '/platform/companies');
+        Route::get('companies', [PlatformCompanyController::class, 'index'])->name('companies.index');
+        Route::get('companies/create', [PlatformCompanyController::class, 'create'])->name('companies.create');
+        Route::post('companies', [PlatformCompanyController::class, 'store'])->name('companies.store');
+        Route::get('companies/{company}', [PlatformCompanyController::class, 'show'])->name('companies.show');
+        Route::post('companies/{company}/suspend', [PlatformCompanyController::class, 'suspend'])->name('companies.suspend');
+        Route::post('companies/{company}/reactivate', [PlatformCompanyController::class, 'reactivate'])->name('companies.reactivate');
+        Route::put('companies/{company}/owner-password', [PlatformCompanyController::class, 'resetOwnerPassword'])->name('companies.owner-password');
+    });
+});

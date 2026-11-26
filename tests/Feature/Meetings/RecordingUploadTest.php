@@ -45,7 +45,7 @@ test('a valid upload records consent, stores a random private file and queues tr
         ->and($meeting->recording_original_name)->not->toContain('/')->and($meeting->recording_mime)->toBe('audio/mpeg')
         ->and($meeting->recording_uploaded_at)->not->toBeNull();
     Storage::disk('local')->assertExists($meeting->recording_path);
-    Queue::assertPushedOn('ai', TranscribeMeetingJob::class, fn ($job) => $job->meetingId === $meeting->id);
+    Queue::assertPushedOn('default', TranscribeMeetingJob::class, fn ($job) => $job->meetingId === $meeting->id);
     // Private disk only: nothing under the public disk.
     expect(collect(Storage::disk('public')->allFiles())->filter(fn ($f) => str_contains($f, 'recordings')))->toBeEmpty();
 });

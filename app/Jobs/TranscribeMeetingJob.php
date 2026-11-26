@@ -40,7 +40,7 @@ class TranscribeMeetingJob implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public readonly int $meetingId, public readonly ?int $actorUserId = null)
     {
-        $this->onQueue('ai');
+        $this->onQueue((string) config('ai.queue', 'default'));
         $this->afterCommit();
     }
 

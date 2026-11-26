@@ -8,11 +8,14 @@ Prerequisites: PHP 8.5 with extensions pdo_pgsql, bcmath, intl, mbstring, filein
 3. `cp .env.example .env`, then `php artisan key:generate`.
 4. Create two PostgreSQL databases and a role: the application database (default `businesspulse`) and the test database `businesspulse_testing`. Set `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` in `.env`. Tests never run on any other database (a guard checks `current_database()`).
 5. `php artisan migrate --seed` (creates the roles and the demo identities when `DEMO_MODE=true` and `DEMO_PASSWORD` is set).
-6. Start everything: `composer dev` (web server, the queue worker for `default` and `ai`, Vite). Alternative with separate terminals: `php artisan serve`, `php artisan queue:work --queue=default,ai --tries=3 --timeout=180`, `npm run dev`.
+6. Start everything: `composer dev` (web server, one queue worker for the single `default` queue, Vite). Alternative with separate terminals: `php artisan serve`, `php artisan queue:work --queue=default --tries=3 --timeout=180`, `npm run dev`.
 7. Open `http://127.0.0.1:8000` and sign in as `owner@meridian.demo` with `DEMO_PASSWORD`.
 
 ## Demonstration setup
 In `.env`: `DEMO_MODE=true`, `DEMO_PASSWORD` (8 characters or more; use a longer one on any server other than your own machine). Then `php artisan demo:seed` (first time) or `php artisan demo:reset --force` (DESTRUCTIVE: deletes the demo company and re-seeds; demo database only). Earlier commands: `php artisan demo:set-date YYYY-MM-DD`, `php artisan demo:import <fixture>`, `php artisan demo:check-fixtures`. Use a SCRATCH database for experiments; never point these commands at a real database. Never touch other projects' databases.
+
+## Platform super admin (S10)
+The platform owner manages many SMEs from `/platform`, separate from the company sign-in. In demo mode the seeder creates `admin@businesspulse.demo` (password: `DEMO_PASSWORD`). For a real server create the first admin with `php artisan platform:create-admin`. Sign in at `/platform/login`, choose **New company**, and give the company name, time zone, trading days, branch codes and the first Owner. Give the Owner their email and password securely; they sign in at `/login`. Use the company page to suspend or reactivate it and to reset the Owner's password. A platform admin never sees a company's business data. Note: `demo:seed` and `demo:reset` refuse to run once a non-demo company exists, so keep real SMEs in a separate database.
 
 ## Verification
 `composer validate --strict`, `./vendor/bin/pint --test`, `composer test`, `npm run verify` (type-check, lint, format check, build, tests), `php artisan demo:check-fixtures`.
@@ -20,7 +23,7 @@ In `.env`: `DEMO_MODE=true`, `DEMO_PASSWORD` (8 characters or more; use a longer
 ## Troubleshooting
 | Symptom | Cause and fix |
 |---|---|
-| Imports or issues never appear | The queue worker is not running: start `queue:work --queue=default,ai` |
+| Imports or issues never appear | The queue worker is not running: start `php artisan queue:work --queue=default --tries=3 --timeout=180` |
 | `demo:reset` refuses | The `jobs` table is not empty: wait for the workers to drain it, then run again |
 | Upload of a large recording fails | PHP `upload_max_filesize` is 2M by default: set `upload_max_filesize=20M` and `post_max_size=25M` (CSV limit is 5 MB, recording 20 MB) |
 | AI actions say "not configured" | Set the AI variables below (empty by default) |
@@ -32,6 +35,7 @@ In `.env`: `DEMO_MODE=true`, `DEMO_PASSWORD` (8 characters or more; use a longer
 | `APP_NAME`, `APP_ENV`, `APP_KEY`, `APP_DEBUG`, `APP_URL` | Standard Laravel settings; `APP_DEBUG=false` outside development | yes | see `.env.example` |
 | `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection | yes | `pgsql`, `127.0.0.1`, 5432 |
 | `SESSION_DRIVER`, `SESSION_LIFETIME`, `SESSION_SECURE_COOKIE` | Sessions (secure cookie true on HTTPS) | yes | `database` |
+| `AI_QUEUE` | Queue for AI jobs; keep `default` so one worker does everything | no | `default` |
 | `QUEUE_CONNECTION`, `DB_QUEUE_RETRY_AFTER` | Database queue; `retry_after` must exceed the longest job timeout | yes | `database`, 300 |
 | `CACHE_STORE`, `FILESYSTEM_DISK` | Database cache, private local disk | yes | `database`, `local` |
 | `BUSINESS_TIMEZONE` | Business timezone | no | `Asia/Kuala_Lumpur` |

@@ -8,3 +8,4 @@ export * from './executive';
 export * from './meetings';
 export * from './tasks';
 export * from './outcomes';
+export * from './platform';

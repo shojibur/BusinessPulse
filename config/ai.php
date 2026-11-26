@@ -25,6 +25,10 @@ return [
 
     'speech_voice' => env('AI_SPEECH_VOICE'),
 
+    // The queue the four AI jobs run on. One `default` queue keeps local setup and deployment simple (one worker);
+    // set AI_QUEUE=ai and run a second worker (`--queue=ai`) only if AI work must not delay imports.
+    'queue' => env('AI_QUEUE', 'default'),
+
     /*
     | HTTP timeouts in seconds, one attempt per call (docs/stage-1-refinements.md R6).
     */
