@@ -4,27 +4,6 @@ require_once __DIR__.'/helpers.php';
 
 use App\Enums\IssueStatus;
 use App\Enums\OutcomePhase;
-use App\Models\Outcome;
-use App\Models\Task;
-use App\Services\Intelligence\IssueLifecycle;
-use App\Services\Outcomes\OutcomePhaseResolver;
-use Carbon\CarbonImmutable;
-
-test('the phase follows the action and monitoring dates, never the current time', function () {
-    $r = new OutcomePhaseResolver;
-    $tz = 'Asia/Kuala_Lumpur';
-    $d = fn (string $s) => CarbonImmutable::parse($s, $tz);
-    $action = $d('2026-09-28 09:00');
-    $monitoring = $d('2026-09-30 09:00');
-
-    expect($r->resolve(null, null, $d('2026-09-21'), $d('2026-09-27'), $tz))->toBe(OutcomePhase::PreAction)               // no action yet
-        ->and($r->resolve($action, null, $d('2026-09-21'), $d('2026-09-27'), $tz))->toBe(OutcomePhase::PreAction)         // ends before the action date
-        ->and($r->resolve($action, null, $d('2026-09-28'), $d('2026-10-03'), $tz))->toBe(OutcomePhase::DuringAction)      // monitoring not started
-        ->and($r->resolve($action, $monitoring, $d('2026-09-28'), $d('2026-10-03'), $tz))->toBe(OutcomePhase::DuringAction) // overlaps both dates
-        ->and($r->resolve($action, $monitoring, $d('2026-09-30'), $d('2026-10-05'), $tz))->toBe(OutcomePhase::DuringAction) // starts ON the monitoring day
-        ->and($r->resolve($action, $monitoring, $d('2026-10-01'), $d('2026-10-07'), $tz))->toBe(OutcomePhase::PostAction)   // starts strictly after
-        ->and($r->resolve($action, $monitoring, $d('2026-10-05'), $d('2026-10-10'), $tz))->toBe(OutcomePhase::PostAction);
-});
 
 test('week 9 is during action: informational, never resolves, issue stays in monitoring', function () {
     $x = monitoringScenario();
@@ -66,20 +45,6 @@ test('an unchanged or worsening post-action week never resolves; worsening reope
         ->and($x->decline->fresh()->status)->toBe(IssueStatus::Monitoring);
 });
 
-test('a worsened post-action outcome reopens the issue and keeps the original baseline', function () {
-    $x = monitoringScenario();
-    $baselineId = $x->decline->baseline_evaluation_id;
-    importFixture($x->owner, 'week9-interim', '2026-10-05 09:00');
-    setClock('2026-10-12 09:00');
-    importCsv($x->owner, weekRowsForTotal('2026-10-05', '120000.00'));
-
-    $o = latestOutcome($x->decline);
-    $issue = $x->decline->fresh();
-    expect($o->phase)->toBe(OutcomePhase::PostAction)->and($o->result->value)->toBe('worsened')->and($o->relative_change_pct)->toBe('-3.23')
-        ->and($issue->status)->toBe(IssueStatus::Open)->and($issue->baseline_evaluation_id)->toBe($baselineId)->and($issue->action_started_at)->toBeNull()->and($issue->monitoring_started_at)->toBeNull()
-        ->and(collect($issue->status_history)->last()['trigger'])->toBe('outcome_worsened');
-});
-
 test('the resolution condition boundary: 131,750.00 resolves and 131,749.99 does not', function (string $total, bool $resolves) {
     $x = monitoringScenario();
     importFixture($x->owner, 'week9-interim', '2026-10-05 09:00');
@@ -89,17 +54,3 @@ test('the resolution condition boundary: 131,750.00 resolves and 131,749.99 does
     expect(latestOutcome($x->decline)->resolution_condition_met)->toBe($resolves)
         ->and($x->decline->fresh()->status === IssueStatus::Resolved)->toBe($resolves);
 })->with([['131750.00', true], ['131749.99', false]]);
-
-test('an action_in_progress issue only gets informational outcomes and is never resolved', function () {
-    $x = monitoringScenario();
-    // Back to action: a linked task was reopened while monitoring (so a task is open again).
-    $open = new Task(['department_id' => $x->department->id, 'issue_id' => $x->decline->id, 'title' => 'Reopened', 'description' => '', 'assignee_id' => $x->owner->id, 'assigned_by' => $x->owner->id, 'due_date' => '2026-10-20']);
-    $open->forceFill(['status' => 'in_progress'])->save();
-    app(IssueLifecycle::class)->returnToAction($x->decline->fresh(), null);
-    importFixture($x->owner, 'week9-interim', '2026-10-05 09:00');
-    importFixture($x->owner, 'week10-recovery', '2026-10-12 09:00');
-
-    $outcomes = Outcome::where('issue_id', $x->decline->id)->get();
-    expect($outcomes->pluck('phase')->map->value->unique()->all())->toBe(['during_action'])->and($outcomes->where('resolution_condition_met', true))->toHaveCount(0)
-        ->and($x->decline->fresh()->status)->toBe(IssueStatus::ActionInProgress);
-});

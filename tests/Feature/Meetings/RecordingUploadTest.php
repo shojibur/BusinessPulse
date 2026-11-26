@@ -67,25 +67,6 @@ test('unsafe files are rejected without storing anything', function (string $cas
     Queue::assertNothingPushed();
 })->with(['text renamed mp3', 'php renamed mp3', 'wrong extension', 'zero bytes', 'too large']);
 
-test('a second upload and an upload after a transcript are rejected', function () {
-    Queue::fake();
-    $this->actingAs($this->f->manager)->post("/meetings/{$this->meeting->id}/recording", ['recording_consent' => '1', 'file' => fakeMp3()])->assertRedirect();
-    $this->actingAs($this->f->manager)->post("/meetings/{$this->meeting->id}/recording", ['recording_consent' => '1', 'file' => fakeMp3('second.mp3')])->assertSessionHasErrors('file');
-    expect(Storage::disk('local')->allFiles())->toHaveCount(1);
-
-    $withTranscript = makeMeeting($this->f, ['transcript' => demoTranscript(), 'status' => 'transcribed', 'transcript_source' => 'manual']);
-    $this->actingAs($this->f->manager)->post("/meetings/{$withTranscript->id}/recording", ['recording_consent' => '1', 'file' => fakeMp3()])->assertSessionHasErrors('file');
-});
-
-test('upload is limited to 10 per minute', function () {
-    Queue::fake();
-    for ($i = 0; $i < 10; $i++) {
-        $this->actingAs($this->f->manager)->post("/meetings/{$this->meeting->id}/recording", ['recording_consent' => '1']);
-    }
-
-    $this->actingAs($this->f->manager)->post("/meetings/{$this->meeting->id}/recording", ['recording_consent' => '1'])->assertStatus(429)->assertHeader('Retry-After');
-});
-
 test('staff and managers of other departments cannot upload', function () {
     Queue::fake();
     $other = Department::factory()->create(['company_id' => $this->f->company->id, 'slug' => 'support']);

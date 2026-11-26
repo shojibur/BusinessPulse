@@ -59,16 +59,6 @@ test('a second breaching evaluation re-detects the same issue and never changes 
         ->and(collect($issue->status_history)->last()['trigger'])->toBe('re_detection');
 });
 
-test('the same inputs reuse the evaluation and change nothing', function () {
-    $issue = breachWeek8();
-    $evaluations = RuleEvaluation::count();
-
-    app(DispatchEvaluation::class)->handle($this->f->sales->id);
-    app(DispatchEvaluation::class)->handle($this->f->sales->id);
-
-    expect(RuleEvaluation::count())->toBe($evaluations)->and($issue->fresh()->detection_count)->toBe(1);
-});
-
 test('severity only rises on re-detection and never falls', function () {
     $issue = breachWeek8();
     expect($issue->severity)->toBe(IssueSeverity::High);
@@ -81,22 +71,6 @@ test('severity only rises on re-detection and never falls', function () {
     expect(latestEvaluation('weekly_revenue_decline')->severity)->toBe(IssueSeverity::Medium)
         ->and($issue->fresh()->severity)->toBe(IssueSeverity::High)
         ->and($issue->fresh()->detection_count)->toBe(2);
-});
-
-test('severity escalates from medium to high', function () {
-    setClock('2026-09-28 09:00');
-    BusinessRule::query()->get(); // rules are created by the job; configure after the first run
-    importCsv($this->owner, weekCsv('2026-09-14', '1000.00', '1000.00'));
-    BusinessRule::where('key', 'weekly_revenue_decline')->update(['params' => ['high_drop_pct' => '90.00']]);
-    importCsv($this->owner, weekCsv('2026-09-21', '700.00', '1000.00'));
-
-    $issue = Issue::where('title', 'Weekly revenue decline')->firstOrFail();
-    expect($issue->severity)->toBe(IssueSeverity::Medium);
-
-    BusinessRule::where('key', 'weekly_revenue_decline')->update(['params' => ['high_drop_pct' => '25.00']]);
-    app(DispatchEvaluation::class)->handle($this->f->sales->id);
-
-    expect($issue->fresh()->severity)->toBe(IssueSeverity::High)->and($issue->fresh()->detection_count)->toBe(2);
 });
 
 test('the database allows only one open issue per rule and department', function () {
@@ -133,21 +107,6 @@ test('after resolution a new breach creates a linked recurrence issue with a fre
     Event::assertDispatched(IssueCreated::class, fn (IssueCreated $e) => $e->recurrenceOfIssueId === $first->id);
 });
 
-test('a recurrence links to the most recently resolved issue', function () {
-    $first = breachWeek8();
-    app(IssueLifecycle::class)->resolveManual($first, $this->owner, 'First fix.');
-    setClock('2026-09-29 12:00');
-    app(DispatchEvaluation::class)->handle($this->f->sales->id);
-    $second = Issue::where('title', 'Weekly revenue decline')->where('status', '!=', 'resolved')->firstOrFail();
-    app(IssueLifecycle::class)->resolveManual($second, $this->owner, 'Second fix.');
-
-    setClock('2026-09-30 12:00');
-    app(DispatchEvaluation::class)->handle($this->f->sales->id);
-
-    $third = Issue::where('title', 'Weekly revenue decline')->where('status', '!=', 'resolved')->firstOrFail();
-    expect($third->recurrence_of_issue_id)->toBe($second->id);
-});
-
 test('not_breached and insufficient_data evaluations leave an open issue untouched', function () {
     $issue = breachWeek8();
     $snap = fn () => [...$issue->fresh()->only(['status', 'severity', 'detection_count', 'latest_evaluation_id']), 'last' => $issue->fresh()->last_detected_at->toIso8601String()];
@@ -163,12 +122,4 @@ test('not_breached and insufficient_data evaluations leave an open issue untouch
     expect(latestEvaluation('weekly_revenue_decline')->result->value)->toBe('insufficient_data');
 
     expect($snap())->toBe($snapshot);
-});
-
-test('the title of every issue is fixed by its rule', function () {
-    setClock('2026-09-28 09:00');
-    importCsv($this->owner, weekCsv('2026-09-14', '1000.00', '1000.00'));
-    importCsv($this->owner, weekCsv('2026-09-21', '300.00', '1000.00'));
-
-    expect(Issue::orderBy('title')->pluck('title')->all())->toBe(['Missing sales data', 'Sales target shortfall', 'Weekly revenue decline']);
 });

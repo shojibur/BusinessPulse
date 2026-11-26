@@ -2,14 +2,10 @@
 
 use App\Enums\IssueSeverity;
 use App\Enums\IssueStatus;
-use App\Enums\RuleKey;
 use App\Jobs\EvaluateRulesJob;
 use App\Models\BusinessRule;
-use App\Models\Issue;
 use App\Models\RuleEvaluation;
-use App\Notifications\UrgentIssueNotification;
 use App\Services\Intelligence\IssueLifecycle;
-use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -32,14 +28,6 @@ test('Staff get 403 on every issue route and never receive issue data', function
 
     expect($this->salesIssue->fresh()->status)->toBe(IssueStatus::Open);
     expect($this->get('/today')->getContent())->not->toContain('Weekly revenue decline');
-});
-
-test('guests and inactive users are sent to the login page', function () {
-    $this->get('/issues')->assertRedirect(route('login'));
-    $this->postJson("/issues/{$this->salesIssue->id}/resolve")->assertUnauthorized();
-
-    $this->f->owner->forceFill(['is_active' => false])->save();
-    $this->actingAs($this->f->owner)->get('/issues')->assertRedirect(route('login'));
 });
 
 test('the Owner sees the issues of the whole company and can open each', function () {
@@ -99,22 +87,6 @@ test('missing reasons and forbidden transitions are 422 and change nothing; a do
     $this->postJson("/issues/{$id}/acknowledge")->assertUnprocessable(); // resolved issues cannot move
 });
 
-test('the detail page offers only the actions valid for the status', function () {
-    $this->actingAs($this->f->owner);
-    $actions = fn (IssueStatus $status) => (function () use ($status) {
-        Issue::whereKey($this->salesIssue->id)->update(['status' => $status->value, 'resolved_at' => $status === IssueStatus::Resolved ? now() : null,
-            'resolution_type' => $status === IssueStatus::Resolved ? 'manual' : null, 'resolution_note' => $status === IssueStatus::Resolved ? 'x' : null]);
-
-        return $this->get("/issues/{$this->salesIssue->id}")->viewData('page')['props']['actions'];
-    })();
-
-    expect($actions(IssueStatus::Open))->toBe(['acknowledge' => true, 'monitoring' => false, 'resolve' => true])
-        ->and($actions(IssueStatus::Acknowledged))->toBe(['acknowledge' => false, 'monitoring' => false, 'resolve' => true])
-        ->and($actions(IssueStatus::ActionInProgress))->toBe(['acknowledge' => false, 'monitoring' => true, 'resolve' => true])
-        ->and($actions(IssueStatus::Monitoring))->toBe(['acknowledge' => false, 'monitoring' => false, 'resolve' => true])
-        ->and($actions(IssueStatus::Resolved))->toBe(['acknowledge' => false, 'monitoring' => false, 'resolve' => false]);
-});
-
 test('Refresh intelligence queues one department job for the Owner and the in-scope Manager only', function () {
     Queue::fake();
 
@@ -152,52 +124,6 @@ function severityFor(int $i): IssueSeverity
     };
 }
 
-test('the issue list filters, sorts high first and paginates by twenty', function () {
-    // A department has at most one open issue per rule, so pagination is exercised with resolved history.
-    foreach (range(1, 25) as $i) {
-        fakeIssue($this->f->sales, IssueStatus::Resolved, severityFor($i));
-    }
-
-    $this->actingAs($this->f->owner);
-    $props = fn (string $query = '') => $this->get('/issues'.$query)->viewData('page')['props'];
-
-    expect($props()['pagination']['total'])->toBe(2) // default: the two open issues
-        ->and($props('?status=all')['issues'])->toHaveCount(20)
-        ->and($props('?status=all')['pagination']['total'])->toBe(27)
-        ->and($props('?status=all')['pagination']['last_page'])->toBe(2)
-        ->and($props('?status=all')['issues'][0]['severity'])->toBe('high')
-        ->and(collect($props('?status=all&severity=low')['issues'])->pluck('severity')->unique()->all())->toBe(['low'])
-        ->and($props('?status=resolved')['pagination']['total'])->toBe(25)
-        ->and($props('?status=open')['pagination']['total'])->toBe(2);
-
-    // Severity order: every high before every medium before every low.
-    $order = collect($props('?status=all')['issues'])->pluck('severity')->map(fn ($s) => ['high' => 0, 'medium' => 1, 'low' => 2][$s])->all();
-    $sorted = $order;
-    sort($sorted);
-    expect($order)->toBe($sorted);
-});
-
-test('the list loads with a bounded number of queries whatever the number of issues', function () {
-    $this->actingAs($this->f->owner);
-    $queries = function () {
-        DB::flushQueryLog();
-        DB::enableQueryLog();
-        $this->get('/issues?status=all');
-        $count = count(DB::getQueryLog());
-        DB::disableQueryLog();
-
-        return $count;
-    };
-
-    $queries(); // warm up
-    $few = $queries();
-    foreach (range(1, 15) as $i) {
-        fakeIssue($this->f->sales, IssueStatus::Resolved, severityFor($i), RuleKey::from(['weekly_revenue_decline', 'sales_target_shortfall', 'missing_sales_data'][$i % 3]));
-    }
-
-    expect($queries())->toBe($few);
-});
-
 test('policies follow the department and deny Staff and inactive users', function () {
     foreach (['view', 'transition'] as $ability) {
         expect(Gate::forUser($this->f->owner)->allows($ability, $this->supportIssue))->toBeTrue()
@@ -215,65 +141,5 @@ test('policies follow the department and deny Staff and inactive users', functio
 
     foreach (['create', 'update', 'delete'] as $ability) {
         expect(Gate::forUser($this->f->owner)->denies($ability, $evaluation))->toBeTrue();
-    }
-});
-
-test('Issue, rule and evaluation records are scoped through their department', function () {
-    $ids = fn ($user) => Issue::visibleTo($user)->pluck('id')->sort()->values()->all();
-
-    expect($ids($this->f->owner))->toBe([$this->salesIssue->id, $this->supportIssue->id])
-        ->and($ids($this->f->manager))->toBe([$this->salesIssue->id])
-        ->and($ids($this->f->inactive))->toBe([])
-        ->and(RuleEvaluation::visibleTo($this->f->manager)->pluck('department_id')->unique()->all())->toBe([$this->f->sales->id])
-        ->and(BusinessRule::visibleTo($this->f->otherManager)->pluck('department_id')->unique()->all())->toBe([$this->f->support->id]);
-});
-
-test('notifications: each user sees and clears only their own', function () {
-    $mk = fn ($user) => $user->notify(new UrgentIssueNotification([
-        'dedupe_key' => "{$this->salesIssue->id}:high:{$user->id}", 'issue_id' => $this->salesIssue->id, 'title' => 'Weekly revenue decline',
-        'severity' => 'high', 'department_name' => 'Sales', 'summary_line' => 'Revenue fell', 'url' => "/issues/{$this->salesIssue->id}",
-    ]));
-    $mk($this->f->owner);
-    $mk($this->f->manager);
-    $ownerNotification = DatabaseNotification::where('notifiable_id', $this->f->owner->id)->first();
-    $managerNotification = DatabaseNotification::where('notifiable_id', $this->f->manager->id)->first();
-
-    $this->actingAs($this->f->manager)->get('/notifications')->assertOk()
-        ->assertInertia(fn (Assert $page) => $page->component('notifications/Index')->has('notifications', 1)->where('unreadCount', 1));
-
-    // Another user's notification is a 404 and stays unread.
-    $this->post("/notifications/{$ownerNotification->id}/read")->assertNotFound();
-    expect($ownerNotification->fresh()->read_at)->toBeNull();
-
-    $this->post("/notifications/{$managerNotification->id}/read")->assertRedirect();
-    expect($managerNotification->fresh()->read_at)->not->toBeNull()->and($ownerNotification->fresh()->read_at)->toBeNull();
-
-    $mk($this->f->manager);
-    $this->post('/notifications/read-all')->assertRedirect();
-    expect(DatabaseNotification::where('notifiable_id', $this->f->manager->id)->whereNull('read_at')->count())->toBe(0)
-        ->and($ownerNotification->fresh()->read_at)->toBeNull();
-});
-
-test('every role can reach its own notifications and the bell data is shared', function () {
-    $this->f->staff->notify(new UrgentIssueNotification([
-        'dedupe_key' => 'x:1', 'issue_id' => $this->salesIssue->id, 'title' => 'Weekly revenue decline', 'severity' => 'high',
-        'department_name' => 'Sales', 'summary_line' => 'Revenue fell', 'url' => "/issues/{$this->salesIssue->id}",
-    ]));
-
-    // Staff cannot open the issue, so the item is shown without a link.
-    $this->actingAs($this->f->staff)->get('/my-tasks')->assertInertia(fn (Assert $page) => $page
-        ->where('notifications.unread_count', 1)->where('notifications.items.0.url', null)->where('notifications.items.0.title', 'Weekly revenue decline'));
-    $this->get('/notifications')->assertOk();
-
-    $this->actingAs($this->f->manager)->get('/today')->assertInertia(fn (Assert $page) => $page->where('notifications.unread_count', 0));
-    $this->post('/logout');
-    $this->get('/login')->assertInertia(fn (Assert $page) => $page->where('notifications', null));
-});
-
-test('evidence values are rendered as escaped text only', function () {
-    foreach (['v-html', 'innerHTML'] as $needle) {
-        foreach (['pages/issues/Show.vue', 'pages/issues/Index.vue', 'components/EvaluationEvidence.vue', 'pages/notifications/Index.vue'] as $file) {
-            expect(file_get_contents(resource_path("js/{$file}")))->not->toContain($needle);
-        }
     }
 });

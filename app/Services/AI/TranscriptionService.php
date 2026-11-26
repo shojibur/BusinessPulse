@@ -24,9 +24,10 @@ final class TranscriptionService
      */
     public function transcribe(Meeting $meeting): string
     {
-        $model = config('ai.transcription_model');
+        $endpoint = app(AiSettings::class)->transcription();
+        $model = $endpoint->model;
 
-        if (! is_string($model) || trim($model) === '' || ! config('ai.api_key') || ! config('ai.base_url')) {
+        if (! $endpoint->configured()) {
             throw new MeetingStageException(MeetingErrorCode::ProviderNotConfigured);
         }
 

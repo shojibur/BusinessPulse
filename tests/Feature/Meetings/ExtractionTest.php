@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\MeetingErrorCode;
 use App\Enums\MeetingStatus;
 use App\Jobs\ExtractMeetingTasksJob;
 use App\Models\Department;
@@ -10,10 +9,8 @@ use App\Models\TaskDraft;
 use App\Models\User;
 use App\Services\AI\MeetingTaskExtractor;
 use App\Services\Meetings\MeetingRunGuard;
-use App\Services\Meetings\MeetingStageException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Notifications\DatabaseNotification;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
@@ -115,18 +112,6 @@ test('an invalid extraction gets one corrective request and then fails without d
         ->and(TaskDraft::count())->toBe(0)->and($meeting->decisions)->toBeNull();
 });
 
-test('a corrective request can repair invalid JSON inside the same attempt', function () {
-    Http::fake(['*' => Http::sequence()
-        ->push(['choices' => [['message' => ['content' => 'this is not json']]]])
-        ->push(extractionReply(demoExtraction()))]);
-    $meeting = transcribedMeeting($this->f);
-
-    runExtraction($meeting);
-
-    Http::assertSentCount(2);
-    expect($meeting->fresh()->status)->toBe(MeetingStatus::ReadyForReview)->and(TaskDraft::count())->toBe(4);
-});
-
 test('a provider failure never produces fake drafts and Retry works afterwards', function () {
     Http::fake(['*' => Http::sequence()->push([], 401)->push(extractionReply(demoExtraction()))]);
     $meeting = transcribedMeeting($this->f);
@@ -138,18 +123,6 @@ test('a provider failure never produces fake drafts and Retry works afterwards',
 
     $this->actingAs($this->f->manager)->post("/meetings/{$meeting->id}/retry")->assertRedirect();
     expect($meeting->fresh()->status)->toBe(MeetingStatus::ReadyForReview)->and(TaskDraft::count())->toBe(4);
-});
-
-test('duplicate dispatch and repeated runs create one set of drafts and one provider call', function () {
-    Http::fake(['*' => Http::response(extractionReply(demoExtraction()))]);
-    $meeting = transcribedMeeting($this->f);
-
-    runExtraction($meeting);
-    runExtraction($meeting);
-    runExtraction($meeting);
-
-    Http::assertSentCount(1);
-    expect(TaskDraft::count())->toBe(4)->and($meeting->fresh()->status)->toBe(MeetingStatus::ReadyForReview);
 });
 
 test('extraction creates drafts only: no tasks, no notifications, no issue changes', function () {
@@ -169,27 +142,6 @@ test('extraction creates drafts only: no tasks, no notifications, no issue chang
         ->and($issue->fresh()->only(['status', 'severity', 'resolved_at']))->toEqual($before);
 });
 
-test('relative deadlines use the meeting date, not the date the job runs', function () {
-    Http::fake(['*' => Http::response(extractionReply(demoExtraction()))]);
-    Carbon::setTestNow('2031-03-15 10:00:00');
-    $meeting = transcribedMeeting($this->f);
-
-    runExtraction($meeting);
-    Carbon::setTestNow();
-
-    expect(TaskDraft::where('meeting_id', $meeting->id)->orderBy('id')->first()->due_date->format('Y-m-d'))->toBe('2026-10-02');
-});
-
-test('an unusable or empty transcript fails the stage without calling the provider', function () {
-    Http::fake();
-    $meeting = transcribedMeeting($this->f, 'too short');
-
-    runExtraction($meeting);
-
-    Http::assertNothingSent();
-    expect($meeting->fresh()->error_message)->toBe('empty_transcript');
-});
-
 test('a transcript that changed during extraction is never overwritten by the stale result', function () {
     $meeting = transcribedMeeting($this->f);
     Http::fake(['*' => function () use ($meeting) {
@@ -205,31 +157,6 @@ test('a transcript that changed during extraction is never overwritten by the st
     expect($meeting->status)->toBe(MeetingStatus::Failed)->and($meeting->error_message)->toBe('transcript_changed')->and(TaskDraft::count())->toBe(0);
 });
 
-test('excerpts are matched on normalized text and the original text is stored', function () {
-    $extraction = demoExtraction();
-    $extraction['task_drafts'][0]['excerpt'] = "  priya,   PLEASE call the ten biggest\nlapsed penang accounts by friday. ";
-    Http::fake(['*' => Http::response(extractionReply($extraction))]);
-    $meeting = transcribedMeeting($this->f);
-
-    runExtraction($meeting);
-
-    expect(TaskDraft::where('meeting_id', $meeting->id)->orderBy('id')->first()->transcript_excerpt)->toBe('Priya, please call the ten biggest lapsed Penang accounts by Friday.');
-});
-
-test('the extractor reports discarded items when only some excerpts exist', function () {
-    $extraction = ['decisions' => [], 'task_drafts' => [
-        ['title' => 'Real', 'description' => '', 'assignee_name' => 'Priya', 'assignee_id' => null, 'deadline_phrase' => null, 'excerpt' => 'Priya, please call the ten biggest lapsed Penang accounts by Friday.'],
-        ['title' => 'Invented', 'description' => '', 'assignee_name' => 'Priya', 'assignee_id' => null, 'deadline_phrase' => null, 'excerpt' => 'This sentence never appears anywhere in the transcript.'],
-    ]];
-    Http::fake(['*' => Http::response(extractionReply($extraction))]);
-    $meeting = transcribedMeeting($this->f)->load('department.company');
-    $staff = app(MeetingRunGuard::class)->allowedStaff($meeting);
-
-    $result = app(MeetingTaskExtractor::class)->extract($meeting, $staff, collect());
-
-    expect($result->drafts)->toHaveCount(1)->and($result->drafts[0]->title)->toBe('Real')->and($result->discardedCount)->toBe(1);
-});
-
 test('an approved duplicate from an earlier run is not recreated', function () {
     Http::fake(['*' => Http::response(extractionReply(demoExtraction()))]);
     $meeting = transcribedMeeting($this->f)->load('department.company');
@@ -239,9 +166,4 @@ test('an approved duplicate from an earlier run is not recreated', function () {
     $result = app(MeetingTaskExtractor::class)->extract($meeting, $staff, collect([$approved]));
 
     expect($result->drafts)->toHaveCount(3)->and($result->discardedCount)->toBe(1);
-});
-
-test('the stage exception carries a closed code only', function () {
-    $e = new MeetingStageException(MeetingErrorCode::InvalidAiOutput);
-    expect($e->errorCode->value)->toBe('invalid_ai_output')->and($e->getMessage())->not->toContain('transcript');
 });

@@ -11,5 +11,7 @@ final readonly class SeedSummary
         public string $ruleOverride,
         public array $importCounters,
         public string $clockDateTime,
+        /** True when the week 8 decline was also imported (issue, urgent notifications, draft meeting). */
+        public bool $populated = false,
     ) {}
 }

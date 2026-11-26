@@ -25,6 +25,12 @@ return [
 
     'speech_voice' => env('AI_SPEECH_VOICE'),
 
+    // Fallbacks used when the platform admin has not set a value in the panel (S11). The text provider is `openai`
+    // (any OpenAI-compatible API) or `anthropic` (Claude). Transcription and speech are always OpenAI-compatible.
+    'text_provider' => env('AI_TEXT_PROVIDER', 'openai'),
+
+    'anthropic_api_key' => env('ANTHROPIC_API_KEY'),
+
     // The queue the four AI jobs run on. One `default` queue keeps local setup and deployment simple (one worker);
     // set AI_QUEUE=ai and run a second worker (`--queue=ai`) only if AI work must not delay imports.
     'queue' => env('AI_QUEUE', 'default'),

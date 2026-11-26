@@ -36,3 +36,21 @@ export type PlatformActivityRow = {
     by: string | null;
     at: string | null;
 };
+
+export type AiCapabilityStatus = {
+    configured: boolean;
+    source: 'platform' | 'env' | 'none';
+    provider: 'openai' | 'anthropic';
+    model: string | null;
+};
+
+export type AiSettingsValues = {
+    text_provider: 'openai' | 'anthropic';
+    text_base_url: string | null;
+    text_model: string | null;
+    transcription_base_url: string | null;
+    transcription_model: string | null;
+    speech_base_url: string | null;
+    speech_model: string | null;
+    speech_voice: string | null;
+};

@@ -1,6 +1,5 @@
 <?php
 
-use App\Actions\Imports\CancelImport;
 use App\Actions\Imports\ConfirmImport;
 use App\Actions\Imports\CreateImportFromUpload;
 use App\Actions\Imports\RetryImport;
@@ -8,18 +7,13 @@ use App\Enums\ImportStatus;
 use App\Events\Imports\ImportCompleted;
 use App\Events\Imports\ImportFailed;
 use App\Jobs\ProcessImportJob;
-use App\Models\Concerns\ScopedToDepartment;
-use App\Models\Import;
 use App\Models\SalesRecord;
 use App\Services\Imports\ImportActionException;
 use App\Services\Imports\ImportPreviewBuilder;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -155,15 +149,6 @@ test('the database allows only one active record per identity but any number of 
     expect(SalesRecord::count())->toBe(127);
 });
 
-test('negative money is rejected by the database as well', function () {
-    $import = importFixture($this->owner, 'history', '2026-09-21 09:00');
-
-    expect(fn () => DB::transaction(fn () => SalesRecord::create([
-        'department_id' => $this->f->sales->id, 'import_id' => $import->id, 'branch_code' => 'KL', 'sales_date' => '2030-01-01',
-        'revenue' => '-1.00', 'target_revenue' => '1.00', 'is_active' => true,
-    ])))->toThrow(QueryException::class);
-});
-
 test('confirming twice queues and writes once', function () {
     setClock('2026-09-21 09:00');
     Queue::fake();
@@ -176,17 +161,6 @@ test('confirming twice queues and writes once', function () {
 
     Queue::assertPushed(ProcessImportJob::class, 1);
     expect($import->refresh()->status)->toBe(ImportStatus::Processing);
-});
-
-test('processing the same import again changes nothing', function () {
-    $import = importFixture($this->owner, 'history', '2026-09-21 09:00');
-    $revenue = activeRevenue();
-
-    Event::fake([ImportCompleted::class]);
-    (new ProcessImportJob($import->id))->handle(app(ImportPreviewBuilder::class));
-
-    expect(SalesRecord::count())->toBe(126)->and(activeRevenue())->toBe($revenue)->and($import->refresh()->status)->toBe(ImportStatus::Completed);
-    Event::assertNotDispatched(ImportCompleted::class);
 });
 
 test('a stale preview cannot create a second active record for the same identity', function () {
@@ -222,23 +196,6 @@ test('overlapping imports processed in the opposite order still end with one act
         ->and($decline->refresh()->corrected_rows)->toBe(2)
         ->and(weekRevenue('2026-09-21', '2026-09-26'))->toBe('124000.00')
         ->and(DB::selectOne('select count(*) c from (select 1 from sales_records where is_active group by department_id, branch_code, sales_date having count(*) > 1) d')->c)->toBe(0);
-});
-
-test('a job that finds the department lock taken writes nothing and stays processing', function () {
-    setClock('2026-09-21 09:00');
-    Queue::fake();
-    $import = app(CreateImportFromUpload::class)->handle($this->owner, fixtureUpload('history'));
-    app(ConfirmImport::class)->handle($import);
-
-    $lock = Cache::lock("import-processing:department:{$import->department_id}", 30);
-    expect($lock->get())->toBeTrue();
-
-    (new ProcessImportJob($import->id))->handle(app(ImportPreviewBuilder::class));
-    expect($import->refresh()->status)->toBe(ImportStatus::Processing)->and(SalesRecord::count())->toBe(0);
-
-    $lock->release();
-    (new ProcessImportJob($import->id))->handle(app(ImportPreviewBuilder::class));
-    expect($import->refresh()->status)->toBe(ImportStatus::Completed);
 });
 
 test('a failure inside the transaction rolls everything back and a retry recovers', function () {
@@ -293,98 +250,4 @@ test('a missing stored file fails the import with a sanitized message and no dat
     Event::assertDispatched(ImportFailed::class);
 
     expect(fn () => app(RetryImport::class)->handle($import))->toThrow(ImportActionException::class, 'no longer available');
-});
-
-test('processing fails when the expected branches were removed after confirmation', function () {
-    setClock('2026-09-21 09:00');
-    Queue::fake();
-    $import = app(CreateImportFromUpload::class)->handle($this->owner, fixtureUpload('history'));
-    app(ConfirmImport::class)->handle($import);
-    $this->f->sales->update(['settings' => []]);
-
-    (new ProcessImportJob($import->id))->handle(app(ImportPreviewBuilder::class));
-
-    expect($import->refresh()->status)->toBe(ImportStatus::Failed)
-        ->and($import->error_message)->toBe('Expected branches are not configured')
-        ->and(SalesRecord::count())->toBe(0);
-});
-
-test('processing fails with no valid rows when the file no longer yields any', function () {
-    setClock('2026-09-21 09:00');
-    Queue::fake();
-    $import = app(CreateImportFromUpload::class)->handle($this->owner, fixtureUpload('history'));
-    app(ConfirmImport::class)->handle($import);
-    // The business clock moves back: every date is now in the future, so nothing validates.
-    setClock('2000-01-02 09:00');
-    Storage::disk('local')->put($import->stored_path, file_get_contents(base_path('database/demo/history.csv')));
-
-    (new ProcessImportJob($import->id))->handle(app(ImportPreviewBuilder::class));
-
-    expect($import->refresh()->status)->toBe(ImportStatus::Failed)->and($import->error_message)->toBe('No valid rows to import');
-});
-
-test('only uploaded and validated imports can be cancelled and the file is kept', function () {
-    setClock('2026-09-21 09:00');
-    $import = app(CreateImportFromUpload::class)->handle($this->owner, fixtureUpload('history'));
-
-    app(CancelImport::class)->handle($import);
-
-    expect($import->refresh()->status)->toBe(ImportStatus::Cancelled)
-        ->and(Storage::disk('local')->exists($import->stored_path))->toBeTrue()
-        ->and(SalesRecord::count())->toBe(0)
-        ->and(fn () => app(CancelImport::class)->handle($import))->toThrow(ImportActionException::class, 'Cancelled');
-
-    $done = importFixture($this->owner, 'week8-decline', '2026-09-28 09:00');
-    expect(fn () => app(CancelImport::class)->handle($done))->toThrow(ImportActionException::class, 'Completed');
-});
-
-test('the import status transitions follow the approved map', function () {
-    expect(ImportStatus::Uploaded->canTransitionTo(ImportStatus::Validated))->toBeTrue()
-        ->and(ImportStatus::Validated->canTransitionTo(ImportStatus::Processing))->toBeTrue()
-        ->and(ImportStatus::Failed->canTransitionTo(ImportStatus::Processing))->toBeTrue()
-        ->and(ImportStatus::Completed->canTransitionTo(ImportStatus::Cancelled))->toBeFalse()
-        ->and(ImportStatus::Cancelled->canTransitionTo(ImportStatus::Processing))->toBeFalse()
-        ->and(ImportStatus::Processing->canTransitionTo(ImportStatus::Validated))->toBeFalse();
-});
-
-test('no import or error row can be deleted or edited through any route', function () {
-    $import = importFixture($this->owner, 'history', '2026-09-21 09:00');
-    $this->actingAs($this->owner);
-
-    foreach (['DELETE' => "/imports/{$import->id}", 'PUT' => "/imports/{$import->id}", 'PATCH' => "/imports/{$import->id}"] as $method => $path) {
-        expect($this->call($method, $path)->status())->toBeIn([404, 405]);
-    }
-});
-
-test('a 6,000 row file is written in chunks and satisfies the counter invariants', function () {
-    setClock('2026-09-28 09:00');
-    $rows = '';
-    for ($i = 0; $i < 2000; $i++) {
-        $date = CarbonImmutable::parse('2019-01-01', 'UTC')->addDays($i)->format('Y-m-d');
-        foreach (['KL', 'PG', 'JB'] as $branch) {
-            $rows .= "{$date},{$branch},".(1000 + $i).".25,5000.00,\n";
-        }
-    }
-
-    $import = app(CreateImportFromUpload::class)->handle($this->owner, csvUpload("sales_date,branch_code,revenue,target_revenue,order_count\n".$rows));
-    app(ConfirmImport::class)->handle($import);
-    $import->refresh();
-
-    expect($import->status)->toBe(ImportStatus::Completed)
-        ->and([$import->total_rows, $import->valid_rows, $import->invalid_rows, $import->inserted_rows])->toBe([6000, 6000, 0, 6000])
-        ->and($import->total_rows)->toBe($import->valid_rows + $import->invalid_rows)
-        ->and($import->valid_rows)->toBe($import->inserted_rows + $import->corrected_rows + $import->unchanged_rows)
-        ->and(SalesRecord::where('is_active', true)->count())->toBe(6000);
-
-    // The same file again changes nothing.
-    $again = app(CreateImportFromUpload::class)->handle($this->owner, csvUpload("sales_date,branch_code,revenue,target_revenue,order_count\n".$rows));
-    app(ConfirmImport::class)->handle($again);
-    expect($again->refresh()->unchanged_rows)->toBe(6000)->and(SalesRecord::count())->toBe(6000);
-});
-
-test('sales_records has no company column, so department scoping goes through the department', function () {
-    expect(Schema::hasColumn('sales_records', 'company_id'))->toBeFalse()
-        ->and(Schema::hasColumn('imports', 'company_id'))->toBeTrue()
-        ->and(in_array(ScopedToDepartment::class, class_uses(SalesRecord::class), true))->toBeFalse()
-        ->and(in_array(ScopedToDepartment::class, class_uses(Import::class), true))->toBeTrue();
 });

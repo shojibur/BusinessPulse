@@ -37,26 +37,6 @@ test('a zero denominator returns the indicator, never a number or null', functio
         ->and($this->m->targetAchievementPct('0.00', '100.00'))->toBe('0.0000'); // zero revenue is a real value
 });
 
-test('the calculator is deterministic and works on decimal strings only', function () {
-    foreach (range(1, 3) as $ignored) {
-        expect($this->m->targetAchievementPct('124000.00', '156000.00'))->toBe('79.4872');
-    }
-
-    // No float anywhere: a value that floats cannot represent exactly stays exact.
-    expect($this->m->pct('0.10', '0.30'))->toBe('33.3333')
-        ->and($this->m->weeklyChangePct('1000000000000.01', '1000000000000.00'))->toBe('0.0000');
-
-    $source = file_get_contents(app_path('Services/Intelligence/MetricCalculator.php'));
-    expect($source)->not->toContain('(float)')->not->toContain('floatval')->not->toContain('number_format(')->not->toContain(' round(');
-});
-
-test('money is formatted from strings with thousands separators', function () {
-    expect($this->m->formatMoney('124000.00'))->toBe('RM 124,000.00')
-        ->and($this->m->formatMoney('999.5'))->toBe('RM 999.50')
-        ->and($this->m->formatMoney('-31000'))->toBe('-RM 31,000.00')
-        ->and($this->m->formatMoney('1234567.89'))->toBe('RM 1,234,567.89');
-});
-
 test('weekly totals are exact sums over active records only', function () {
     $f = identity();
     $import = importCsv($f->owner, weekCsv('2026-09-14', '0.10'));

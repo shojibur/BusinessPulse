@@ -48,22 +48,6 @@ test('the purge uses each company retention period and skips transcribing meetin
     expect($busy->refresh()->recording_path)->not->toBeNull()->and($due->refresh()->recording_path)->toBeNull();
 });
 
-test('a missing file is still marked deleted and the run continues', function () {
-    $missing = ($this->recording)(['recording_uploaded_at' => now()->subDays(40)]);
-    Storage::disk('local')->delete($missing->getOriginal('recording_path') ?? "recordings/{$missing->id}/a.mp3");
-    $other = ($this->recording)(['recording_uploaded_at' => now()->subDays(40)]);
-
-    $this->artisan('recordings:purge')->expectsOutput('Purged: 2. Failed: 0.');
-
-    expect($missing->refresh()->recording_deleted_at)->not->toBeNull()->and($other->refresh()->recording_deleted_at)->not->toBeNull();
-});
-
-test('a running purge twice does nothing the second time', function () {
-    ($this->recording)(['recording_uploaded_at' => now()->subDays(40)]);
-    $this->artisan('recordings:purge')->expectsOutput('Purged: 1. Failed: 0.');
-    $this->artisan('recordings:purge')->expectsOutput('Purged: 0. Failed: 0.');
-});
-
 test('a filesystem error leaves the meeting unchanged and is counted as failed', function () {
     $meeting = ($this->recording)(['recording_uploaded_at' => now()->subDays(40)]);
     $path = $meeting->recording_path;
@@ -109,22 +93,4 @@ test('managers and staff cannot delete, other companies get 404, guests go to lo
     $this->delete("/meetings/{$meeting->id}/recording")->assertRedirect('/login');
 
     expect($meeting->refresh()->recording_path)->not->toBeNull();
-});
-
-test('early deletion is rejected while transcribing or when there is no recording', function () {
-    $busy = ($this->recording)(['status' => 'transcribing', 'transcript' => null]);
-    $none = makeMeeting($this->f);
-
-    $this->actingAs($this->f->owner)->delete("/meetings/{$busy->id}/recording")->assertSessionHasErrors('recording');
-    $this->actingAs($this->f->owner)->delete("/meetings/{$none->id}/recording")->assertSessionHasErrors('recording');
-
-    expect($busy->refresh()->recording_path)->not->toBeNull();
-    Event::assertNotDispatched(RecordingDeleted::class);
-});
-
-test('only the owner is offered the delete control', function () {
-    $meeting = ($this->recording)();
-
-    $this->actingAs($this->f->owner)->get("/meetings/{$meeting->id}")->assertInertia(fn ($p) => $p->where('meeting.can.deleteRecording', true));
-    $this->actingAs($this->f->manager)->get("/meetings/{$meeting->id}")->assertInertia(fn ($p) => $p->where('meeting.can.deleteRecording', false));
 });

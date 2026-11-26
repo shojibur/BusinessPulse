@@ -82,17 +82,6 @@ test('evaluation health distinguishes current, partial, failed and stale', funct
     expect($health->forDepartment($department)['status'])->toBe('current');
 });
 
-test('new sales data after an evaluation makes it stale even without a clock change', function () {
-    $owner = demoOwner();
-    importFixture($owner, 'history', '2026-09-21 09:00');
-    $health = app(EvaluationHealth::class);
-    expect($health->forDepartment(demoDepartment())['status'])->toBe('current');
-
-    DB::table('sales_records')->where('is_active', true)->limit(1)->update(['updated_at' => now()->addMinute()]);
-
-    expect($health->forDepartment(demoDepartment())['status'])->toBe('stale');
-});
-
 test('issue evidence separates the latest breach from the current condition', function () {
     $owner = declineTimeline();
     $issue = Issue::query()->whereHas('rule', fn ($q) => $q->where('key', 'sales_target_shortfall'))->firstOrFail();

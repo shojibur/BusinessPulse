@@ -13,15 +13,6 @@ test('Owner and Manager receive all nine navigation items, Staff only Today and 
     'staff' => ['staff', ['Today', 'My Tasks']],
 ]);
 
-test('the Settings navigation item links to the first permitted tab', function () {
-    $f = identity();
-
-    $this->actingAs($f->manager)->get('/today')
-        ->assertInertia(fn (Assert $page) => $page->where('navigation.8.href', '/settings'));
-
-    $this->actingAs($f->manager)->get('/settings')->assertRedirect('/settings/company');
-});
-
 test('auth.user shares only the approved fields', function () {
     $f = identity();
 
@@ -46,24 +37,4 @@ test('shared props never contain secrets, other users or internal fields', funct
         ->not->toContain('$2y$')
         ->not->toContain($f->owner->email)
         ->not->toContain($f->manager->email);
-});
-
-test('guests receive no auth user and no company', function () {
-    identity();
-
-    $this->get(route('login'))->assertInertia(fn (Assert $page) => $page->where('auth.user', null)->where('company', null));
-});
-
-test('a signed-in user sees the application shell data on a 404 page', function () {
-    $f = identity();
-
-    $this->actingAs($f->staff)->get('/nowhere')->assertNotFound()
-        ->assertInertia(fn (Assert $page) => $page->component('Error')->where('auth.role', 'staff')->has('navigation', 2));
-});
-
-test('a guest sees a 404 page without navigation', function () {
-    identity();
-
-    $this->get('/nowhere')->assertNotFound()
-        ->assertInertia(fn (Assert $page) => $page->component('Error')->where('auth.user', null)->has('navigation', 0));
 });

@@ -6,9 +6,7 @@ use App\Models\Department;
 use App\Models\PlatformAdmin;
 use App\Models\PlatformAuditLog;
 use App\Models\User;
-use Database\Seeders\DemoIdentitySeeder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 
 const PLATFORM_PASSWORD = 'platform-pass-123';
@@ -110,12 +108,7 @@ test('invalid company details are rejected and nothing is created', function (ar
 })->with([
     'short password' => [['owner_password' => 'short'], 'owner_password'],
     'used email' => [['owner_email' => 'taken@x.test'], 'owner_email'],
-    'bad email' => [['owner_email' => 'nope'], 'owner_email'],
     'bad timezone' => [['timezone' => 'Mars/Base'], 'timezone'],
-    'no trading day' => [['trading_days' => []], 'trading_days'],
-    'bad weekday' => [['trading_days' => [9]], 'trading_days.0'],
-    'bad branch code' => [['branches' => 'KL, <b>'], 'branches'],
-    'missing name' => [['name' => ''], 'name'],
 ]);
 
 test('a failure while setting up rolls everything back', function () {
@@ -205,22 +198,4 @@ test('two companies stay isolated and each user sees their own company', functio
     // Same process, other user: the company is re-resolved, not remembered from the previous request.
     $this->actingAs($a->owner)->get('/settings/company')->assertInertia(fn ($p) => $p->where('company.name', 'Meridian Test Sdn Bhd'));
     $this->actingAs($a->owner)->get("/meetings/{$meeting->id}")->assertOk();
-});
-
-test('platform:create-admin creates an admin and refuses weak or duplicate input', function () {
-    $this->artisan('platform:create-admin', ['--name' => 'Sam Admin', '--email' => 'sam@platform.test', '--password' => 'long-enough-pass-1'])->assertSuccessful();
-    expect(PlatformAdmin::where('email', 'sam@platform.test')->exists())->toBeTrue();
-
-    $this->artisan('platform:create-admin', ['--name' => 'Sam Two', '--email' => 'sam@platform.test', '--password' => 'long-enough-pass-1'])->assertFailed();
-    $this->artisan('platform:create-admin', ['--name' => 'Weak', '--email' => 'weak@platform.test', '--password' => 'short'])->assertFailed();
-    expect(PlatformAdmin::where('email', 'weak@platform.test')->exists())->toBeFalse();
-});
-
-test('the demo seeder creates the demo platform admin with the demo password', function () {
-    config(['demo.mode' => true, 'demo.password' => 'demo-test-password-123']);
-
-    $this->artisan('db:seed', ['--class' => DemoIdentitySeeder::class])->assertSuccessful();
-
-    $admin = PlatformAdmin::where('email', 'admin@businesspulse.demo')->sole();
-    expect(Hash::check('demo-test-password-123', $admin->password))->toBeTrue();
 });

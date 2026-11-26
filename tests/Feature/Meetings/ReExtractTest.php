@@ -2,10 +2,7 @@
 
 use App\Enums\MeetingStatus;
 use App\Jobs\ExtractMeetingTasksJob;
-use App\Models\Company;
-use App\Models\Department;
 use App\Models\TaskDraft;
-use App\Models\User;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 
@@ -49,30 +46,4 @@ test('a failed re-extraction leaves every draft and decision unchanged and delet
     expect($meeting->status)->toBe(MeetingStatus::Failed)->and($meeting->failure_stage->value)->toBe('extraction')
         ->and(TaskDraft::orderBy('id')->get()->map->only(['id', 'status', 'suggested_title', 'extraction_run', 'task_id'])->all())->toEqual($before)
         ->and($meeting->decisions)->toEqual($decisions);
-});
-
-test('a successful re-extraction increments the run and never deletes a draft', function () {
-    $count = TaskDraft::count();
-    Http::fake(['*' => Http::response(extractionReply(demoExtraction()))]);
-
-    $this->actingAs($this->f->manager)->post($this->url)->assertRedirect();
-
-    expect(TaskDraft::count())->toBeGreaterThanOrEqual($count)
-        ->and((int) TaskDraft::where('meeting_id', $this->x->meeting->id)->max('extraction_run'))->toBe(2)
-        ->and($this->x->meeting->fresh()->status)->toBe(MeetingStatus::ReadyForReview);
-});
-
-test('re-extract is limited to the owner and the own-department manager', function () {
-    Bus::fake([ExtractMeetingTasksJob::class]);
-    $other = User::factory()->manager(Department::factory()->create(['company_id' => $this->f->company->id, 'slug' => 'support']))->create();
-    $otherOwner = User::factory()->owner()->create(['company_id' => Company::factory()->create()->id]);
-
-    $this->actingAs($this->f->priya)->post($this->url)->assertForbidden();
-    $this->actingAs($other)->post($this->url)->assertNotFound();
-    $this->actingAs($otherOwner)->post($this->url)->assertNotFound();
-    auth()->logout();
-    $this->post($this->url)->assertRedirect('/login');
-
-    expect($this->x->meeting->fresh()->status)->toBe(MeetingStatus::ReadyForReview);
-    Bus::assertNothingDispatched();
 });

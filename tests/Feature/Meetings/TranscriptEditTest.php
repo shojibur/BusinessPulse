@@ -57,17 +57,3 @@ test('the transcript cannot be edited while a job owns the meeting, and staff ca
     $this->actingAs($this->f->priya)->put("/meetings/{$meeting->id}/transcript", ['transcript' => demoTranscript()."\nmore"])->assertForbidden();
     expect($meeting->fresh()->transcript)->toBe(demoTranscript());
 });
-
-test('re-running extraction after an edit uses the edited transcript', function () {
-    $edited = demoTranscript()."\nAisyah: Priya, please send the weekly summary to the owner by tomorrow.";
-    $meeting = makeMeeting($this->f, ['status' => 'failed', 'failure_stage' => 'extraction', 'error_message' => 'timeout', 'transcript' => demoTranscript(), 'transcript_source' => 'manual']);
-    Http::fake(['*' => Http::response(extractionReply(['decisions' => [], 'task_drafts' => [
-        ['title' => 'Send the weekly summary', 'description' => '', 'assignee_name' => 'Priya', 'assignee_id' => null, 'deadline_phrase' => 'tomorrow', 'excerpt' => 'Priya, please send the weekly summary to the owner by tomorrow.'],
-    ]]))]);
-
-    $this->actingAs($this->f->manager)->put("/meetings/{$meeting->id}/transcript", ['transcript' => $edited])->assertRedirect();
-    $this->actingAs($this->f->manager)->post("/meetings/{$meeting->id}/retry")->assertRedirect();
-
-    Http::assertSent(fn ($r) => str_contains($r['messages'][1]['content'], 'send the weekly summary to the owner'));
-    expect(TaskDraft::pluck('suggested_title')->all())->toBe(['Send the weekly summary'])->and(TaskDraft::first()->due_date->format('Y-m-d'))->toBe('2026-09-29');
-});

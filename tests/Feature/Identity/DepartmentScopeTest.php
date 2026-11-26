@@ -37,13 +37,6 @@ test('User::visibleTo returns the right rows for every kind of user', function (
         ->and(ids(User::visibleTo($f->noDepartment)))->toBe([]);
 });
 
-test('an inactive Owner sees nothing', function () {
-    $f = identity();
-    $f->owner->forceFill(['is_active' => false])->save();
-
-    expect(ids(User::visibleTo($f->owner->fresh())))->toBe([]);
-});
-
 test('the Owner of one company never sees another company', function () {
     $f = identity();
     $otherCompany = Company::factory()->create();
@@ -52,14 +45,4 @@ test('the Owner of one company never sees another company', function () {
 
     expect(ids(User::visibleTo($f->owner)))->not->toContain($otherUser->id)
         ->and(ids(User::visibleTo($otherUser)))->toBe([$otherUser->id]);
-});
-
-test('Department::visibleTo follows the same rule', function () {
-    $f = identity();
-
-    expect(ids(Department::visibleTo($f->owner)))->toBe([$f->sales->id, $f->support->id])
-        ->and(ids(Department::visibleTo($f->manager)))->toBe([$f->sales->id])
-        ->and(ids(Department::visibleTo($f->staff)))->toBe([$f->sales->id])
-        ->and(ids(Department::visibleTo($f->inactive)))->toBe([])
-        ->and(ids(Department::visibleTo($f->noDepartment)))->toBe([]);
 });

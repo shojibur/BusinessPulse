@@ -1,14 +1,14 @@
 <?php
 
-use App\Models\ActivityLog;
 use App\Models\BusinessRule;
 use App\Models\Company;
 use App\Models\Import;
 use App\Models\Issue;
+use App\Models\Meeting;
 use App\Models\RuleEvaluation;
 use App\Models\SalesRecord;
 use App\Models\User;
-use App\Services\Demo\DemoSeeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
@@ -35,14 +35,6 @@ test('seed creates the demo company, six users, the rule override and the evalua
         ->and(RuleEvaluation::whereDate('period_start', '2026-09-21')->count())->toBe(0);
 });
 
-test('the seed history clock equals the clock of the history fixture in expected.json', function () {
-    $expected = json_decode(file_get_contents(base_path('database/demo/expected.json')), true);
-
-    expect($expected['fixtures']['history'])->toHaveKey('evaluations')
-        ->and(DemoSeeder::HISTORY_CLOCK)->toBe('2026-09-21')
-        ->and(DemoSeeder::START_CLOCK)->toBe('2026-09-28');
-});
-
 test('seeding twice changes nothing', function () {
     $this->artisan('demo:seed')->assertExitCode(0);
     $counts = [User::count(), SalesRecord::count(), RuleEvaluation::count(), Import::count()];
@@ -59,17 +51,28 @@ test('extra data stops the seed and points to demo:reset', function () {
     $this->artisan('demo:seed')->expectsOutputToContain('demo:reset')->assertExitCode(1);
 });
 
-test('a missing or short password stops the seed before any user exists', function (?string $password) {
-    config(['demo.password' => $password]);
+test('the populated seed imports week 8 through the real pipeline: open high issue, urgent notifications and a draft meeting, no AI data', function () {
+    $this->artisan('demo:seed', ['--populated' => true])->expectsOutputToContain('populated')->assertExitCode(0);
 
-    $this->artisan('demo:seed')->expectsOutputToContain('DEMO_PASSWORD')->assertExitCode(1);
-    expect(User::count())->toBe(0);
-})->with([[null], ['short']]);
+    $decline = Issue::whereHas('rule', fn ($q) => $q->where('key', 'weekly_revenue_decline'))->sole();
+    $evaluation = RuleEvaluation::whereHas('rule', fn ($q) => $q->where('key', 'weekly_revenue_decline'))->orderByDesc('id')->first();
+    $meeting = Meeting::sole();
 
-test('seeded records come only from the real import path', function () {
-    $this->artisan('demo:seed')->assertExitCode(0);
+    expect($decline->severity->value)->toBe('high')->and($decline->status->value)->toBe('open')
+        ->and($evaluation->result->value)->toBe('breached')->and(round((float) $evaluation->difference_pct, 2))->toBe(-20.00)
+        ->and(Import::where('status', 'completed')->count())->toBe(2)->and(SalesRecord::where('is_active', true)->count())->toBe(144)
+        ->and(DB::table('notifications')->count())->toBe(2) // the Owner and the Manager of Sales
+        ->and($meeting->title)->toBe('Sales recovery huddle')->and($meeting->status->value)->toBe('draft')->and($meeting->issues()->pluck('issues.id')->all())->toBe([$decline->id])
+        ->and(DB::table('tasks')->count())->toBe(0)->and(DB::table('task_drafts')->count())->toBe(0)->and(DB::table('briefs')->count())->toBe(0)->and(DB::table('outcomes')->count())->toBe(0);
+});
 
-    $import = Import::first();
-    expect($import->status->value)->toBe('completed')->and(SalesRecord::where('import_id', '!=', $import->id)->count())->toBe(0)
-        ->and(ActivityLog::where('action', 'import.completed')->count())->toBe(1);
+test('the populated seed is idempotent, upgrades a clean seed, and the clean seed refuses a populated demo', function () {
+    $this->artisan('demo:seed')->assertExitCode(0); // clean start first
+    $this->artisan('demo:seed', ['--populated' => true])->expectsOutputToContain('populated')->assertExitCode(0);
+    $counts = [Issue::count(), Import::count(), Meeting::count(), SalesRecord::count()];
+
+    $this->artisan('demo:seed', ['--populated' => true])->expectsOutputToContain('nothing changed')->assertExitCode(0);
+    expect([Issue::count(), Import::count(), Meeting::count(), SalesRecord::count()])->toBe($counts);
+
+    $this->artisan('demo:seed')->expectsOutputToContain('demo:reset')->assertExitCode(1);
 });

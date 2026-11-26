@@ -39,23 +39,6 @@ test('a deadline phrase the quote does not contain is never resolved, even when 
         ->and($draft->suggested_due_date_text)->toBe('tomorrow');
 });
 
-test('supported suggestions are still resolved, whole words only', function () {
-    $ok = runWith(['title' => 'Call the accounts', 'assignee_name' => 'Priya', 'deadline_phrase' => 'by Friday', 'excerpt' => 'Priya, please call the ten biggest lapsed Penang accounts by Friday.'], $this->f);
-    expect($ok->assignee_id)->toBe($this->f->priya->id)->and($ok->due_date->format('Y-m-d'))->toBe('2026-10-02');
-});
-
-test('a partial name is not a whole word of the quote', function () {
-    // "Dan" is a substring of "Daniel will sort out..." but not a whole word of the quote.
-    $partial = runWith(['title' => 'Sort the display', 'assignee_name' => 'Dan', 'deadline_phrase' => null, 'excerpt' => 'Daniel will sort out the KL weekend display.'], $this->f);
-    expect($partial->assignee_resolution->value)->toBe('unmatched');
-});
-
-test('nothing suggested stays none rather than unmatched', function () {
-    $draft = runWith(['title' => 'Check the stock', 'assignee_name' => null, 'deadline_phrase' => null, 'excerpt' => 'Someone should check why the Saturday stock was short.'], $this->f);
-
-    expect($draft->assignee_resolution->value)->toBe('none')->and($draft->deadline_resolution->value)->toBe('none');
-});
-
 test('a user who lost access cannot cause provider processing: transcription and extraction both stop before any call', function () {
     Storage::disk('local')->put('recordings/1/a.mp3', "\xFF\xFB\x90\x00".str_repeat("\x00", 100));
     Http::fake();

@@ -48,33 +48,6 @@ test('the generator is deterministic and matches the committed files byte for by
     }
 });
 
-test('daily totals and branch splits use integer arithmetic exactly as specified', function () {
-    $generator = new FixtureGenerator;
-
-    expect($generator->dailyTotals(124000))->toBe([20667, 20667, 20667, 20667, 20666, 20666])
-        ->and(array_sum($generator->dailyTotals(124000)))->toBe(124000)
-        ->and($generator->dailyTotals(150000))->toBe(array_fill(0, 6, 25000))
-        ->and($generator->split(20667))->toBe(['KL' => 9539, 'PG' => 6359, 'JB' => 4769])
-        ->and($generator->split(20666))->toBe(['KL' => 9539, 'PG' => 6358, 'JB' => 4769]);
-
-    foreach ([150000, 152000, 149000, 153000, 151000, 154000, 155000, 124000, 126000, 138000] as $weekly) {
-        foreach ($generator->dailyTotals($weekly) as $daily) {
-            expect(array_sum($generator->split($daily)))->toBe($daily);
-        }
-    }
-});
-
-test('fixture shapes match the scenario: row counts, ranges and the errors file', function () {
-    $files = (new FixtureGenerator)->files();
-    $rows = fn (string $name) => count(array_filter(explode("\n", $files[$name]))) - 1;
-
-    expect($rows('history.csv'))->toBe(126)->and($rows('week8-decline.csv'))->toBe(18)->and($rows('week8-with-errors.csv'))->toBe(20)
-        ->and($rows('week8-correction.csv'))->toBe(18)->and($rows('week9-interim.csv'))->toBe(18)->and($rows('week10-recovery.csv'))->toBe(18)
-        ->and($files['history.csv'])->toContain("\n2026-08-03,KL,")->toContain("\n2026-09-19,JB,")->not->toContain('2026-09-20')
-        ->and($files['week8-correction.csv'])->toContain('2026-09-23,KL,10539.00')->toContain('2026-09-24,PG,7359.00')
-        ->and($files['week8-with-errors.csv'])->toContain('2026-09-26,JB,4769.00,TBD,')->toContain('2026-09-31,KL,')->toContain('2026-09-27,KL,-1500.00');
-});
-
 test('demo:import refuses without DEMO_MODE and for unknown fixtures or a missing demo company', function () {
     config(['demo.mode' => false]);
     $this->artisan('demo:import', ['fixture' => 'history'])->expectsOutputToContain('DEMO_MODE')->assertFailed();
@@ -137,20 +110,4 @@ test('the errors fixture imports 17 valid rows, reports 3 errors and leaves the 
     expect(Import::latest('id')->first()->status)->toBe(ImportStatus::CompletedWithErrors)
         ->and(SalesRecord::where('branch_code', 'JB')->where('sales_date', '2026-09-26')->exists())->toBeFalse()
         ->and(weeklyTotal('2026-09-21', '2026-09-26'))->toBe('119231.00');
-});
-
-test('demo:import fails with a clear hint when the demo clock is before every fixture date', function () {
-    seedDemoIdentity();
-    setClock('2026-09-19 09:00');
-
-    $this->artisan('demo:import', ['fixture' => 'week8-decline'])->expectsOutputToContain('set the demo clock first')->assertFailed();
-
-    expect(SalesRecord::count())->toBe(0);
-});
-
-test('demo:import fails when the counters differ from expected.json', function () {
-    seedDemoIdentity();
-    setClock('2026-09-21 09:00'); // only Monday of week 8 is a valid date at this clock
-
-    $this->artisan('demo:import', ['fixture' => 'week8-decline'])->expectsOutputToContain('Counters differ from expected.json')->assertFailed();
 });

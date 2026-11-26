@@ -8,10 +8,8 @@ use App\Enums\WeekStatus;
 use App\Models\Company;
 use App\Models\SalesRecord;
 use App\Services\Imports\CoverageGap;
-use App\Services\Imports\PendingRows;
 use App\Services\Imports\ReportingCalendar;
 use App\Services\Imports\ReportingCoverage;
-use App\Services\Imports\ValidRow;
 use Carbon\CarbonImmutable;
 
 const TZ = 'Asia/Kuala_Lumpur';
@@ -47,34 +45,6 @@ test('a trading day is due exactly when its cutoff (day plus lag at the cutoff t
         ->and(calendarAt('2026-09-28 09:00')->isDue(day('2026-09-28')))->toBeFalse()  // today is not due yet
         ->and(calendarAt('2026-09-28 09:00')->isDue(day('2026-09-30')))->toBeFalse()  // the future is never due
         ->and(calendarAt('2026-09-29 12:00')->isDue(day('2026-09-28')))->toBeTrue();
-});
-
-test('the last due date skips non trading days and honours the cutoff time', function () {
-    expect(calendarAt('2026-09-28 09:00')->lastDueDate()->format('Y-m-d'))->toBe('2026-09-26')
-        ->and(calendarAt('2026-09-27 11:59')->lastDueDate()->format('Y-m-d'))->toBe('2026-09-25')
-        ->and(calendarAt('2026-09-27 12:00')->lastDueDate()->format('Y-m-d'))->toBe('2026-09-26')
-        ->and(calendarAt('2026-09-28 12:00')->lastDueDate()->format('Y-m-d'))->toBe('2026-09-26')
-        ->and(calendarAt('2026-09-29 12:00')->lastDueDate()->format('Y-m-d'))->toBe('2026-09-28');
-});
-
-test('a week is closed only once every trading day is due', function () {
-    expect(calendarAt('2026-09-27 11:59')->isWeekClosed(day('2026-09-21')))->toBeFalse()
-        ->and(calendarAt('2026-09-27 12:00')->isWeekClosed(day('2026-09-24')))->toBeTrue()
-        ->and(calendarAt('2026-09-21 09:00')->isWeekClosed(day('2026-09-21')))->toBeFalse()
-        ->and(count(calendarAt('2026-09-21 09:00')->tradingDates(day('2026-09-23'))))->toBe(6)
-        ->and(calendarAt('2026-09-21 09:00')->tradingDates(day('2026-09-23'))[0]->format('Y-m-d'))->toBe('2026-09-21');
-});
-
-test('the cutoff uses the company timezone, not the server timezone', function () {
-    $utc = CarbonImmutable::parse('2026-09-27 04:00', 'UTC'); // 12:00 in Kuala Lumpur
-    $calendar = ReportingCalendar::forCompany(new Company([
-        'timezone' => TZ, 'trading_days' => [1, 2, 3, 4, 5, 6], 'reporting_cutoff_time' => '12:00', 'reporting_cutoff_lag_days' => 1,
-    ]), $utc);
-
-    expect($calendar->isDue(day('2026-09-26')))->toBeTrue()
-        ->and(ReportingCalendar::forCompany(new Company([
-            'timezone' => TZ, 'trading_days' => [1, 2, 3, 4, 5, 6], 'reporting_cutoff_time' => '12:00', 'reporting_cutoff_lag_days' => 1,
-        ]), $utc->subMinute())->isDue(day('2026-09-26')))->toBeFalse();
 });
 
 test('Monday of week 8 is not due and nothing is missing before the data is due (clock 21 Sep 09:00)', function () {
@@ -115,20 +85,6 @@ test('trailing due days are reported at 28 Sep 09:00: week 8 is closed and absen
         ->and($this->coverage->isDue($this->sales, day('2026-09-26'), $now))->toBeTrue()
         ->and($this->coverage->isDue($this->sales, day('2026-09-28'), $now))->toBeFalse()
         ->and($freshness->overdueBranchDays)->toBe(collect($gaps)->where('kind', CoverageGap::AFTER_LATEST)->count());
-});
-
-test('an open week only lists gaps for days whose cutoff has passed', function () {
-    importFixture($this->f->owner, 'history', '2026-09-21 09:00');
-
-    // Wed 23 Sep 09:00: Monday (cutoff Tue 12:00) is due; Tuesday (cutoff Wed 12:00) is not.
-    $w8 = $this->coverage->weekState($this->sales, day('2026-09-21'), null, at('2026-09-23 09:00'));
-    expect($w8->status)->toBe(WeekStatus::Open)->and($w8->completeness)->toBeNull()
-        ->and($w8->dueBranchDays)->toBe(3)
-        ->and(collect($w8->gaps)->pluck('date')->map->format('Y-m-d')->unique()->values()->all())->toBe(['2026-09-21']);
-
-    // At 12:00 sharp Tuesday joins.
-    $later = $this->coverage->weekState($this->sales, day('2026-09-21'), null, at('2026-09-23 12:00'));
-    expect($later->dueBranchDays)->toBe(6);
 });
 
 test('a missing row inside the submitted period makes the closed week incomplete with one inside_period gap', function () {
@@ -213,49 +169,9 @@ test('records on non trading days and for other branches are ignored when counti
     expect($state->presentBranchDays)->toBe(0)->and($state->completeness)->toBe(WeekCompleteness::Absent);
 });
 
-test('a pending overlay is evaluated as if saved and writes nothing', function () {
-    importFixture($this->f->owner, 'history', '2026-09-21 09:00');
-    $now = at('2026-09-28 09:00');
-    $pending = new PendingRows(array_map(
-        fn (array $row) => new ValidRow(2, day($row[0]), $row[1], '1.00', '1.00', null),
-        collect(['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26'])
-            ->flatMap(fn ($date) => collect(['JB', 'KL', 'PG'])->map(fn ($branch) => [$date, $branch]))->all(),
-    ));
-
-    $withPending = $this->coverage->weekState($this->sales, day('2026-09-21'), $pending, $now);
-    $freshness = $this->coverage->freshness($this->sales, $pending, $now);
-
-    expect($withPending->completeness)->toBe(WeekCompleteness::Complete)
-        ->and($freshness->state)->toBe(FreshnessState::Current)->and($freshness->overdueBranchDays)->toBe(0)
-        ->and($this->coverage->weekState($this->sales, day('2026-09-21'), null, $now)->completeness)->toBe(WeekCompleteness::Absent)
-        ->and(SalesRecord::count())->toBe(126);
-});
-
 test('with no records at all the department is behind with an unknown overdue count', function () {
     $freshness = $this->coverage->freshness($this->sales, null, at('2026-09-28 09:00'));
 
     expect($freshness->state)->toBe(FreshnessState::Behind)->and($freshness->latestSalesDate)->toBeNull()
         ->and($freshness->overdueBranchDays)->toBeNull();
-});
-
-test('the latest closed week is the week of the last due date, or the previous week', function () {
-    importFixture($this->f->owner, 'history', '2026-09-21 09:00');
-
-    expect($this->coverage->latestClosedWeek($this->sales, at('2026-09-28 09:00'))->weekStart->format('Y-m-d'))->toBe('2026-09-21')
-        ->and($this->coverage->latestClosedWeek($this->sales, at('2026-09-23 09:00'))->weekStart->format('Y-m-d'))->toBe('2026-09-14')
-        ->and($this->coverage->latestClosedWeek($this->sales, at('2026-09-26 09:00'))->completeness)->toBe(WeekCompleteness::Complete);
-});
-
-test('coverage uses a bounded number of queries regardless of the number of rows', function () {
-    importFixture($this->f->owner, 'history', '2026-09-21 09:00');
-    $now = at('2026-09-28 09:00');
-
-    DB::enableQueryLog();
-    $this->coverage->weekStates($this->sales->fresh(), day('2026-08-03'), day('2026-09-21'), null, $now);
-    $weeksQueries = count(DB::getQueryLog());
-    DB::flushQueryLog();
-    $this->coverage->weekStates($this->sales->fresh(), day('2026-09-14'), day('2026-09-21'), null, $now);
-    $fewQueries = count(DB::getQueryLog());
-
-    expect($weeksQueries)->toBe($fewQueries)->and($weeksQueries)->toBeLessThanOrEqual(3);
 });

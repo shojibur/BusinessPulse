@@ -37,6 +37,7 @@ Result codes: 200 page or action OK, 302 redirect (to login for A, B), 403 forbi
 | `GET settings`, `settings/company`, `settings/department`, `settings/staff` | 302 | 302 | 200 | per S02 scope | 403/404 | 403 | 403 | S02 | `Identity/AuthorizationTest`, `DepartmentScopeTest` |
 | `GET platform/login`, `POST platform/login` (platform admins only) | 200 | 200 (company user sees only the sign-in page) | login | login | login | login | login | S10 requirement 1, 9 | `Platform/PlatformPanelTest` |
 | `/platform/companies*` (index, create, store, show, suspend, reactivate, owner-password) | 302 to platform login | 302 | 302 to platform login | 302 to platform login | 302 to platform login | 302 to platform login | 302 to platform login | S10 requirement 2 (only a signed-in platform admin passes) | `Platform/PlatformPanelTest` |
+| `GET platform/ai`, `PUT platform/ai`, `POST platform/ai/test` | 302 to platform login | 302 | 302 to platform login | 302 to platform login | 302 to platform login | 302 to platform login | 302 to platform login | S11 requirement 1, 5 (platform admin only; keys never in props) | `Platform/AiSettingsTest` |
 | `GET login`, `POST login`, `POST logout` | 200 (login) | login refused | logout 302 | logout 302 | logout 302 | logout 302 | logout 302 | S02 | `Identity/AuthenticationTest` |
 
 Cells that list "per S02 scope" or "200/302" follow the owning spec's requirement; confirm the exact status at the first manual run and record it.

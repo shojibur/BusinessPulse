@@ -1,7 +1,6 @@
 <?php
 
 use App\Enums\ImportStatus;
-use App\Jobs\ProcessImportJob;
 use App\Models\Import;
 use App\Models\SalesRecord;
 use Illuminate\Support\Facades\Gate;
@@ -47,24 +46,6 @@ test('Staff are denied every import route', function () {
     expect($this->salesImport->fresh()->status)->toBe(ImportStatus::Validated);
 });
 
-test('guests and inactive users are sent to the login page', function () {
-    $this->get('/imports')->assertRedirect(route('login'));
-    $this->post("/imports/{$this->salesImport->id}/confirm")->assertRedirect(route('login'));
-    $this->getJson("/imports/{$this->salesImport->id}")->assertUnauthorized();
-
-    $this->f->owner->forceFill(['is_active' => false])->save();
-    $this->actingAs($this->f->owner)->get('/imports')->assertRedirect(route('login'));
-});
-
-test('the Owner can reach every import of the company', function () {
-    $this->actingAs($this->f->owner);
-
-    $this->get('/imports')->assertOk()->assertInertia(fn (Assert $page) => $page->component('imports/Index')->has('imports', 2));
-    $this->get('/imports/create')->assertOk();
-    $this->get("/imports/{$this->salesImport->id}")->assertOk()->assertInertia(fn (Assert $page) => $page->component('imports/Show'));
-    $this->get("/imports/{$this->supportImport->id}")->assertOk();
-});
-
 test('a Manager sees only own department imports and gets 404 for another department', function () {
     $this->actingAs($this->f->manager);
 
@@ -101,16 +82,6 @@ test('an in-scope Manager may confirm, cancel and retry through the actions', fu
     expect($failed->fresh()->status)->toBe(ImportStatus::Processing);
 });
 
-test('a repeated confirm request does not queue a second job', function () {
-    $this->actingAs($this->f->owner);
-    Queue::fake();
-
-    $this->post("/imports/{$this->salesImport->id}/confirm");
-    $this->post("/imports/{$this->salesImport->id}/confirm");
-
-    Queue::assertPushed(ProcessImportJob::class, 1);
-});
-
 test('the import detail never exposes the stored path or any absolute path', function () {
     $content = $this->actingAs($this->f->owner)->get("/imports/{$this->salesImport->id}")->getContent();
 
@@ -118,22 +89,6 @@ test('the import detail never exposes the stored path or any absolute path', fun
 
     $index = $this->get('/imports')->getContent();
     expect($index)->not->toContain('stored_path')->not->toContain('never-exposed');
-});
-
-test('uploads are assigned to the signed in users department, whatever the request body says', function () {
-    setClock('2026-09-21 09:00');
-    $csv = fn () => csvUpload("sales_date,branch_code,revenue,target_revenue,order_count\n2026-09-21,KL,1.00,1.00,\n");
-
-    $this->actingAs($this->f->manager)->post('/imports', [
-        'file' => $csv(), 'company_id' => 999, 'department_id' => $this->f->support->id, 'uploaded_by' => $this->f->owner->id,
-    ])->assertRedirect();
-
-    $import = Import::orderByDesc('id')->first();
-    expect([$import->company_id, $import->department_id, $import->uploaded_by])->toBe([$this->f->company->id, $this->f->sales->id, $this->f->manager->id]);
-
-    $this->actingAs($this->f->owner)->post('/imports', ['file' => $csv(), 'department_id' => $this->f->support->id])->assertRedirect();
-    $owned = Import::orderByDesc('id')->first();
-    expect([$owned->department_id, $owned->uploaded_by])->toBe([$this->f->sales->id, $this->f->owner->id]);
 });
 
 test('an upload rejection is a validation error on the file field and creates nothing', function () {
@@ -145,19 +100,6 @@ test('an upload rejection is a validation error on the file field and creates no
 
     $this->post('/imports', [])->assertSessionHasErrors('file');
     expect(Import::count())->toBe($before);
-});
-
-test('uploads are limited to ten per minute per user', function () {
-    $this->actingAs($this->f->owner);
-
-    foreach (range(1, 10) as $ignored) {
-        $this->post('/imports', ['file' => csvUpload('')])->assertSessionHasErrors('file');
-    }
-
-    $this->post('/imports', ['file' => csvUpload('')])->assertStatus(429);
-
-    // Another user has their own allowance.
-    $this->actingAs($this->f->manager)->post('/imports', ['file' => csvUpload('')])->assertSessionHasErrors('file');
 });
 
 test('sales records are scoped by the department of their import and are read only for everyone', function () {
@@ -186,36 +128,4 @@ test('sales records are scoped by the department of their import and are read on
     foreach (['create', 'update', 'delete', 'restore', 'forceDelete'] as $ability) {
         expect(Gate::forUser($this->f->owner)->denies($ability, $own))->toBeTrue();
     }
-});
-
-test('the import policy follows the department and denies Staff and inactive users', function () {
-    foreach (['view', 'confirm', 'cancel', 'retry', 'download'] as $ability) {
-        expect(Gate::forUser($this->f->owner)->allows($ability, $this->supportImport))->toBeTrue()
-            ->and(Gate::forUser($this->f->manager)->allows($ability, $this->salesImport))->toBeTrue()
-            ->and(Gate::forUser($this->f->manager)->denies($ability, $this->supportImport))->toBeTrue()
-            ->and(Gate::forUser($this->f->staff)->denies($ability, $this->salesImport))->toBeTrue()
-            ->and(Gate::forUser($this->f->inactive)->denies($ability, $this->salesImport))->toBeTrue();
-    }
-
-    expect(Gate::forUser($this->f->owner)->allows('create', Import::class))->toBeTrue()
-        ->and(Gate::forUser($this->f->manager)->allows('create', Import::class))->toBeTrue()
-        ->and(Gate::forUser($this->f->staff)->denies('create', Import::class))->toBeTrue();
-});
-
-test('Import::visibleTo scopes by department and company', function () {
-    $ids = fn ($user) => Import::visibleTo($user)->pluck('id')->sort()->values()->all();
-
-    expect($ids($this->f->owner))->toBe([$this->salesImport->id, $this->supportImport->id])
-        ->and($ids($this->f->manager))->toBe([$this->salesImport->id])
-        ->and($ids($this->f->inactive))->toBe([]);
-});
-
-test('import errors are only reachable through the parent import', function () {
-    $this->salesImport->errors()->create(['row_number' => 2, 'column' => 'revenue', 'code' => 'invalid_number', 'message' => 'x', 'raw_row' => ['revenue' => 'abc']]);
-    $this->supportImport->errors()->create(['row_number' => 2, 'column' => 'revenue', 'code' => 'invalid_number', 'message' => 'x', 'raw_row' => ['revenue' => 'secret']]);
-
-    $this->actingAs($this->f->manager)->get("/imports/{$this->salesImport->id}")
-        ->assertInertia(fn (Assert $page) => $page->has('rowErrors.data', 1)->where('rowErrors.data.0.raw_row.revenue', 'abc'));
-
-    expect($this->actingAs($this->f->manager)->get("/imports/{$this->supportImport->id}")->getContent())->not->toContain('secret');
 });

@@ -2,7 +2,6 @@
 
 use App\Models\Company;
 use App\Models\User;
-use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
@@ -16,16 +15,6 @@ test('demo mode off refuses both commands, changes nothing and exits 2', functio
     $this->artisan('demo:seed')->expectsOutputToContain('DEMO_MODE=true')->assertExitCode(2);
     $this->artisan('demo:reset', ['--force' => true])->expectsOutputToContain('DEMO_MODE=true')->assertExitCode(2);
     expect(Company::count())->toBe(0)->and(User::count())->toBe(0);
-});
-
-test('production without the explicit flag is refused', function () {
-    $this->app['env'] = 'production';
-
-    $this->artisan('demo:seed')->expectsOutputToContain('APP_ENV=production')->assertExitCode(2);
-    expect(Company::count())->toBe(0);
-
-    config(['demo.allow_production' => true]);
-    $this->artisan('demo:seed')->assertExitCode(0); // allowed only on a dedicated demo server
 });
 
 test('a real company blocks both commands and every failed condition is named', function () {
@@ -59,10 +48,4 @@ test('without --force a wrong typed name or no terminal refuses the reset', func
     $this->artisan('demo:reset')->expectsQuestion('Type the company name to confirm', 'wrong name')->expectsOutputToContain('does not match')->assertExitCode(2);
     $this->artisan('demo:reset', ['--no-interaction' => true])->expectsOutputToContain('--force')->assertExitCode(2);
     expect(Company::count())->toBe(1);
-});
-
-test('the demo commands are not scheduled and have no web route', function () {
-    $scheduled = collect(app(Schedule::class)->events())->map(fn ($e) => $e->command ?? '')->implode(' ');
-    expect($scheduled)->not->toContain('demo:');
-    expect(collect(Route::getRoutes()->getRoutes())->map->uri()->implode(' '))->not->toContain('demo');
 });

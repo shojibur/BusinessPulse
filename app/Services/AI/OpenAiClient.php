@@ -20,18 +20,25 @@ class OpenAiClient
 {
     public static function textConfigured(): bool
     {
-        return self::filled('ai.base_url') && self::filled('ai.api_key') && self::filled('ai.text_model');
+        return app(AiSettings::class)->text()->configured();
     }
 
     public static function speechConfigured(): bool
     {
-        return self::filled('ai.base_url') && self::filled('ai.api_key') && self::filled('ai.speech_model') && self::filled('ai.speech_voice');
+        return app(AiSettings::class)->speech()->configured();
     }
 
+    /** Text answers: OpenAI-compatible, or Claude when the platform settings choose the `anthropic` provider. */
     public function chat(ChatRequest $request): ChatResponse
     {
-        $response = $this->send('/chat/completions', [
-            'model' => config('ai.text_model'),
+        $endpoint = app(AiSettings::class)->text();
+
+        if ($endpoint->provider === AiEndpoint::PROVIDER_ANTHROPIC) {
+            return app(AnthropicTextClient::class)->chat($request, $endpoint);
+        }
+
+        $response = $this->send($endpoint, '/chat/completions', [
+            'model' => $endpoint->model,
             'messages' => $request->messages,
             'response_format' => [
                 'type' => 'json_schema',
@@ -44,9 +51,11 @@ class OpenAiClient
 
     public function speech(SpeechRequest $request): SpeechResponse
     {
-        $response = $this->send('/audio/speech', [
-            'model' => config('ai.speech_model'),
-            'voice' => config('ai.speech_voice'),
+        $endpoint = app(AiSettings::class)->speech();
+
+        $response = $this->send($endpoint, '/audio/speech', [
+            'model' => $endpoint->model,
+            'voice' => $endpoint->voice,
             'input' => $request->text,
             'response_format' => 'mp3',
         ], (int) config('ai.timeouts.speech', 60), 'speech', $request->briefId);
@@ -66,11 +75,12 @@ class OpenAiClient
             throw new ProviderException('invalid_response');
         }
 
+        $endpoint = app(AiSettings::class)->transcription();
         $started = microtime(true);
 
         try {
-            $response = Http::baseUrl((string) config('ai.base_url'))
-                ->withToken((string) config('ai.api_key'))
+            $response = Http::baseUrl((string) $endpoint->baseUrl)
+                ->withToken((string) $endpoint->apiKey)
                 ->acceptJson()
                 ->timeout($request->timeoutSeconds)
                 ->asMultipart()
@@ -90,7 +100,7 @@ class OpenAiClient
         }
 
         $this->log('transcription', $request->meetingId, $response->status(), $started);
-        $this->assertSuccessful($response->status(), $response->successful());
+        ProviderStatus::assertSuccessful($response->status(), $response->successful());
 
         return TranscriptionResponse::fromJson($response->json());
     }
@@ -98,13 +108,13 @@ class OpenAiClient
     /**
      * @param  array<string, mixed>  $body
      */
-    private function send(string $path, array $body, int $timeoutSeconds, string $requestType, int $briefId): Response
+    private function send(AiEndpoint $endpoint, string $path, array $body, int $timeoutSeconds, string $requestType, int $briefId): Response
     {
         $started = microtime(true);
 
         try {
-            $response = Http::baseUrl((string) config('ai.base_url'))
-                ->withToken((string) config('ai.api_key'))
+            $response = Http::baseUrl((string) $endpoint->baseUrl)
+                ->withToken((string) $endpoint->apiKey)
                 ->acceptJson()
                 ->timeout($timeoutSeconds)
                 ->post($path, $body);
@@ -116,25 +126,9 @@ class OpenAiClient
 
         $status = $response->status();
         $this->log($requestType, $briefId, $status, $started);
-        $this->assertSuccessful($status, $response->successful());
+        ProviderStatus::assertSuccessful($status, $response->successful());
 
         return $response;
-    }
-
-    /** 429 and 5xx are recoverable (the queue retries); every other failure is final. */
-    private function assertSuccessful(int $status, bool $successful): void
-    {
-        if ($status === 429) {
-            throw new RecoverableProviderException('rate_limited');
-        }
-
-        if ($status >= 500) {
-            throw new RecoverableProviderException('server_error');
-        }
-
-        if (! $successful) {
-            throw new ProviderException('client_error');
-        }
     }
 
     /** Request type, brief id, status and duration only. */
@@ -146,12 +140,5 @@ class OpenAiClient
             'status' => $status,
             'duration_ms' => (int) round((microtime(true) - $started) * 1000),
         ]);
-    }
-
-    private static function filled(string $key): bool
-    {
-        $value = config($key);
-
-        return is_string($value) && trim($value) !== '';
     }
 }

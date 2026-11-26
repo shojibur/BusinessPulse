@@ -19,6 +19,7 @@ use App\Http\Controllers\MeetingRecordingController;
 use App\Http\Controllers\MeetingTranscriptController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OutcomeController;
+use App\Http\Controllers\Platform\AiSettingsController as PlatformAiSettingsController;
 use App\Http\Controllers\Platform\AuthController as PlatformAuthController;
 use App\Http\Controllers\Platform\CompanyController as PlatformCompanyController;
 use App\Http\Controllers\RefreshIntelligenceController;
@@ -126,6 +127,10 @@ Route::prefix('platform')->name('platform.')->group(function () {
     Route::middleware('platform')->group(function () {
         Route::post('logout', [PlatformAuthController::class, 'destroy'])->name('logout');
         Route::redirect('/', '/platform/companies');
+        // Site-wide AI settings (S11).
+        Route::get('ai', [PlatformAiSettingsController::class, 'edit'])->name('ai.edit');
+        Route::put('ai', [PlatformAiSettingsController::class, 'update'])->name('ai.update');
+        Route::post('ai/test', [PlatformAiSettingsController::class, 'test'])->middleware('throttle:6,1')->name('ai.test');
         Route::get('companies', [PlatformCompanyController::class, 'index'])->name('companies.index');
         Route::get('companies/create', [PlatformCompanyController::class, 'create'])->name('companies.create');
         Route::post('companies', [PlatformCompanyController::class, 'store'])->name('companies.store');

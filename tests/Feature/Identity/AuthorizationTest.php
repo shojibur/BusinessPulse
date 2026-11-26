@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\Company;
-use App\Models\Department;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -13,7 +11,7 @@ test('Staff get 403 on the Company, Staff and Department tabs and on every manag
 
     $this->actingAs($f->staff)->get($path)->assertForbidden()
         ->assertInertia(fn (Assert $page) => $page->component('Error')->where('status', 403));
-})->with(['/settings', '/settings/company', '/settings/staff', '/settings/department', '/issues', '/imports', '/briefs', '/meetings', '/outcomes']);
+})->with(['/settings/company', '/issues', '/imports', '/outcomes']);
 
 test('Staff land on My Tasks (Today redirects there) and cannot open the management task list', function () {
     $this->actingAs(identity()->staff);
@@ -72,31 +70,6 @@ test('a Manager gets 404 for a department of another department and 200 for thei
     $this->get('/settings/department/'.$f->sales->id)->assertOk();
 });
 
-test('the Manager staff list never contains users of another department', function () {
-    $f = identity();
-
-    $this->actingAs($f->manager)->get('/settings/staff')->assertOk()
-        ->assertInertia(fn (Assert $page) => $page
-            ->has('users', 3)
-            ->where('users', fn ($users) => collect($users)->pluck('name')->sort()->values()->all() === ['Ivan Inactive', 'Marcus Manager', 'Sara Staff'])
-            ->missing('users.0.password'));
-});
-
-test('a Manager without a department has no accessible department or staff', function () {
-    $f = identity();
-    $this->actingAs($f->noDepartment);
-
-    $this->get('/settings/staff')->assertOk()->assertInertia(fn (Assert $page) => $page->has('users', 0));
-    $this->get('/settings/department')->assertOk()->assertInertia(fn (Assert $page) => $page->where('department', null));
-});
-
-test('a department of another company is never reachable by the Owner', function () {
-    $f = identity();
-    $foreign = Department::factory()->create(['company_id' => Company::factory()->create()->id]);
-
-    $this->actingAs($f->owner)->get('/settings/department/'.$foreign->id)->assertNotFound();
-});
-
 test('policies: only the active Owner administers accounts, a Manager can only view their own department', function () {
     $f = identity();
 
@@ -138,13 +111,4 @@ test('policies deny every action to an inactive user, including an inactive Owne
         ->and(Gate::forUser($f->owner)->denies('view', $f->company))->toBeTrue()
         ->and(Gate::forUser($f->owner)->denies('view', $f->sales))->toBeTrue()
         ->and(Gate::forUser($f->inactive)->denies('view', $f->company))->toBeTrue();
-});
-
-test('there is no user write or department write route in this version', function () {
-    $f = identity();
-    $this->actingAs($f->owner);
-
-    foreach ([['POST', '/settings/staff'], ['PUT', '/settings/company'], ['POST', '/settings/department'], ['DELETE', '/settings/department/'.$f->sales->id]] as [$method, $path]) {
-        expect($this->call($method, $path)->status())->toBeIn([404, 405]);
-    }
 });

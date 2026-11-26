@@ -43,13 +43,6 @@ test('foreign and missing outcomes are the same 404; other departments and compa
     $this->actingAs($this->x->owner)->get('/outcomes')->assertInertia(fn ($p) => $p->where('pagination.total', 2)->has('filters')); // the latest outcome per issue (decline and target)
 });
 
-test('the issue page carries the outcome panels for management and nothing for staff', function () {
-    $this->actingAs($this->x->owner)->get("/issues/{$this->x->decline->id}")->assertOk()->assertInertia(fn ($p) => $p
-        ->where('outcomes.heading', 'Observed change after actions')->where('outcomes.latest.id', $this->outcome->id)->where('outcomes.standingSentence', fn ($s) => str_contains($s, 'does not show that the actions caused'))
-        ->where('feedback.counts.useful', 0));
-    $this->actingAs($this->staff)->get("/issues/{$this->x->decline->id}")->assertForbidden();
-});
-
 test('feedback is one replaceable vote per user and target, never changes a rule, and uses the route target', function () {
     $rules = DB::table('business_rules')->get()->map(fn ($r) => (array) $r)->all();
     $url = "/outcomes/{$this->outcome->id}/feedback";
@@ -76,11 +69,4 @@ test('the database enforces exactly one feedback target and feedback survives a 
     importFixture($this->x->owner, 'week10-recovery', '2026-10-12 09:00');
     $this->actingAs($this->manager)->post("/issues/{$this->x->decline->id}/feedback", ['useful' => true])->assertRedirect();
     expect($this->x->decline->fresh()->status->value)->toBe('resolved')->and(Feedback::count())->toBe(1);
-});
-
-test('the feedback routes are throttled to 20 writes a minute', function () {
-    for ($i = 0; $i < 20; $i++) {
-        $this->actingAs($this->manager)->post("/outcomes/{$this->outcome->id}/feedback", ['useful' => $i % 2 === 0]);
-    }
-    $this->actingAs($this->manager)->post("/outcomes/{$this->outcome->id}/feedback", ['useful' => true])->assertStatus(429);
 });

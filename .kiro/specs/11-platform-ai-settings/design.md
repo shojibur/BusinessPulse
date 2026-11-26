@@ -1,0 +1,8 @@
+# S11 Platform AI Settings: Design
+
+- **Storage.** Table `ai_settings` (one row, explicit columns per capability). `AiSetting` model with the `encrypted` cast on the three keys and keys hidden from serialization.
+- **Resolution.** `AiSettings` service returns an `AiEndpoint` (provider, base URL, key, model, voice, source) per capability: row value, else `config('ai.*')`. For `anthropic`, the key falls back to `ANTHROPIC_API_KEY`, the address to `https://api.anthropic.com`. Read per call (one row), so changes apply immediately.
+- **Clients.** `OpenAiClient` keeps its public API (`chat`, `speech`, `transcribe`, `textConfigured`, `speechConfigured`); `chat` hands off to `AnthropicTextClient` when the text provider is `anthropic`. Both share `ProviderStatus` for status mapping. The four consumers (`BriefGenerator`, `MeetingTaskExtractor`, `TranscriptionService`, `SpeechService`) read models and keys from `AiSettings`.
+- **Adding another provider later.** Add a client with the `chat(ChatRequest, AiEndpoint): ChatResponse` contract and one branch in `OpenAiClient::chat` (or a provider map), and one value in `UpdateAiSettingsRequest`. Nothing else changes.
+- **Panel.** `Platform\AiSettingsController` (`edit`, `update`, `test`), `UpdateAiSettingsRequest` with the `SafeProviderUrl` rule, actions `UpdateAiSettings` and `TestAiConnection`, page `platform/AiSettings.vue`, help dialog component, throttle `6,1` on the test.
+- **Tests.** `tests/Feature/Platform/AiSettingsTest.php`: precedence and key-family separation, encryption at rest, no key in props, blank/remove key semantics, access control, URL validation, Claude request shape and error mapping, OpenAI path, connection test, change without restart. No live provider calls (`Http::preventStrayRequests`).

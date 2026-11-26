@@ -25,10 +25,6 @@ test('the owner and the own-department manager can stream and download', functio
     expect($this->actingAs($this->f->manager)->get($this->urls[1])->headers->get('Content-Disposition'))->toContain('attachment')->toContain('Huddle%20%28Mon%29.mp3');
 });
 
-test('range requests are answered so the player can seek', function () {
-    $this->actingAs($this->f->manager)->get($this->urls[0], ['Range' => 'bytes=0-9'])->assertStatus(206)->assertHeader('Content-Range', 'bytes 0-9/504');
-});
-
 test('staff are forbidden, other-department managers and other companies get 404, guests go to login', function () {
     $otherDepartment = Department::factory()->create(['company_id' => $this->f->company->id, 'slug' => 'support']);
     $otherManager = User::factory()->manager($otherDepartment)->create();

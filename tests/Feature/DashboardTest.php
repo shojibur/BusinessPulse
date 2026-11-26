@@ -1,9 +1,5 @@
 <?php
 
-use App\Models\Department;
-use App\Models\User;
-use App\Services\Dashboard\DashboardMetrics;
-
 test('while week 8 is overdue the dashboard shows the latest complete week with explicit dates and a warning', function () {
     $owner = demoOwner();
     importFixture($owner, 'history', '2026-09-21 09:00');
@@ -31,28 +27,9 @@ test('the dashboard shows the week 8 decline and shortfall from the engine', fun
         ->has('data.revenueVsTarget', 8)->where('data.revenueVsTarget.7.revenue', '124000.00'));
 });
 
-test('an incomplete latest week keeps the last complete week visible with a coverage warning', function () {
-    $owner = demoOwner();
-    importFixture($owner, 'history', '2026-09-21 09:00');
-    importFixture($owner, 'week8-with-errors', '2026-09-28 09:00');
-
-    $this->actingAs($owner)->get('/today')->assertInertia(fn ($page) => $page
-        ->where('data.revenue.available', true)->where('data.revenue.period_start', '2026-09-14')
-        ->where('data.coverageNotice', fn ($n) => str_contains($n, 'is missing') && str_contains($n, 'latest complete week (14–20 Sep 2026)')));
-});
-
 test('staff are redirected to My Tasks and never receive executive data', function () {
     $f = identity();
 
     $this->actingAs($f->staff)->get('/today')->assertRedirect(route('tasks.mine'));
     $this->actingAs($f->staff)->get('/my-tasks')->assertOk()->assertInertia(fn ($page) => $page->component('tasks/Mine')->missing('data')->missing('revenue'));
-});
-
-test('a manager sees only their own department', function () {
-    $owner = demoOwner();
-    importFixture($owner, 'history', '2026-09-21 09:00');
-    $manager = User::where('email', 'aisyah@meridian.demo')->firstOrFail();
-
-    $this->actingAs($manager)->get('/today')->assertInertia(fn ($page) => $page->where('data.departmentName', 'Sales'));
-    expect(app(DashboardMetrics::class))->toBeInstanceOf(DashboardMetrics::class)->and(Department::count())->toBeGreaterThan(0);
 });

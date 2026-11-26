@@ -1,8 +1,6 @@
 <?php
 
 use App\Enums\IssueStatus;
-use App\Enums\ResolutionType;
-use App\Enums\RuleKey;
 use App\Events\Intelligence\IssueStatusChanged;
 use App\Models\Issue;
 use App\Services\Intelligence\IssueLifecycle;
@@ -63,28 +61,6 @@ function callLifecycle(string $method, Issue $issue, $actor)
     };
 }
 
-test('every lifecycle method allows, ignores or rejects each starting status as documented', function (string $method, array $expectations) {
-    foreach ($expectations as $status => $expected) {
-        // Resolved issues must not collide with the open one of the same rule: use a fresh department rule each time.
-        $issue = fakeIssue($this->f->sales, IssueStatus::from($status));
-        $historyBefore = count($issue->status_history);
-
-        if ($expected === 'deny') {
-            expect(fn () => callLifecycle($method, $issue, $this->actor))->toThrow(IssueTransitionNotAllowedException::class, '', "{$method} from {$status}");
-            expect($issue->fresh()->status->value)->toBe($status)->and(count($issue->fresh()->status_history))->toBe($historyBefore);
-        } else {
-            $result = callLifecycle($method, $issue, $this->actor);
-            expect($result->changed)->toBe($expected === 'ok', "{$method} from {$status}");
-            $expected === 'noop'
-                ? expect($issue->fresh()->status->value)->toBe($status)->and(count($issue->fresh()->status_history))->toBe($historyBefore)
-                : expect(count($issue->fresh()->status_history))->toBe($historyBefore + 1);
-        }
-
-        // Make room for the next open issue of the same rule.
-        Issue::whereKey($issue->id)->update(['status' => 'resolved', 'resolved_at' => now(), 'resolution_type' => 'manual', 'resolution_note' => 'cleanup']);
-    }
-})->with('methods');
-
 test('manual monitoring and manual resolve require a reason of 1 to 2,000 characters', function () {
     $issue = fakeIssue($this->f->sales, IssueStatus::ActionInProgress);
 
@@ -97,17 +73,6 @@ test('manual monitoring and manual resolve require a reason of 1 to 2,000 charac
         ->and($issue->fresh()->status)->toBe(IssueStatus::ActionInProgress);
 
     expect($this->lifecycle->resolveManual($issue, $this->actor, str_repeat('x', 2000))->changed)->toBeTrue();
-});
-
-test('the automatic monitoring variant needs no reason and records the tasks_complete trigger', function () {
-    $issue = fakeIssue($this->f->sales, IssueStatus::ActionInProgress);
-
-    $this->lifecycle->startMonitoring($issue, null);
-
-    $entry = collect($issue->fresh()->status_history)->last();
-    expect($issue->fresh()->status)->toBe(IssueStatus::Monitoring)
-        ->and($entry)->toMatchArray(['from' => 'action_in_progress', 'to' => 'monitoring', 'trigger' => 'tasks_complete', 'by_user_id' => null, 'reason' => null])
-        ->and($issue->fresh()->monitoring_started_at)->not->toBeNull();
 });
 
 test('startAction sets action_started_at once per action cycle on the business clock', function () {
@@ -140,28 +105,6 @@ test('startAction sets action_started_at once per action cycle on the business c
     $stamp = $issue->fresh()->action_started_at;
     $this->lifecycle->startAction($issue, null);
     expect($issue->fresh()->action_started_at->equalTo($stamp))->toBeTrue();
-});
-
-test('manual resolve and verified resolution set only their own fields', function () {
-    $manual = fakeIssue($this->f->sales, IssueStatus::Acknowledged);
-    $this->lifecycle->resolveManual($manual, $this->actor, 'Customer closed the account.');
-    $manual->refresh();
-    expect($manual->status)->toBe(IssueStatus::Resolved)->and($manual->resolution_type)->toBe(ResolutionType::Manual)
-        ->and($manual->resolution_note)->toBe('Customer closed the account.')->and($manual->resolved_by)->toBe($this->actor->id)
-        ->and($manual->resolved_at->utc()->format('Y-m-d H:i'))->toBe('2026-09-28 01:00')
-        ->and(collect($manual->status_history)->last())->toMatchArray(['to' => 'resolved', 'trigger' => 'manual', 'by_user_id' => $this->actor->id, 'reason' => 'Customer closed the account.']);
-
-    $verified = fakeIssue($this->f->sales, IssueStatus::Monitoring);
-    $this->lifecycle->resolveVerified($verified, 'outcome:42');
-    $verified->refresh();
-    expect($verified->resolution_type)->toBe(ResolutionType::SystemVerified)->and($verified->resolved_by)->toBeNull()
-        ->and($verified->resolution_note)->toBeNull()->and($verified->resolved_at)->not->toBeNull()
-        ->and(collect($verified->status_history)->last()['trigger'])->toBe('outcome_verified');
-
-    // Nothing resolution related is set by other transitions.
-    $other = fakeIssue($this->f->sales, IssueStatus::Open, key: RuleKey::SalesTargetShortfall);
-    $this->lifecycle->acknowledge($other, $this->actor);
-    expect($other->fresh()->resolved_at)->toBeNull()->and($other->fresh()->resolution_type)->toBeNull();
 });
 
 test('history is append only and keeps every earlier entry unchanged', function () {

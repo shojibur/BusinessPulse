@@ -2,7 +2,7 @@
 
 Fictional data only (Meridian Home Supplies Sdn Bhd). Run it from a freshly reset demo. Every figure below comes from `docs/demo-scenario.md` and is produced by the real import, evaluation and verification code.
 
-**Setup (DESTRUCTIVE, demo database only):** `php artisan demo:reset --force`. It seeds the history through the real import path and leaves the clock at 2026-09-28 09:00. Workers must run (`composer dev` or the two Supervisor programs). **Do not press "Refresh intelligence" before uploading `week8-decline.csv`**: the demo starts with week 8 overdue and unevaluated, and a refresh would create an unwanted "missing sales data" issue.
+**Setup (DESTRUCTIVE, demo database only):** `php artisan demo:reset --force` (the clean start; `migrate:fresh --seed` and `--populated` already contain week 8, so do not use them for this script). It seeds the history through the real import path and leaves the clock at 2026-09-28 09:00. Workers must run (`composer dev` or the two Supervisor programs). **Do not press "Refresh intelligence" before uploading `week8-decline.csv`**: the demo starts with week 8 overdue and unevaluated, and a refresh would create an unwanted "missing sales data" issue.
 
 **Presenter commands:** `php artisan demo:set-date 2026-09-30` (step 15), `2026-10-05` (before step 16), `2026-10-12` (before step 18).
 

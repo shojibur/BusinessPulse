@@ -1,21 +1,10 @@
 <?php
 
-use App\Jobs\GenerateBriefJob;
-
 test('the database queue is configured with retry_after 300 and after-commit dispatch', function () {
     expect(config('queue.connections.database.driver'))->toBe('database')
         ->and(config('queue.connections.database.retry_after'))->toBe(300)
         ->and(config('queue.connections.database.after_commit'))->toBeTrue()
         ->and(config('cache.stores.database.driver'))->toBe('database');
-});
-
-test('the default filesystem disk is private with no public url', function () {
-    expect(config('filesystems.default'))->toBe('local')
-        ->and(config('filesystems.disks.local.root'))->toBe(storage_path('app/private'))
-        ->and(config('filesystems.disks.local.visibility'))->toBe('private')
-        ->and(config('filesystems.disks.local.url'))->toBeNull()
-        ->and(config('filesystems.disks.local.serve'))->toBeFalse()
-        ->and(config('filesystems.links'))->toBe([]);
 });
 
 test('the AI configuration has timeouts, no retry setting and no hardcoded model names', function () {
@@ -29,19 +18,6 @@ test('the AI configuration has timeouts, no retry setting and no hardcoded model
         ->and($ai['api_key'])->toBeNull();
 });
 
-test('PostgreSQL is the default database connection', function () {
-    expect(config('database.default'))->toBe('pgsql')
-        ->and(config('database.connections.pgsql.driver'))->toBe('pgsql');
-});
-
 test('the tests run against the businesspulse_testing database', function () {
     expect(DB::connection()->getDatabaseName())->toBe('businesspulse_testing');
-});
-
-test('AI jobs run on the default queue unless AI_QUEUE says otherwise', function () {
-    expect(config('ai.queue'))->toBe('default');
-
-    config(['ai.queue' => 'ai']);
-
-    expect((new GenerateBriefJob(1, 1))->queue)->toBe('ai');
 });

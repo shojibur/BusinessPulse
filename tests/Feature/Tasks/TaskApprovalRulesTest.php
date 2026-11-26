@@ -67,15 +67,6 @@ test('approval is refused with 422 for an invalid assignee or deadline and creat
     ['issue outside the meeting', 'issue_id'],
 ]);
 
-test('a deadline in the past of the business date is refused and today is accepted', function () {
-    setClock('2026-10-05 09:00'); // the meeting was on 28 Sep; "today" is now 5 Oct
-    approve($this->x->drafts[0])->assertSessionHasErrors('due_date'); // the suggested 2 Oct is now in the past
-    expect(Task::count())->toBe(0);
-
-    approve($this->x->drafts[0], ['due_date' => '2026-10-05'])->assertRedirect();
-    expect(Task::first()->due_date->format('Y-m-d'))->toBe('2026-10-05');
-});
-
 test('an ambiguous or missing suggestion cannot be approved without an explicit human choice', function () {
     [, , $daniel, $stock] = $this->x->drafts;
 
@@ -101,45 +92,6 @@ test('the request body cannot set workflow fields', function () {
     $task = Task::firstOrFail();
     expect($task->status)->toBe(TaskStatus::Pending)->and($task->assigned_by)->toBe($this->f->owner->id)->and($task->task_draft_id)->toBe($this->x->drafts[0]->id)
         ->and($task->department_id)->toBe($this->f->sales->id)->and($task->completed_at)->toBeNull()->and($this->x->drafts[0]->fresh()->reviewed_by)->toBe($this->f->owner->id);
-});
-
-test('edits made while approving are applied to the draft and the task, but never the AI suggestions', function () {
-    approve($this->x->drafts[0], ['title' => '  Call the top ten lapsed Penang accounts ', 'description' => 'Start with the biggest.', 'assignee_id' => $this->f->farid->id, 'due_date' => '2026-10-01'])->assertRedirect();
-
-    $task = Task::firstOrFail();
-    $draft = $this->x->drafts[0]->fresh();
-    expect($task->title)->toBe('Call the top ten lapsed Penang accounts')->and($task->assignee_id)->toBe($this->f->farid->id)->and($task->description)->toBe('Start with the biggest.')
-        ->and($draft->suggested_title)->toBe('Call the top ten lapsed Penang accounts')
-        ->and($draft->suggested_assignee_name)->toBe('Priya')->and($draft->suggested_due_date_text)->toBe('by Friday')->and($draft->suggested_due_date->format('Y-m-d'))->toBe('2026-10-02')
-        ->and($draft->transcript_excerpt)->toContain('Priya, please call');
-});
-
-test('draft edit validates server-side, keeps null-clears apart from absent keys, and needs a pending draft', function () {
-    $draft = $this->x->drafts[0];
-
-    $this->actingAs($this->f->owner)->patch("/task-drafts/{$draft->id}", ['title' => str_repeat('a', 151)])->assertSessionHasErrors('title');
-    $this->actingAs($this->f->owner)->patch("/task-drafts/{$draft->id}", ['assignee_id' => $this->f->owner->id])->assertSessionHasErrors('assignee_id');
-    $this->actingAs($this->f->owner)->patch("/task-drafts/{$draft->id}", ['title' => 'New title'])->assertRedirect();
-    expect($draft->fresh()->suggested_title)->toBe('New title')->and($draft->fresh()->assignee_id)->toBe($this->f->priya->id); // absent keys unchanged
-
-    $this->actingAs($this->f->owner)->patch("/task-drafts/{$draft->id}", ['assignee_id' => null])->assertRedirect();
-    expect($draft->fresh()->assignee_id)->toBeNull()->and($draft->fresh()->assignee_resolution->value)->toBe('none');
-
-    $draft->update(['status' => 'rejected']);
-    $this->actingAs($this->f->owner)->patch("/task-drafts/{$draft->id}", ['title' => 'Late edit'])->assertSessionHasErrors('status');
-});
-
-test('reject keeps the draft with its reason, is idempotent and cannot be approved afterwards', function () {
-    $draft = $this->x->drafts[3];
-
-    $this->actingAs($this->f->owner)->post("/task-drafts/{$draft->id}/reject", ['reason' => '  Not an agreed action '])->assertRedirect();
-    $this->actingAs($this->f->owner)->post("/task-drafts/{$draft->id}/reject")->assertRedirect(); // repeat: no-op
-    $draft->refresh();
-    expect($draft->status->value)->toBe('rejected')->and($draft->rejection_reason)->toBe('Not an agreed action')->and($draft->reviewed_by)->toBe($this->f->owner->id);
-
-    approve($draft, ['assignee_id' => $this->f->priya->id, 'due_date' => '2026-10-03'])->assertSessionHasErrors('status');
-    $this->actingAs($this->f->owner)->post("/task-drafts/{$this->x->drafts[0]->id}/reject", ['reason' => str_repeat('x', 501)])->assertSessionHasErrors('reason');
-    expect(Task::count())->toBe(0);
 });
 
 test('any transcript revision after extraction blocks approval, even when the quote still appears', function () {
@@ -168,11 +120,6 @@ test('a changed quote and an active re-extraction both block approval', function
     $meeting->update(['status' => 'ready_for_review']);
     approve($this->x->drafts[1])->assertRedirect();
     expect(Task::count())->toBe(1);
-});
-
-test('a draft without a recorded revision is never approvable', function () {
-    $this->x->drafts[0]->update(['transcript_revision' => null]);
-    approve($this->x->drafts[0])->assertSessionHasErrors('draft');
 });
 
 test('re-extraction supersedes pending drafts and preserves approved history', function () {

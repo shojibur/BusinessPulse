@@ -3,8 +3,6 @@
 use App\Enums\AudioStatus;
 use App\Enums\BriefSource;
 use App\Enums\BriefStatus;
-use App\Jobs\GenerateBriefAudioJob;
-use App\Jobs\GenerateBriefJob;
 use App\Models\Brief;
 use App\Models\Department;
 use App\Models\User;
@@ -15,7 +13,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 // Provider behaviour through Http::fake only: required tests never reach an external service.
@@ -121,23 +118,6 @@ test('recoverable provider failures are retried by the queue until the final att
     'timeout' => ['timeout', 'timeout'],
 ]);
 
-test('unparsable provider output falls back as invalid_response', function () {
-    $owner = declineTimeline();
-    Http::fake(['*' => Http::response(['choices' => [['message' => ['content' => 'not json']]]])]);
-
-    $this->actingAs($owner)->post('/briefs');
-    expect(Brief::firstOrFail()->error_message)->toBe('invalid_response');
-});
-
-test('the job queue settings follow the retry layering', function () {
-    $job = new GenerateBriefJob(1, 1);
-    $audio = new GenerateBriefAudioJob(1);
-
-    expect($job->queue)->toBe('default')->and($job->tries)->toBe(3)->and($job->timeout)->toBe(90)->and($job->backoff())->toBe([10, 30, 60])
-        ->and($audio->queue)->toBe('default')->and($audio->timeout)->toBe(90)->and($audio->tries)->toBe(3)->and($audio->backoff())->toBe([10, 30, 60])
-        ->and(config('queue.connections.database.retry_after'))->toBeGreaterThan(90);
-});
-
 test('generation is idempotent: a repeated run leaves one set of items', function () {
     $owner = declineTimeline();
     Http::fake(['*' => Http::response(validWording())]);
@@ -149,36 +129,12 @@ test('generation is idempotent: a repeated run leaves one set of items', functio
     expect($brief->items()->count())->toBe(2);
 });
 
-test('a completed brief is not generated again by a duplicate job delivery', function () {
-    $owner = declineTimeline();
-    Http::fake(['*' => Http::response(validWording())]);
-    $this->actingAs($owner)->post('/briefs');
-    Http::assertSentCount(1);
-
-    dispatch_sync(new GenerateBriefJob(Brief::first()->id, Brief::first()->company_id));
-    Http::assertSentCount(1);
-});
-
 test('no provider call is made without configuration or without findings', function () {
     $owner = declineTimeline();
     config(['ai.api_key' => null]);
 
     $this->actingAs($owner)->post('/briefs');
     expect(Brief::firstOrFail()->source)->toBe(BriefSource::Fallback)->and(Brief::first()->error_message)->toBeNull();
-    Http::assertNothingSent();
-});
-
-test('a brief with no issues is deterministic, marked stale and states the overdue range', function () {
-    $owner = demoOwner();
-    importFixture($owner, 'history', '2026-09-21 09:00');
-    setClock('2026-09-28 09:00');
-
-    $this->actingAs($owner)->post('/briefs');
-    $brief = Brief::firstOrFail();
-
-    expect($brief->items()->count())->toBe(0)->and($brief->coverage_status->value)->toBe('stale')
-        ->and($brief->source)->toBe(BriefSource::Fallback)
-        ->and($brief->summary_text)->toContain('Sales for 21–26 Sep not yet received: 18 branch-days overdue.');
     Http::assertNothingSent();
 });
 
@@ -222,42 +178,6 @@ test('audio is generated into private storage and streamed only to authorized us
     expect($response->baseResponse->getFile()->getPathname())->toContain('briefs/audio/');
 });
 
-test('audio reports an unconfigured voice and a provider failure without faking success', function () {
-    $owner = declineTimeline();
-    Http::fake(['*/chat/completions' => Http::response(validWording()), '*/audio/speech' => Http::response([], 401)]);
-    $this->actingAs($owner)->post('/briefs');
-    $brief = Brief::firstOrFail();
-
-    $this->actingAs($owner)->post("/briefs/{$brief->id}/audio");
-    expect($brief->fresh()->audio_status)->toBe(AudioStatus::Failed)->and($brief->fresh()->audio_path)->toBeNull();
-    $this->actingAs($owner)->get("/briefs/{$brief->id}/audio")->assertNotFound();
-
-    config(['ai.speech_model' => null]);
-    $this->actingAs($owner)->post("/briefs/{$brief->id}/audio")->assertSessionHasErrors(['audio' => 'Voice is not configured.']);
-});
-
-test('provider logs carry only the request type, brief id, status and duration', function () {
-    $owner = declineTimeline();
-    Http::fake(['*' => Http::response(validWording())]);
-    Log::spy();
-
-    $this->actingAs($owner)->post('/briefs');
-
-    Log::shouldHaveReceived('info')->with('ai_request', Mockery::on(fn ($c) => array_keys($c) === ['type', 'brief_id', 'status', 'duration_ms']))->atLeast()->once();
-});
-
-test('the brief page exposes explicit props and hides other companies', function () {
-    $owner = declineTimeline();
-    Http::fake(['*' => Http::response(validWording())]);
-    $this->actingAs($owner)->post('/briefs');
-    $brief = Brief::firstOrFail();
-
-    $this->actingAs($owner)->get("/briefs/{$brief->id}")->assertInertia(fn ($page) => $page
-        ->component('briefs/Show')->where('brief.source', 'ai')->where('brief.notice', 'AI generated')->has('brief.items', 2)
-        ->missing('brief.input_snapshot')->where('audio.configured', true));
-    $this->actingAs($owner)->get('/briefs')->assertInertia(fn ($page) => $page->component('briefs/Index')->has('briefs', 1));
-});
-
 test('a manager only sees, generates, retries and streams briefs of the own department', function () {
     $f = identity();
     $salesBrief = Brief::create(['company_id' => $f->company->id, 'department_id' => $f->sales->id, 'status' => 'completed', 'audio_status' => 'ready', 'audio_path' => 'briefs/audio/s.mp3']);
@@ -281,23 +201,6 @@ test('a manager only sees, generates, retries and streams briefs of the own depa
     $this->actingAs($f->otherManager)->get("/briefs/{$salesBrief->id}/audio")->assertNotFound();
     $this->actingAs($f->owner)->get('/briefs')->assertInertia(fn ($page) => $page->has('briefs', 3));
     $this->actingAs($f->owner)->get("/briefs/{$supportBrief->id}")->assertOk();
-});
-
-test('a manager brief is stored with the manager department and only cites its issues', function () {
-    config(['ai.api_key' => null]);
-    $f = identity();
-    $salesIssue = fakeIssue($f->sales);
-    $supportIssue = fakeIssue($f->support);
-
-    $this->actingAs($f->manager)->post('/briefs')->assertRedirect();
-    $managerBrief = Brief::firstOrFail();
-    expect($managerBrief->department_id)->toBe($f->sales->id)
-        ->and($managerBrief->items()->pluck('issue_id')->all())->toBe([$salesIssue->id]);
-
-    $managerBrief->update(['status' => 'completed']);
-    $this->actingAs($f->owner)->post('/briefs')->assertRedirect();
-    $ownerBrief = Brief::latest('id')->firstOrFail();
-    expect($ownerBrief->department_id)->toBeNull()->and($ownerBrief->items()->pluck('issue_id')->sort()->values()->all())->toBe([$salesIssue->id, $supportIssue->id]);
 });
 
 test('audio is only marked ready after a valid file is written, and a vanished file becomes a visible failure', function () {

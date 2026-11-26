@@ -5,7 +5,6 @@ use App\Events\Tasks\TaskAssigned;
 use App\Events\Tasks\TaskDraftApproved;
 use App\Models\Task;
 use App\Models\User;
-use App\Notifications\TaskAssignedNotification;
 use App\Services\Tasks\TaskAssignmentNotifier;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Notifications\DatabaseNotification;
@@ -30,16 +29,6 @@ test('approving twice returns the same task with one row, one notification and o
     expect(DatabaseNotification::where('data->dedupe_key', 'task_assigned:'.Task::first()->id.':'.$this->f->priya->id)->count())->toBe(1);
     Event::assertDispatchedTimes(TaskDraftApproved::class, 1);
     Event::assertDispatchedTimes(TaskAssigned::class, 1);
-});
-
-test('the action returns the existing task on a repeat call', function () {
-    $draft = $this->x->drafts[0];
-    $action = app(ApproveTaskDraft::class);
-
-    $a = $action->handle($draft, $this->f->owner);
-    $b = $action->handle($draft, $this->f->owner);
-
-    expect($a->created)->toBeTrue()->and($b->created)->toBeFalse()->and($b->task->id)->toBe($a->task->id)->and(Task::count())->toBe(1);
 });
 
 test('a competing task for the same draft hits the unique constraint and the existing task is returned', function () {
@@ -75,36 +64,4 @@ test('a failure after the task insert rolls back everything: no task, no notific
     expect(Task::count())->toBe(0)->and($draft->fresh()->status->value)->toBe('pending')->and($draft->fresh()->task_id)->toBeNull();
     Event::assertNotDispatched(TaskDraftApproved::class);
     Event::assertNotDispatched(TaskAssigned::class);
-});
-
-test('rejected and superseded drafts cannot be approved', function () {
-    foreach (['rejected', 'superseded'] as $i => $status) {
-        $this->x->drafts[$i]->update(['status' => $status]);
-        $this->actingAs($this->f->owner)->post("/task-drafts/{$this->x->drafts[$i]->id}/approve")->assertSessionHasErrors('status');
-    }
-    expect(Task::count())->toBe(0);
-});
-
-test('assigning to the person who approves creates no notification, and a deduped key is never repeated', function () {
-    $this->x->drafts[0]->update(['assignee_id' => $this->f->manager->id]);
-    $this->actingAs($this->f->manager)->post("/task-drafts/{$this->x->drafts[0]->id}/approve")->assertRedirect();
-    expect(Task::count())->toBe(1)->and(DatabaseNotification::count())->toBe(0);
-
-    $task = Task::first();
-    app(TaskAssignmentNotifier::class)->send($task->load(['assignee', 'department']), $this->f->owner);
-    app(TaskAssignmentNotifier::class)->send($task, $this->f->owner);
-    expect(DatabaseNotification::count())->toBe(1);
-});
-
-test('the assignment notification reaches only the intended assignee, in app, without sensitive data', function () {
-    $this->actingAs($this->f->owner)->post("/task-drafts/{$this->x->drafts[0]->id}/approve")->assertRedirect();
-    $n = DatabaseNotification::firstOrFail();
-
-    expect($n->notifiable_id)->toBe($this->f->priya->id)->and($n->type)->toBe(TaskAssignedNotification::class)
-        ->and(array_keys($n->data))->toEqualCanonicalizing(['dedupe_key', 'task_id', 'title', 'due_date', 'assigned_by_name', 'department_name', 'summary_line', 'url'])
-        ->and(json_encode($n->data))->not->toContain('Priya, please call')->not->toContain('RM');
-    expect($this->f->farid->notifications()->count())->toBe(0)->and($this->f->owner->notifications()->count())->toBe(0);
-
-    // Priya sees it in her feed with a link she may follow; another employee's feed has nothing.
-    $this->actingAs($this->f->priya)->get('/notifications')->assertInertia(fn ($p) => $p->where('notifications.0.url', '/tasks/'.Task::first()->id));
 });

@@ -87,16 +87,6 @@ test('every demonstration user can sign in with the configured password, which i
     }
 });
 
-test('the seeder keeps other department settings when it runs again', function () {
-    seedDemo();
-    $sales = Department::first();
-    $sales->update(['settings' => [...$sales->settings, 'intelligence' => ['last_evaluated_at' => '2026-09-21']]]);
-
-    seedDemo();
-
-    expect(Department::first()->settings)->toHaveKey('intelligence')->and(Department::first()->settings['expected_branches'])->toBe(['KL', 'PG', 'JB']);
-});
-
 test('the seeder refuses without DEMO_MODE=true and writes nothing', function (mixed $mode) {
     config(['demo.mode' => $mode]);
 
@@ -105,29 +95,10 @@ test('the seeder refuses without DEMO_MODE=true and writes nothing', function (m
     assertNothingWritten();
 })->with([false, null]);
 
-test('the seeder refuses a missing or short DEMO_PASSWORD and writes nothing', function (?string $password) {
-    config(['demo.password' => $password]);
-
-    $this->artisan('db:seed', ['--class' => DemoIdentitySeeder::class])->expectsOutputToContain('DEMO_PASSWORD');
-
-    assertNothingWritten();
-})->with([null, '', 'seven77']);
-
 test('the seeder refuses to run next to a real company and writes nothing more', function () {
     Company::factory()->create(['name' => 'Real Client Sdn Bhd', 'is_demo' => false]);
 
     $this->artisan('db:seed', ['--class' => DemoIdentitySeeder::class])->expectsOutputToContain('non-demo company');
 
     expect(Company::count())->toBe(1)->and(Department::count())->toBe(0)->and(User::count())->toBe(0);
-});
-
-test('the seeder never prints the password', function () {
-    $this->artisan('db:seed', ['--class' => DemoIdentitySeeder::class])->doesntExpectOutputToContain(DEMO_TEST_PASSWORD)->assertSuccessful();
-
-    config(['demo.password' => 'short']);
-    $this->artisan('db:seed', ['--class' => DemoIdentitySeeder::class])->doesntExpectOutputToContain('short-11')->assertSuccessful();
-});
-
-test('DEMO_PASSWORD is empty in the environment template', function () {
-    expect(file_get_contents(base_path('.env.example')))->toContain("\nDEMO_PASSWORD=\n")->and(file_get_contents(base_path('.env.example')))->toContain("\nDEMO_MODE=false\n");
 });

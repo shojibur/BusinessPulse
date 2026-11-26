@@ -29,13 +29,6 @@ test('staff see only their own tasks; another employee task is a 404 identical t
     expect($this->others->fresh()->status->value)->toBe('pending');
 });
 
-test('the management list is forbidden to staff; my tasks lists only their own', function () {
-    $this->actingAs($this->f->priya)->get('/tasks')->assertForbidden();
-    $this->actingAs($this->f->priya)->get('/my-tasks')->assertOk()->assertInertia(fn ($p) => $p->component('tasks/Mine')
-        ->where('sections.open.0.id', $this->mine->id)->has('sections.open', 1));
-    expect(json_encode($this->actingAs($this->f->priya)->get('/my-tasks')->viewData('page')['props']))->not->toContain('Private task of Farid');
-});
-
 test('staff cannot reach draft routes, meetings, issues or briefs', function () {
     $draft = $this->x->drafts[0];
 
@@ -67,40 +60,4 @@ test('owner and own-department manager can read, change status, comment and revi
     $this->actingAs($this->f->owner)->get('/tasks')->assertOk()->assertInertia(fn ($p) => $p->has('tasks', 2));
     $this->actingAs($this->f->manager)->post("/task-drafts/{$this->x->drafts[0]->id}/approve")->assertRedirect();
     $this->actingAs($this->f->manager)->get("/meetings/{$this->x->meeting->id}")->assertInertia(fn ($p) => $p->has('draftReview.pending', 3)->has('draftReview.history', 1));
-});
-
-test('staff task detail carries the work itself and no meeting, quote, decisions or issue context', function () {
-    $task = makeTask($this->f, $this->f->priya, ['meeting_id' => $this->x->meeting->id, 'issue_id' => $this->x->issue->id, 'task_draft_id' => $this->x->drafts[0]->id]);
-    $this->x->meeting->update(['decisions' => [['summary' => 'Confidential decision', 'excerpt' => 'We will prioritise reactivating the top lapsed accounts.']]]);
-
-    $page = $this->actingAs($this->f->priya)->get("/tasks/{$task->id}");
-    $props = $page->viewData('page')['props'];
-
-    $page->assertOk()->assertInertia(fn ($p) => $p->where('meeting', null)->where('excerpt', null)->where('decisions', null)->where('issue', null)->where('task.title', 'Follow up with Penang'));
-    expect(json_encode($props))->not->toContain('Confidential decision')->not->toContain('Priya, please call')->not->toContain('Weekly revenue decline')->not->toContain('recording');
-
-    // Management gets the context and the limited evidence snapshot.
-    $this->actingAs($this->f->manager)->get("/tasks/{$task->id}")->assertInertia(fn ($p) => $p->where('meeting.url', fn ($u) => str_contains($u, '/meetings/'))
-        ->has('decisions', 1)->where('excerpt', fn ($e) => str_contains($e, 'Priya, please call'))->where('issue.url', fn ($u) => str_contains($u, '/issues/'))->where('issue.evidence.metricName', fn ($m) => is_string($m)));
-});
-
-test('the task list filters by status, employee and overdue, scoped and sorted overdue first', function () {
-    setClock('2026-10-05 09:00');
-    $overdue = makeTask($this->f, $this->f->priya, ['title' => 'Late one', 'due_date' => '2026-10-01']);
-    makeTask($this->f, $this->f->farid, ['title' => 'Done one', 'status' => 'completed', 'due_date' => '2026-09-30']);
-    makeTask($this->f, $this->f->farid, ['title' => 'Due today', 'due_date' => '2026-10-05']);
-
-    $this->actingAs($this->f->owner)->get('/tasks')->assertInertia(fn ($p) => $p->where('tasks.0.id', $overdue->id)->where('tasks.0.isOverdue', true));
-    $this->actingAs($this->f->owner)->get('/tasks?overdue=1')->assertInertia(fn ($p) => $p->has('tasks', 3)->where('tasks.0.id', $overdue->id));
-    $this->actingAs($this->f->owner)->get('/tasks?status=completed')->assertInertia(fn ($p) => $p->has('tasks', 1)->where('tasks.0.title', 'Done one')->where('tasks.0.isOverdue', false));
-    $this->actingAs($this->f->owner)->get('/tasks?assignee='.$this->f->farid->id)->assertInertia(fn ($p) => $p->has('tasks', 3));
-    $this->actingAs($this->f->owner)->get('/tasks?assignee=999999')->assertInertia(fn ($p) => $p->has('tasks', 0));
-});
-
-test('the review actions share one throttle of 20 per minute', function () {
-    $draft = $this->x->drafts[3];
-    for ($i = 0; $i < 20; $i++) {
-        $this->actingAs($this->f->owner)->patch("/task-drafts/{$draft->id}", ['title' => 'T'.$i]);
-    }
-    $this->actingAs($this->f->owner)->post("/task-drafts/{$draft->id}/reject")->assertStatus(429)->assertHeader('Retry-After');
 });

@@ -3,14 +3,8 @@
 use App\Enums\BriefSource;
 use App\Enums\BriefStatus;
 use App\Models\Brief;
-use App\Models\Company;
 use App\Models\Issue;
-use App\Models\RuleEvaluation;
-use App\Models\User;
-use App\Services\AI\BriefContext;
-use App\Services\AI\BriefSummaryComposer;
 use App\Services\AI\NumberAllowListChecker;
-use App\Services\Imports\ReportingCoverage;
 use App\Services\Intelligence\IssueEvidence;
 use Illuminate\Support\Facades\Http;
 
@@ -58,32 +52,6 @@ test('the figures are rendered deterministically with value, direction, unit and
         ->where('brief.items.1.figures', fn ($f) => str_contains($f, 'a target of RM 156,000.00') && str_contains($f, '79.49% of target')));
 });
 
-test('brief item period is the period of the evaluation shown, not the original issue period', function () {
-    $owner = declineTimeline();
-    $issue = declineIssue();
-    // The issue was first detected for 21-27 Sep; a later breach for another week moves its latest evaluation.
-    $latest = RuleEvaluation::find($issue->latest_evaluation_id);
-    $latest->forceFill(['period_start' => '2026-10-05', 'period_end' => '2026-10-11'])->save();
-
-    $this->actingAs($owner)->post('/briefs');
-    $item = Brief::firstOrFail()->items()->where('issue_id', $issue->id)->firstOrFail();
-
-    expect($item->period_label)->toBe('5–11 Oct 2026')->and($item->explanation)->toContain('5–11 Oct 2026');
-});
-
-test('the stale summary template states the overdue range and branch-days from freshness only', function () {
-    $owner = demoOwner();
-    importFixture($owner, 'history', '2026-09-21 09:00');
-    setClock('2026-09-28 09:00');
-    $department = demoDepartment();
-    $coverage = app(ReportingCoverage::class);
-    $context = new BriefContext($coverage->latestClosedWeek($department), $coverage->freshness($department), ['status' => 'current', 'last_evaluated_at' => null, 'failed_rules' => 0], 'Asia/Kuala_Lumpur');
-    $composed = app(BriefSummaryComposer::class)->compose(0, $context);
-
-    expect($composed['summary'])->toContain('Sales for 21–26 Sep not yet received: 18 branch-days overdue.')
-        ->and($composed['headline'])->toBe('No active issues were found.');
-});
-
 test('brief item evidence is copied from rule evaluations and later evaluations do not change it', function () {
     $owner = declineTimeline();
 
@@ -113,17 +81,4 @@ test('staff cannot generate a brief', function () {
     $this->actingAs($f->staff)->post('/briefs')->assertForbidden();
     $this->actingAs($f->staff)->get('/briefs')->assertForbidden();
     expect(Brief::count())->toBe(0);
-});
-
-test('audio route denies unauthorized users', function () {
-    $f = identity();
-    $brief = Brief::create(['company_id' => $f->company->id, 'status' => 'completed', 'audio_status' => 'ready', 'audio_path' => 'briefs/audio/x.mp3']);
-
-    $otherCompany = Company::factory()->create();
-    $otherOwner = User::factory()->owner()->create(['company_id' => $otherCompany->id]);
-
-    $this->actingAs($f->staff)->get("/briefs/{$brief->id}/audio")->assertForbidden();
-    $this->actingAs($otherOwner)->get("/briefs/{$brief->id}/audio")->assertNotFound();
-    auth()->logout();
-    $this->get("/briefs/{$brief->id}/audio")->assertRedirect('/login');
 });

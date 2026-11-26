@@ -33,8 +33,8 @@ final class SpeechService
 
         $brief->forceFill([
             'audio_path' => $path,
-            'audio_model' => config('ai.speech_model'),
-            'audio_voice' => config('ai.speech_voice'),
+            'audio_model' => app(AiSettings::class)->speech()->model,
+            'audio_voice' => app(AiSettings::class)->speech()->voice,
             'audio_status' => AudioStatus::Ready,
         ])->save();
 

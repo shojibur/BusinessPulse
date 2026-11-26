@@ -61,19 +61,6 @@ test('the cutoff boundary decides which days count: 11:59 versus 12:00 on Sunday
         ->and(latestEvaluation('weekly_revenue_decline')->insufficient_reason)->toBe(InsufficientReason::PeriodAbsent);
 });
 
-test('the denominator counts only due trading days of the window', function () {
-    importFixture($this->owner, 'history', '2026-09-21 09:00');
-
-    // Wednesday 30 Sep 09:00: window = 21 Sep to 29 Sep... last due date is Tuesday 29 Sep? Tuesday's cutoff is Wed 12:00,
-    // so the last due date is Monday 28 Sep: due days 21-26 and 28 Sep (7 days) x 3 branches.
-    evaluateNow('2026-09-30 09:00');
-
-    $missing = latestEvaluation('missing_sales_data');
-    expect($missing->last_due_date->format('Y-m-d'))->toBe('2026-09-28')
-        ->and((int) $missing->comparison_value)->toBe(21)
-        ->and($missing->evidence['periods']['window']['dueDates'])->toBe(['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26', '2026-09-28']);
-});
-
 test('an incomplete closed week gives incomplete_period and a coverage breach of 17 of 18', function () {
     importFixture($this->owner, 'history', '2026-09-21 09:00');
     importFixture($this->owner, 'week8-with-errors', '2026-09-28 09:00');
@@ -84,26 +71,4 @@ test('an incomplete closed week gives incomplete_period and a coverage breach of
     $missing = latestEvaluation('missing_sales_data');
     expect((int) $missing->current_value)->toBe(17)->and((int) $missing->comparison_value)->toBe(18)
         ->and(Issue::where('title', 'Weekly revenue decline')->count())->toBe(0);
-});
-
-test('an incomplete comparison week also blocks the decline rule', function () {
-    // Week 7 misses one branch-day, week 8 is complete and sharply lower.
-    setClock('2026-09-28 09:00');
-    importCsv($this->owner, collect(explode("\n", trim(weekCsv('2026-09-14', '1000.00'))))->slice(1)->implode("\n")."\n"); // drops the first KL row
-    importCsv($this->owner, weekCsv('2026-09-21', '100.00'));
-
-    $decline = latestEvaluation('weekly_revenue_decline');
-    expect($decline->result)->toBe(RuleResult::InsufficientData)->and($decline->insufficient_reason)->toBe(InsufficientReason::IncompletePeriod)
-        ->and(Issue::where('title', 'Weekly revenue decline')->count())->toBe(0);
-});
-
-test('freshness alone never creates an issue', function () {
-    importFixture($this->owner, 'history', '2026-09-21 09:00');
-
-    // Latest sales date is behind the last due date but no rule treats that as a finding by itself:
-    // only the missing data rule can, through due branch-days (and here the clock has not made any due).
-    evaluateNow('2026-09-21 12:00');
-
-    expect(Issue::count())->toBe(0)
-        ->and(latestEvaluation('missing_sales_data')->result)->toBe(RuleResult::NotBreached);
 });

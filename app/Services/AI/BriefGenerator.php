@@ -75,7 +75,7 @@ final class BriefGenerator
             try {
                 $wording = $this->requestWording($brief, $drafts, $sent, $context);
                 $reason = $wording === null ? 'invalid_response' : null;
-                $model = $wording === null ? null : (string) config('ai.text_model');
+                $model = $wording === null ? null : (string) app(AiSettings::class)->text()->model;
             } catch (RecoverableProviderException $e) {
                 if (! $finalAttempt) {
                     throw $e;
